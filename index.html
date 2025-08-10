@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Logiciel de caisse Coop'az</title>
+  <link rel="stylesheet" href="./src/renderer/style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Menu latéral -->
+    <aside class="sidebar">
+      <h2>Coop'az</h2>
+      <nav>
+        <ul>
+          <li onclick="navigate('caisse')">🛒 Caisse</li>
+          <li onclick="navigate('produits')">📦 Produits</li>
+          <li onclick="navigate('receptions')">📥 Réceptions</li>
+          <li onclick="navigate('adherents')">👥 Adhérents</li>
+          <li onclick="navigate('fournisseurs')">🏭 Fournisseurs</li>
+		  <li onclick="navigate('parametres')">⚙️ Paramètres</li>
+
+
+		  
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Contenu principal -->
+    <main class="main-content">
+      <header>
+        <h1 id="page-title">Accueil</h1>
+      </header>
+
+      <section id="page-content">
+        <p>Bienvenue dans votre logiciel de caisse Coop'az !</p>
+      </section>
+    </main>
+  </div>
+
+<script src="./src/renderer/renderer.js"></script>
+</body>
+</html>

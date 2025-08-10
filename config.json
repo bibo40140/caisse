@@ -1,0 +1,17 @@
+{
+  "epicerie": "Coop'az",
+  "modules": {
+    "ventes": true,
+	"produits": true,
+    "fournisseurs": true,
+    "adherents": true,
+    "cotisations": true,
+    "envoi_email": false,
+    "impression_ticket": false,
+    "stock": true,
+    "receptions": true,
+    "email": true,
+    "inventaire": false,
+    "exports_stats": false
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "coopaz-caisse",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^37.2.5",
+    "electron-rebuild": "^3.2.9"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "csv-parse": "^6.1.0",
+    "nodemailer": "^7.0.5",
+    "xlsx": "^0.18.5"
+  }
+}
