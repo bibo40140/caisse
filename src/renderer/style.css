@@ -1,0 +1,890 @@
+/* RESET */
+* {
+  box-sizing: border-box;
+}
+
+.main-content {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+body, html {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', sans-serif;
+  height: 100vh;
+  color: #333;
+  overflow: auto; 
+}
+
+
+/* APP STRUCTURE */
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  background: #2d3748;
+  color: white;
+  width: 250px;
+  padding: 20px;
+}
+
+.sidebar h2 {
+  margin-bottom: 20px;
+  font-size: 1.6em;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sidebar li {
+  margin: 15px 0;
+  cursor: pointer;
+  padding: 10px;
+  border-radius: 5px;
+}
+
+.sidebar li:hover {
+  background: #4a5568;
+}
+
+.main-content {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  background: #edf2f7;
+  padding: 10px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#page-content {
+  flex: 1;
+  padding: 20px;
+  background-color: #f9f9f9;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;   
+}
+
+
+/* MODALS */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.modal {
+  background-color: white;
+  padding: 30px;
+  border-radius: 10px;
+  min-width: 300px;
+  max-width: 90vw;
+  box-shadow: 0 0 20px rgba(0,0,0,0.4);
+  text-align: center;
+  animation: modalFadeIn 0.3s ease-in-out;
+}
+
+.modal-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.modal button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.modal button:hover {
+  background-color: #0056b3;
+}
+
+
+
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* TABLES */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+table th, table td {
+  border: 1px solid #ddd;
+  padding: 10px;
+  text-align: left;
+}
+
+table th {
+  background-color: #f0f0f0;
+}
+
+/* BOUTONS */
+button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background-color: #3182ce;
+  color: white;
+  cursor: pointer;
+  font-size: 1em;
+}
+
+button:hover {
+  background-color: #2b6cb0;
+}
+
+button.danger {
+  background-color: #e53e3e;
+}
+
+button.danger:hover {
+  background-color: #c53030;
+}
+
+/* CAISSE */
+.caisse-topbar {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 100px;
+  margin-bottom: 10px;
+  background: #f4f4f4;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.resultats-produits {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  margin: 15px 0;
+  padding: 10px;
+  background: #fff;
+  border-radius: 6px;
+}
+
+.produit-item {
+  border-bottom: 1px solid #eee;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.produit-item:hover {
+  background-color: #f9f9f9;
+}
+
+.produit-item .fourni {
+  font-size: 0.85em;
+  color: #777;
+}
+.caisse-zone {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.caisse-categories {
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.btn-cat {
+  background-color: #eee;
+  border: 1px solid #ccc;
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.btn-cat:hover {
+  background-color: #ddd;
+}
+
+
+.produit-card .fourni {
+  font-size: 0.85em;
+  color: #777;
+}
+
+.caisse-footer {
+  margin-top: 20px;
+  font-size: 1.2em;
+  text-align: right;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.caisse-footer button {
+  padding: 10px 16px;
+  font-size: 1em;
+  background-color: #28a745;
+}
+
+.caisse-footer button:hover {
+  background-color: #218838;
+}
+
+/* INPUTS */
+input[type="text"],
+input[type="number"],
+input[type="email"],
+select {
+  padding: 8px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  width: 100%;
+  max-width: 300px;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+select:focus {
+  outline: none;
+  border-color: #3182ce;
+}
+
+/* Responsive (simplifié) */
+@media (max-width: 768px) {
+  .caisse-zone {
+    flex-direction: column;
+  }
+
+  .caisse-categories {
+    width: 100%;
+  }
+
+  .produits-cards {
+    justify-content: center;
+	overflow-y: auto;
+	min-height: 0;
+  }
+}
+
+
+.caisse-container {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.caisse-gauche {
+  width: 65%;
+}
+
+.caisse-droite {
+  width: 35%;
+  background: #f9f9f9;
+  padding: 15px;
+  border-radius: 10px;
+  box-shadow: 0 0 8px #ddd;
+}
+
+.recherche-zone {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.recherche-zone input {
+  flex: 1;
+  padding: 10px;
+  font-size: 1em;
+}
+
+.produits-recherche-zone {
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.produit-item {
+  padding: 10px;
+  margin-bottom: 6px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  background: white;
+}
+.produit-item:hover {
+  background: #eefaf0;
+}
+
+#vente-table {
+  width: 100%;
+  margin-bottom: 15px;
+  border-collapse: collapse;
+}
+#vente-table td, #vente-table th {
+  padding: 6px;
+  border: 1px solid #ccc;
+}
+
+.total-zone {
+  text-align: right;
+  font-size: 1.3em;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.btn-valider {
+  background: #4caf50;
+  color: white;
+  padding: 10px;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  font-size: 1em;
+  cursor: pointer;
+}
+.btn-valider:hover {
+  background: #43a047;
+}
+
+.categories-accordeon {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+.categorie-btn {
+  background: #eee;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.categorie-btn:hover {
+  background: #ddd;
+}
+/* Catégories en gros boutons carrés */
+.categories-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.btn-cat-square {
+  background: #e2e8f0;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 15px 20px;
+  font-size: 1em;
+  cursor: pointer;
+  min-width: 100px;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.btn-cat-square.active,
+.btn-cat-square:hover {
+  background: #3182ce;
+  color: white;
+  border-color: #2b6cb0;
+}
+
+/* Zone de produits en mode carte */
+.produit-card {
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  padding: 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  text-transform:uppercase;
+  
+}
+
+.produit-card strong {
+  font-size: 1em;
+  line-height: 1.2;
+  white-space: normal;
+  word-break: break-word;
+  max-height: 2.6em;
+  overflow: hidden;
+}
+
+.produit-card .fournisseur {
+  font-size: 0.75em;
+  color: #777;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.produit-card .unite {
+  font-size: 0.75em;
+  color: #555;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+
+.produit-card:hover {
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  transform: scale(1.03);
+}
+.produits-cards {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px; /* réduit l’espace entre cartes */
+  overflow-y: auto;
+  padding: 8px;
+  background: #f0f4f8;
+  border-radius: 10px;
+}
+.caisse-zone{
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(560px, 34vw); /* min 560px, peut monter jusqu’à ~34% */
+  gap: 16px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden; /* les colonnes scrollent en interne */
+}
+
+
+/* Colonne produits */
+#produits-zone{
+  overflow: auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+
+
+
+#panier-zone {
+	  width: auto;          /* override d’un éventuel width:33% existant */
+  min-width: 560px;  
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+   min-height: 0;
+  
+}
+
+
+#panier-header {
+  padding: 10px;
+  background: #f4f4f4;
+  border-bottom: 1px solid #ddd;
+  font-weight: bold;
+  text-align: center;
+}
+
+#panier-zone h4 {
+  padding: 15px;
+  margin: 0;
+  background: #f4f4f4;
+  border-bottom: 1px solid #ddd;
+}
+
+#panier-liste {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-bottom: 10px;
+  min-height: 0;
+}
+
+#panier-footer{
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  border-top: 1px solid #eee;
+  padding-top: 8px;
+  box-shadow: 0 -6px 10px rgba(0,0,0,0.03);
+}
+
+
+#panier-liste table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+#panier-liste th {
+  padding: 6px;
+  font-size: 0.95em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+.cell-produit {
+  position: relative;
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  cursor: default;
+  position: relative;
+  z-index: 1;
+}
+
+.cell-produit .tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  top: -35px;
+  left: 0;
+  background: #222;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 0.85em;
+  max-width: 300px;
+  z-index: 9999;
+  white-space: normal;
+  box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.25);
+  transition: opacity 0.2s ease-in-out, visibility 0.2s;
+}
+
+.cell-produit:hover .tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+
+
+
+
+#panier-liste td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px; /* Ajuste si nécessaire */
+  position: relative;
+}
+/* Colonnes spécifiques */
+#panier-liste th:nth-child(1),
+#panier-liste td:nth-child(1) {
+  width: 28%; /* Produit */
+}
+
+#panier-liste th:nth-child(2),
+#panier-liste td:nth-child(2) {
+  width: 18%; /* Fournisseur */
+  font-size: 0.8em;
+  color: #666;
+}
+
+#panier-liste th:nth-child(3),
+#panier-liste td:nth-child(3) {
+  width: 10%; /* Unité */
+  text-align: center;
+}
+/* Panier : 8 colonnes (1:Produit, 2:Fourn., 3:Unité, 4:PU, 5:Remise, 6:Qté, 7:Total, 8:Action) */
+/* ↳ agrandir la colonne Remise (%) */
+
+#panier-liste th:nth-child(4),
+#panier-liste td:nth-child(4) {
+  width: 11%;          /* PU */
+  text-align: right;
+}
+
+#panier-liste th:nth-child(5),
+#panier-liste td:nth-child(5) {
+  width: 14%;          /* Remise (%) – élargie */
+  max-width: 210px;    /* évite d’être rognée par la règle générique */
+  text-align: center;
+}
+
+#panier-liste th:nth-child(6),
+#panier-liste td:nth-child(6) {
+  width: 10%;          /* Qté */
+  text-align: center;
+}
+
+#panier-liste th:nth-child(7),
+#panier-liste td:nth-child(7) {
+  width: 11%;          /* Total */
+  text-align: right;
+}
+
+#panier-liste th:nth-child(8),
+#panier-liste td:nth-child(8) {
+  width: 10%;          /* Action */
+  text-align: center;
+}
+
+/* Champ de remise un peu plus large */
+#panier-liste .input-remise {
+  width: 100%;
+  max-width: 96px;
+  text-align: right;
+}
+
+
+#panier-liste th, #panier-liste td {
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid #eee;
+  word-wrap: break-word;
+}
+
+
+#panier-liste ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+#panier-total {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  padding: 12px 15px;
+  border-top: 1px solid #ccc;
+  font-weight: bold;
+  text-align: right;
+  z-index: 10;
+}
+
+#panier-liste table,
+#panier-liste th,
+#panier-liste td {
+  text-transform: uppercase;
+}
+
+
+.import-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.import-block {
+  flex: 1 1 300px;
+  border: 2px solid #ccc;
+  border-radius: 12px;
+  padding: 20px;
+  background: #fdfdfd;
+  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.import-block h3 {
+  margin-top: 0;
+  font-size: 1.2em;
+}
+
+.import-block ul {
+  padding-left: 20px;
+  margin-bottom: 15px;
+}
+
+.btn-import {
+  background-color: #2ecc71;
+  border: none;
+  color: white;
+  padding: 10px 16px;
+  font-size: 15px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.btn-import:hover {
+  background-color: #27ae60;
+}
+
+.import-result {
+  margin-top: 10px;
+  font-size: 0.9em;
+  color: green;
+}
+
+
+.import-block a {
+  color: #3182ce;
+  font-weight: bold;
+  text-decoration: none;
+}
+.import-block a:hover {
+  text-decoration: underline;
+}
+
+
+.styled-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+.styled-table th, .styled-table td {
+  border: 1px solid #ccc;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.styled-table th {
+  background-color: #f0f0f0;
+}
+
+.input-cotisation-montant {
+  width: 80px;
+  padding: 4px;
+}
+
+.btn-danger {
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+
+/* ✅ Animation rebond rapide */
+@keyframes ajout-rebond {
+  0%   { transform: scale(1); background-color: #d4edda; }
+  50%  { transform: scale(1.05); background-color: #c3e6cb; }
+  100% { transform: scale(1); background-color: transparent; }
+}
+
+.ligne-ajoutee {
+  animation: ajout-rebond 0.4s ease;
+}
+
+/* ✅ Animation produit cliqué */
+.produit-ajoute {
+  animation: flash-produit 0.4s ease;
+}
+
+@keyframes flash-produit {
+  0%   { background-color: #d4edda; transform: scale(1); }
+  50%  { background-color: #c3e6cb; transform: scale(1.03); }
+  100% { background-color: transparent; transform: scale(1); }
+}
+
+
+.reception-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.reception-table th, .reception-table td {
+  border: 1px solid #ccc;
+  padding: 8px;
+}
+.reception-table th {
+  background-color: #f2f2f2;
+}
+/* Champ : on réserve plus de place pour la grosse flèche */
+.ui-field {
+  width: 100%;
+  max-width: 420px;
+  padding: 8px 44px 8px 10px;  /* ← était 8px 36px 8px 10px */
+  border: 1px solid #D0D5DD;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  box-shadow: 0 1px 2px rgba(16,24,40,.04);
+}
+
+/* Le wrapper doit être le référentiel pour la flèche */
+.ui-wrap {
+  position: relative;
+  display: inline-block;
+width: max-content;  /* garde la flèche collée au champ */
+  /* si jamais la flèche part au bout de la ligne, ajoute aussi :
+     width: max-content;
+  */
+}
+
+/* Flèche plus grande, cliquable, à l'intérieur du champ */
+.ui-wrap .ui-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 20px;          /* ← plus grand */
+  width: 28px;              /* zone cliquable confortable */
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #667085;
+  border-radius: 6px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ui-wrap .ui-chevron:hover  { background: rgba(0,0,0,.06); }
+.ui-wrap .ui-chevron:active { background: rgba(0,0,0,.10); }
+
+/* Menu déroulant “custom” (inchangé) */
+.dl-menu {
+  position: absolute;
+  z-index: 10000;
+  background: #fff;
+  border: 1px solid #D0D5DD;
+  border-radius: 8px;
+  max-height: 240px;
+  overflow: auto;
+  box-shadow: 0 6px 24px rgba(0,0,0,.12);
+  display: none;
+  min-width: 220px;
+}
+.dl-item { padding: 8px 10px; cursor: pointer; white-space: nowrap; }
+.dl-item:hover { background: #F2F4F7; }
+
+/* On masque l’icône native du datalist */
+input[list]::-webkit-calendar-picker-indicator {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+

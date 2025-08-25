@@ -1,0 +1,24 @@
+{
+  "epicerie": "Coop'az",
+  "modules": {
+    "cotisations": true,
+    "email": true,
+    "emails": true,
+    "tickets": true,
+    "stocks": true,
+    "inventaire": false,
+    "fournisseurs": true,
+    "receptions": true,
+    "exports": true,
+    "multiusers": true,
+    "adherents": true,
+    "ventes_exterieur": true,
+    "prospects": true,
+    "modes_paiement": true
+  },
+  "ventes_exterieur_margin_percent": 30,
+  "ventes_ext_margin_percent": 200,
+  "api_base_url": "http://localhost:3000",
+  "api_email": "fabien.hicauber@gmail.com",
+  "api_password": "demo1234"
+}
