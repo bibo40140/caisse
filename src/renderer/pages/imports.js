@@ -648,14 +648,83 @@
   }
 
   // (placeholder simple)
-  async function renderImportAdherents() {
-    const container = document.getElementById('parametres-souspage');
-    const filePath = await window.electronAPI.choisirFichier();
-    if (!filePath) { container.innerHTML = `<p>Aucun fichier sélectionné.</p>`; return; }
-    const res = await window.electronAPI.importerExcel('adherents', filePath);
-    await showAlertModal(res?.message || "Import adhérents terminé.");
-    renderImportExcel();
+// Remplace complètement ta fonction actuelle
+async function renderImportAdherents() {
+  const container = document.getElementById('parametres-souspage');
+  const filePath = await window.electronAPI.choisirFichier();
+    console.log("📁 Fichier choisi :", filePath);
+  if (!filePath) {
+    container.innerHTML = `<p>Aucun fichier sélectionné.</p>`;
+    return;
   }
+  container.innerHTML = `<p>Chargement du fichier...</p>`;
+  const data = await window.electronAPI.analyserImportAdherents(filePath);
+  if (!data || data.status !== 'ok') {
+    container.innerHTML = `<p>Erreur lors de l'import du fichier.</p>`;
+    return;
+  }
+  const { adherents, tranches_age } = data;
+  container.innerHTML = `
+    <h3>Prévisualisation des adhérents importés</h3>
+    <table class="table-import">
+      <thead>
+        <tr>
+          <th>Nom</th>
+          <th>Prénom</th>
+          <th>Email 1</th>
+          <th>Email 2</th>
+          <th>Téléphone 1</th>
+          <th>Téléphone 2</th>
+          <th>Adresse</th>
+          <th>CP</th>
+          <th>Ville</th>
+          <th>Foyer</th>
+          <th>Tranche d'âge</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${adherents.map((a, i) => `
+          <tr>
+            <td>${a.nom}</td>
+            <td>${a.prenom}</td>
+            <td>${a.email1}</td>
+            <td>${a.email2}</td>
+            <td>${a.telephone1}</td>
+            <td>${a.telephone2}</td>
+            <td>${a.adresse}</td>
+            <td>${a.code_postal}</td>
+            <td>${a.ville}</td>
+            <td>${a.nb_personnes_foyer || 0}</td>
+            <td>
+              <select data-index="${i}" class="select-tranche">
+                <option value="">-- Choisir --</option>
+                ${tranches_age.map(t => `
+                  <option value="${t}" ${a.tranche_age === t ? 'selected' : ''}>${t}</option>
+                `).join('')}
+              </select>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <button class="btn-valider" id="valider-import-adherents" style="margin-top: 20px;">
+      ✅ Valider l'import
+    </button>
+  `;
+  document.querySelectorAll('.select-tranche').forEach(sel => {
+    sel.addEventListener('change', e => {
+      const index = parseInt(e.target.dataset.index);
+      adherents[index].tranche_age = e.target.value;
+    });
+  });
+  document.getElementById('valider-import-adherents').addEventListener('click', async () => {
+    const confirm = await showConfirmModal(`Confirmer l'import de ${adherents.length} adhérent(s) ?`);
+    if (!confirm) return;
+    const result = await window.electronAPI.validerImportAdherents(adherents);
+ await showAlertModal(result?.message || "Import terminé.");
+    renderImportExcel(); // retour à la liste
+  });
+}
 
   window.PageImports = {
     renderImportExcel,

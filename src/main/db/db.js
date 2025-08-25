@@ -1,16 +1,15 @@
-// src/main/db/db.js — CENTRALISÉ (schéma propre)
+// src/main/db/db.js — schéma unifié (ancien + ajouts récents)
 const Database = require('better-sqlite3');
 const path = require('path');
 
-// Emplacement de la base (à la racine du projet)
+// Base au même endroit qu’avant
 const dbPath = path.resolve(__dirname, '../../../coopaz.db');
 const db = new Database(dbPath);
 
-// Sécurité FK
 db.pragma('foreign_keys = ON');
 
 // ─────────────────────────────────────────────────────────────
-// Table de version de schéma (utile pour évoluer proprement)
+// META (pour futures migrations)
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS app_meta (
@@ -70,6 +69,7 @@ db.prepare(`
   )
 `).run();
 
+// (Conservé de ta version actuelle)
 db.prepare(`
   CREATE TABLE IF NOT EXISTS prospects (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,7 +87,6 @@ db.prepare(`
     FOREIGN KEY (adherent_id) REFERENCES adherents(id) ON DELETE SET NULL
   )
 `).run();
-
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_prospects_email  ON prospects(email)`).run();
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status)`).run();
 
@@ -106,7 +105,7 @@ db.prepare(`
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_invits_prospect ON prospects_invitations(prospect_id)`).run();
 
 // ─────────────────────────────────────────────────────────────
-/** FOURNISSEURS / PRODUITS **/
+// FOURNISSEURS / PRODUITS
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS fournisseurs (
@@ -132,7 +131,7 @@ db.prepare(`
     nom            TEXT NOT NULL,
     reference      TEXT UNIQUE NOT NULL,
     prix           REAL NOT NULL,
-    stock          REAL NOT NULL DEFAULT 0,
+    stock          INTEGER NOT NULL,          -- ⬅️ comme l’ancienne version
     code_barre     TEXT,
     unite_id       INTEGER,
     fournisseur_id INTEGER,
@@ -145,14 +144,14 @@ db.prepare(`
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_barcode ON produits(code_barre)`).run();
 
 // ─────────────────────────────────────────────────────────────
-/** MODES DE PAIEMENT / VENTES **/
+// MODES DE PAIEMENT / VENTES
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS modes_paiement (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     nom          TEXT UNIQUE NOT NULL,
-    taux_percent REAL DEFAULT 0,
-    frais_fixe   REAL DEFAULT 0,
+    taux_percent REAL DEFAULT 0,   -- ex: 0.55 pour 0,55 %
+    frais_fixe   REAL DEFAULT 0,   -- ex: 0.20 pour 0,20 €
     actif        INTEGER DEFAULT 1
   )
 `).run();
@@ -165,6 +164,7 @@ db.prepare(`
     date_vente       TEXT DEFAULT (datetime('now','localtime')),
     mode_paiement_id INTEGER,
     frais_paiement   REAL DEFAULT 0,
+    -- champs ajoutés utiles à ta version actuelle
     sale_type        TEXT NOT NULL DEFAULT 'adherent',   -- 'adherent' | 'exterieur' | 'prospect'
     client_email     TEXT,
     FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
@@ -176,11 +176,12 @@ db.prepare(`CREATE INDEX IF NOT EXISTS idx_ventes_date ON ventes(date_vente)`).r
 db.prepare(`
   CREATE TABLE IF NOT EXISTS lignes_vente (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    vente_id       INTEGER NOT NULL,
-    produit_id     INTEGER NOT NULL,
-    quantite       REAL NOT NULL,
-    prix           REAL NOT NULL,          -- prix appliqué (après remise / marge)
-    prix_unitaire  REAL,                   -- PU avant remise
+    vente_id       INTEGER,
+    produit_id     INTEGER,
+    quantite       REAL,
+    prix           REAL,
+    -- champs supplémentaires conservés (compat UI récente)
+    prix_unitaire  REAL,
     remise_percent REAL DEFAULT 0,
     FOREIGN KEY (vente_id)   REFERENCES ventes(id)     ON DELETE CASCADE,
     FOREIGN KEY (produit_id) REFERENCES produits(id)   ON DELETE CASCADE
@@ -189,7 +190,21 @@ db.prepare(`
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_lignes_vente_vente ON lignes_vente(vente_id)`).run();
 
 // ─────────────────────────────────────────────────────────────
-/** RÉCEPTIONS / STOCKS **/
+// COTISATIONS (reprise de l’ancienne version)
+// ─────────────────────────────────────────────────────────────
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS cotisations (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    adherent_id   INTEGER NOT NULL,
+    mois          TEXT NOT NULL,                     -- 'YYYY-MM'
+    montant       REAL NOT NULL,
+    date_paiement TEXT DEFAULT (date('now')),
+    FOREIGN KEY (adherent_id) REFERENCES adherents(id)
+  )
+`).run();
+
+// ─────────────────────────────────────────────────────────────
+// RÉCEPTIONS / STOCKS (comme l’ancienne version)
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS receptions (
@@ -206,15 +221,15 @@ db.prepare(`
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     reception_id   INTEGER NOT NULL,
     produit_id     INTEGER NOT NULL,
-    quantite       REAL NOT NULL,
-    prix_unitaire  REAL,
-    FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE,
-    FOREIGN KEY (produit_id)   REFERENCES produits(id)   ON DELETE CASCADE
+    quantite       REAL,
+    prix_unitaire  REAL,          -- attendu par getDetailsReception()
+    FOREIGN KEY (reception_id) REFERENCES receptions(id),
+    FOREIGN KEY (produit_id)   REFERENCES produits(id)
   )
 `).run();
 
 // ─────────────────────────────────────────────────────────────
-/** SEEDS **/
+// SEEDS
 // ─────────────────────────────────────────────────────────────
 (function seedUnites() {
   const have = db.prepare('SELECT nom FROM unites').all().map(x => (x.nom || '').toLowerCase());
@@ -263,7 +278,7 @@ const DEFAULT_TREE = [
   ins.run('Virement', 0, 0);
 })();
 
-// Version du schéma
+// Version du schéma (facultatif pour le moment)
 const cur = db.prepare('SELECT COUNT(*) AS n FROM app_meta').get().n;
 if (cur === 0) {
   db.prepare('INSERT INTO app_meta (schema_version) VALUES (?)').run(1);
