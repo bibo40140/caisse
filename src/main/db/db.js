@@ -1,8 +1,8 @@
-// src/main/db/db.js — Schéma propre (local) prêt pour la synchro multi‑postes
+// src/main/db/db.js — Schéma local "synchro-first" (sans triggers de stock)
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const dbPath = path.resolve(__dirname, '../../../coopaz.db'); // gardé comme chez toi
+const dbPath = path.resolve(__dirname, '../../../coopaz.db');
 const db = new Database(dbPath);
 
 db.pragma('foreign_keys = ON');
@@ -129,7 +129,7 @@ db.prepare(`
     nom            TEXT NOT NULL,
     reference      TEXT UNIQUE NOT NULL,
     prix           REAL NOT NULL,
-    stock          INTEGER NOT NULL DEFAULT 0, -- cache local tenu à jour par triggers
+    stock          INTEGER NOT NULL DEFAULT 0, -- valeur recadrée par le pull depuis Neon
     code_barre     TEXT,
     unite_id       INTEGER,
     fournisseur_id INTEGER,
@@ -237,11 +237,11 @@ db.prepare(`
     id           TEXT PRIMARY KEY,                  -- UUID
     device_id    TEXT NOT NULL,                     -- identifiant du poste
     created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-    op_type      TEXT NOT NULL,                     -- ex: sale.created, sale.line_added, reception.line_added, stock.adjustment
+    op_type      TEXT NOT NULL,                     -- ex: sale.created, sale.line_added, reception.line_added
     entity_type  TEXT,                              -- ex: vente, ligne_vente, produit...
-    entity_id    TEXT,                              -- id local (integer) ou uuid si tu en utilises
+    entity_id    TEXT,                              -- id local (integer) ou uuid
     payload_json TEXT NOT NULL,                     -- JSON.stringify(...)
-    sent_at      TEXT,                              -- quand on a tenté de l’envoyer
+    sent_at      TEXT,
     ack          INTEGER NOT NULL DEFAULT 0         -- 0 = pas confirmé, 1 = confirmé par le serveur
   )
 `).run();
@@ -249,92 +249,19 @@ db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_ack ON ops_queue(ack)`).run
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_created ON ops_queue(created_at)`).run();
 
 // ─────────────────────────────────────────────────────────────
-// MOUVEMENTS DE STOCK (source de vérité des variations)
-// + déclencheurs pour tenir produits.stock à jour
+// ⚠️ Nettoyage : supprimer d’anciens triggers locaux de stock
+// (évite le double comptage; le stock est recalé par le PULL)
 // ─────────────────────────────────────────────────────────────
-db.prepare(`
-  CREATE TABLE IF NOT EXISTS stock_movements (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id   INTEGER NOT NULL,
-    source_type  TEXT NOT NULL,          -- 'sale_line' | 'reception_line' | 'adjustment'
-    source_id    TEXT NOT NULL,          -- identifiant de la source (ex: lignes_vente.id)
-    qty_change   REAL NOT NULL,          -- + pour réception, - pour vente
-    at           TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-    UNIQUE (source_type, source_id),
-    FOREIGN KEY (product_id) REFERENCES produits(id) ON DELETE CASCADE
-  )
-`).run();
-db.prepare(`CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id)`).run();
-
-/** Triggers pour maintenir produits.stock (cache) en phase avec stock_movements **/
 db.exec(`
-  CREATE TRIGGER IF NOT EXISTS trg_sm_ai
-  AFTER INSERT ON stock_movements
-  BEGIN
-    UPDATE produits SET stock = stock + NEW.qty_change, updated_at = datetime('now','localtime')
-    WHERE id = NEW.product_id;
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS trg_sm_ad
-  AFTER DELETE ON stock_movements
-  BEGIN
-    UPDATE produits SET stock = stock - OLD.qty_change, updated_at = datetime('now','localtime')
-    WHERE id = OLD.product_id;
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS trg_sm_au
-  AFTER UPDATE ON stock_movements
-  BEGIN
-    UPDATE produits SET stock = stock + (NEW.qty_change - OLD.qty_change), updated_at = datetime('now','localtime')
-    WHERE id = NEW.product_id;
-  END;
-`);
-
-/** (Optionnel) Triggers pour créer automatiquement des mouvements depuis les lignes de vente/réception **/
-db.exec(`
-  -- VENTES → mouvement négatif
-  CREATE TRIGGER IF NOT EXISTS trg_lv_ai
-  AFTER INSERT ON lignes_vente
-  BEGIN
-    INSERT OR IGNORE INTO stock_movements (product_id, source_type, source_id, qty_change, at)
-    VALUES (NEW.produit_id, 'sale_line', NEW.id, -NEW.quantite, datetime('now','localtime'));
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS trg_lv_ad
-  AFTER DELETE ON lignes_vente
-  BEGIN
-    DELETE FROM stock_movements WHERE source_type = 'sale_line' AND source_id = OLD.id;
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS trg_lv_au
-  AFTER UPDATE OF quantite ON lignes_vente
-  BEGIN
-    UPDATE stock_movements
-      SET qty_change = -NEW.quantite, at = datetime('now','localtime')
-    WHERE source_type = 'sale_line' AND source_id = NEW.id;
-  END;
-
-  -- RÉCEPTIONS → mouvement positif
-  CREATE TRIGGER IF NOT EXISTS trg_lr_ai
-  AFTER INSERT ON lignes_reception
-  BEGIN
-    INSERT OR IGNORE INTO stock_movements (product_id, source_type, source_id, qty_change, at)
-    VALUES (NEW.produit_id, 'reception_line', NEW.id, NEW.quantite, datetime('now','localtime'));
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS trg_lr_ad
-  AFTER DELETE ON lignes_reception
-  BEGIN
-    DELETE FROM stock_movements WHERE source_type = 'reception_line' AND source_id = OLD.id;
-  END;
-
-  CREATE TRIGGER IF NOT EXISTS trg_lr_au
-  AFTER UPDATE OF quantite ON lignes_reception
-  BEGIN
-    UPDATE stock_movements
-      SET qty_change = NEW.quantite, at = datetime('now','localtime')
-    WHERE source_type = 'reception_line' AND source_id = NEW.id;
-  END;
+  DROP TRIGGER IF EXISTS trg_sm_ai;
+  DROP TRIGGER IF EXISTS trg_sm_ad;
+  DROP TRIGGER IF EXISTS trg_sm_au;
+  DROP TRIGGER IF EXISTS trg_lv_ai;
+  DROP TRIGGER IF EXISTS trg_lv_ad;
+  DROP TRIGGER IF EXISTS trg_lv_au;
+  DROP TRIGGER IF EXISTS trg_lr_ai;
+  DROP TRIGGER IF EXISTS trg_lr_ad;
+  DROP TRIGGER IF EXISTS trg_lr_au;
 `);
 
 // ─────────────────────────────────────────────────────────────
@@ -386,7 +313,7 @@ const DEFAULT_TREE = [
 
 // META version
 const cur = db.prepare('SELECT COUNT(*) AS n FROM app_meta').get().n;
-if (cur === 0) db.prepare('INSERT INTO app_meta (schema_version) VALUES (1)').run();
-else db.prepare('UPDATE app_meta SET schema_version = 1').run();
+if (cur === 0) db.prepare('INSERT INTO app_meta (schema_version) VALUES (2)').run();
+else db.prepare('UPDATE app_meta SET schema_version = 2').run();
 
 module.exports = db;

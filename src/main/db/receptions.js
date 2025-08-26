@@ -2,23 +2,30 @@
 const db = require('./db');
 const fs = require('fs');
 const path = require('path');
+const { enqueueOp } = require('./ops');
+const { getDeviceId } = require('../device');
+
+const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
 function stocksModuleOn() {
   try {
     const cfgPath = path.join(__dirname, '..', '..', '..', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
     return !!(cfg.modules && cfg.modules.stocks);
-  } catch (e) {
-    console.error('[receptions] lecture config.json échouée :', e);
-    // par prudence, on considère OFF si non lisible
-    return false;
-  }
+  } catch { return false; }
 }
 
-function enregistrerReception(reception) {
+function enregistrerReception(reception, lignes) {
+  if (!reception || !Number.isFinite(Number(reception.fournisseur_id))) {
+    throw new Error('fournisseur invalide');
+  }
+  if (!Array.isArray(lignes) || lignes.length === 0) {
+    throw new Error('aucune ligne de réception');
+  }
+
   const insertReception = db.prepare(`
     INSERT INTO receptions (fournisseur_id, date, reference)
-    VALUES (?, datetime('now'), ?)
+    VALUES (?, datetime('now','localtime'), ?)
   `);
 
   const insertLigne = db.prepare(`
@@ -26,90 +33,77 @@ function enregistrerReception(reception) {
     VALUES (?, ?, ?, ?)
   `);
 
-  // Màj stock + prix
-  const updateStockAddOnly = db.prepare(`
-    UPDATE produits
-      SET stock = stock + ?,
-          prix  = COALESCE(?, prix)
-    WHERE id = ?
-  `);
+  const tx = db.transaction(() => {
+    const ref = reception.reference || (() => {
+      const d = new Date(); const pad = n => String(n).padStart(2,'0');
+      return `BL-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    })();
 
-  const updateStockReplaceThenAdd = db.prepare(`
-    UPDATE produits
-      SET stock = ?,
-          prix  = COALESCE(?, prix)
-    WHERE id = ?
-  `);
+    const r = insertReception.run(Number(reception.fournisseur_id), ref);
+    const receptionId = r.lastInsertRowid;
 
-  // Màj prix seul (quand Stocks=OFF)
-  const updatePriceOnly = db.prepare(`
-    UPDATE produits
-      SET prix = COALESCE(?, prix)
-    WHERE id = ?
-  `);
+    for (const l of lignes) {
+      const produitId = Number(l.produit_id);
+      const qte = Number(l.quantite);
+      const prixU = (l.prix_unitaire != null && l.prix_unitaire !== '') ? Number(l.prix_unitaire) : null;
+      insertLigne.run(receptionId, produitId, qte, prixU);
 
-  const transaction = db.transaction(() => {
-    const stocksOn = stocksModuleOn();
-
-    // Référence BL uniquement s'il y a au moins une quantité reçue (>0)
-    const aDesProduitsRecus = reception.lignes.some(l => Number(l.quantite) > 0);
-    let referenceBL = null;
-    if (aDesProduitsRecus) {
-      const datePart = new Date().toISOString().slice(0,10).replace(/-/g,'');
-      referenceBL = `BL-${reception.fournisseur_id}-${datePart}-${Date.now()}`;
+      // Op par ligne
+      enqueueOp({
+        deviceId: DEVICE_ID,
+        opType: 'reception.line_added',
+        entityType: 'ligne_reception',
+        entityId: `${receptionId}:${produitId}`,
+        payload: {
+          ligneRecId: null,
+          receptionId,
+          fournisseurId: Number(reception.fournisseur_id),
+          reference: ref,
+          produitId,
+          quantite: qte,
+          prixUnitaire: prixU,
+        },
+      });
     }
 
-    const result = insertReception.run(reception.fournisseur_id, referenceBL);
-    const receptionId = result.lastInsertRowid;
-
-    for (const ligne of reception.lignes) {
-      const quantite = Number(ligne.quantite) || 0;
-      const prix = (Number(ligne.prix_unitaire) > 0) ? Number(ligne.prix_unitaire) : null;
-
-      insertLigne.run(receptionId, ligne.produit_id, quantite, prix ?? 0);
-
-      if (!stocksOn) {
-        // 👉 stocks OFF : on ne touche pas au stock, on met à jour le prix si fourni
-        updatePriceOnly.run(prix, ligne.produit_id);
-        continue;
-      }
-
-      // stocks ON : logique stock précédente
-      if (ligne.stock_corrige !== null && ligne.stock_corrige !== undefined) {
-        const newStock = Number(ligne.stock_corrige) + quantite;
-        updateStockReplaceThenAdd.run(newStock, prix, ligne.produit_id);
-      } else {
-        updateStockAddOnly.run(quantite, prix, ligne.produit_id);
-      }
-    }
+    // Push immédiat + petit pull
+    try {
+      const { pushOpsNow } = require('../sync');
+      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
+    } catch {}
 
     return receptionId;
   });
 
-  return transaction();
+  return tx();
 }
 
-function getReceptions() {
+function getReceptions({ limit = 50, offset = 0 } = {}) {
   return db.prepare(`
-    SELECT r.id, r.date, r.reference, f.nom AS fournisseur
+    SELECT r.*, f.nom AS fournisseur
     FROM receptions r
-    LEFT JOIN fournisseurs f ON r.fournisseur_id = f.id
-    ORDER BY r.date DESC
-  `).all();
+    LEFT JOIN fournisseurs f ON f.id = r.fournisseur_id
+    ORDER BY r.date DESC, r.id DESC
+    LIMIT ? OFFSET ?
+  `).all(Number(limit), Number(offset));
 }
 
 function getDetailsReception(receptionId) {
-  return db.prepare(`
-    SELECT lr.quantite, lr.prix_unitaire, p.nom AS produit, u.nom AS unite
+  const header = db.prepare(`
+    SELECT r.*, f.nom AS fournisseur
+    FROM receptions r
+    LEFT JOIN fournisseurs f ON f.id = r.fournisseur_id
+    WHERE r.id = ?
+  `).get(Number(receptionId));
+
+  const lignes = db.prepare(`
+    SELECT lr.quantite, lr.prix_unitaire, p.nom AS produit
     FROM lignes_reception lr
     JOIN produits p ON lr.produit_id = p.id
-    LEFT JOIN unites u ON p.unite_id = u.id
     WHERE lr.reception_id = ?
-  `).all(receptionId);
+  `).all(Number(receptionId));
+
+  return { header, lignes };
 }
 
-module.exports = {
-  enregistrerReception,
-  getReceptions,
-  getDetailsReception
-};
+module.exports = { enregistrerReception, getReceptions, getDetailsReception };

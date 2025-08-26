@@ -1,210 +1,251 @@
 // src/main/db/produits.js
 const db = require('./db');
+const { enqueueOp } = require('./ops');
+const { getDeviceId } = require('../device');
 
-// ------------------------------
+const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
+
 // Helpers
-// ------------------------------
 function toNumber(v, def = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
 }
-
 function genRefFromName(nom = '') {
-  // P-<slug>-<timestamp court>
   const slug = String(nom)
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/gi, '-')
     .replace(/^-+|-+$/g, '')
-    .toUpperCase()
-    .slice(0, 10);
-  return `P-${slug || 'ITEM'}-${Date.now().toString(36).toUpperCase()}`;
+    .toLowerCase();
+  return `P-${slug || 'prod'}-${Date.now().toString().slice(-6)}`;
 }
 
-function ensureUniqueReference(ref) {
-  let candidate = ref || genRefFromName();
-  const exists = db.prepare(`SELECT 1 FROM produits WHERE reference = ?`).get(candidate);
-  if (!exists) return candidate;
-  // petit suffixe en cas de collision
-  let i = 1;
-  while (db.prepare(`SELECT 1 FROM produits WHERE reference = ?`).get(candidate)) {
-    candidate = `${ref || 'P'}-${(Date.now()+i).toString(36).toUpperCase()}`;
-    i++;
+// ─────────────────────────────────────────────────────────────
+// LECTURE (avec catégorie/famille *effectives*)
+// ─────────────────────────────────────────────────────────────
+function getProduits({ search = '', limit = 5000, offset = 0 } = {}) {
+  const params = [];
+  let where = '1=1';
+  if (search) {
+    where += ` AND (p.nom LIKE ? OR p.reference LIKE ? OR p.code_barre LIKE ?)`;
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
-  return candidate;
+  return db.prepare(`
+    SELECT
+      p.id,
+      p.nom,
+      p.reference,
+      COALESCE(p.stock, 0) AS stock,
+      p.prix,
+      p.code_barre,
+      p.unite_id,
+      p.fournisseur_id,
+      p.categorie_id,
+      p.updated_at,
+
+      u.nom AS unite,
+      u.nom AS unite_nom,
+      f.nom AS fournisseur_nom,
+
+      -- catégorie d'origine du produit (peut être NULL)
+      c_prod.nom AS categorie_nom,
+
+      -- catégorie/famille *effectives* (produit OU fournisseur)
+      c_eff.id  AS categorie_effective_id,
+      c_eff.nom AS categorie_effective_nom,
+      fam.id  AS famille_effective_id,
+      fam.nom AS famille_effective_nom
+
+
+    FROM produits p
+    LEFT JOIN unites       u      ON u.id   = p.unite_id
+    LEFT JOIN fournisseurs f      ON f.id   = p.fournisseur_id
+    LEFT JOIN categories   c_prod ON c_prod.id = p.categorie_id
+    LEFT JOIN categories   c_eff  ON c_eff.id  = COALESCE(p.categorie_id, f.categorie_id)
+    LEFT JOIN familles     fam    ON fam.id    = c_eff.famille_id
+    WHERE ${where}
+    ORDER BY p.id
+    LIMIT ? OFFSET ?
+  `).all(...params, Number(limit), Number(offset));
 }
 
-// ------------------------------
-// SELECTs avec catégorie/famille “effectives”
-// ------------------------------
-const SELECT_FIELDS = `
-  p.id,
-  p.nom,
-  p.reference,
-  p.prix,
-  p.stock,
-  p.code_barre,
-  p.unite_id,
-  u.nom                  AS unite,
-
-  p.fournisseur_id,
-  f.nom                  AS fournisseur_nom,
-  f.categorie_id         AS fournisseur_categorie_id,
-
-  p.categorie_id,
-
-  -- ✅ Catégorie/famille effectives (produit OU fournisseur)
-  COALESCE(p.categorie_id, f.categorie_id)         AS categorie_effective_id,
-  c_eff.nom                                        AS categorie_effective_nom,
-  fam.id                                           AS famille_effective_id,
-  fam.nom                                          AS famille_effective_nom
-`;
-
-const STMT_LIST = db.prepare(`
-  SELECT ${SELECT_FIELDS}
-  FROM produits p
-  LEFT JOIN unites       u     ON u.id      = p.unite_id
-  LEFT JOIN fournisseurs f     ON f.id      = p.fournisseur_id
-  LEFT JOIN categories   c_eff ON c_eff.id  = COALESCE(p.categorie_id, f.categorie_id)
-  LEFT JOIN familles     fam   ON fam.id    = c_eff.famille_id
-  ORDER BY p.nom COLLATE NOCASE
-`);
-
-const STMT_GET = db.prepare(`
-  SELECT ${SELECT_FIELDS}
-  FROM produits p
-  LEFT JOIN unites       u     ON u.id      = p.unite_id
-  LEFT JOIN fournisseurs f     ON f.id      = p.fournisseur_id
-  LEFT JOIN categories   c_eff ON c_eff.id  = COALESCE(p.categorie_id, f.categorie_id)
-  LEFT JOIN familles     fam   ON fam.id    = c_eff.famille_id
-  WHERE p.id = ?
-`);
-
-// ------------------------------
-// API
-// ------------------------------
-function getProduits() {
-  return STMT_LIST.all();
+function countProduits({ search = '' } = {}) {
+  const params = [];
+  let where = '1=1';
+  if (search) {
+    where += ` AND (nom LIKE ? OR reference LIKE ? OR code_barre LIKE ?)`;
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  const r = db.prepare(`SELECT COUNT(*) AS n FROM produits WHERE ${where}`).get(...params);
+  return r?.n || 0;
 }
 
 function getProduit(id) {
-  return STMT_GET.get(id);
+  return db.prepare(`
+    SELECT
+      p.id,
+      p.nom,
+      p.reference,
+      COALESCE(p.stock, 0) AS stock,
+      p.prix,
+      p.code_barre,
+      p.unite_id,
+      p.fournisseur_id,
+      p.categorie_id,
+      p.updated_at,
+
+      u.nom AS unite,
+      u.nom AS unite_nom,
+      f.nom AS fournisseur_nom,
+
+      c_prod.nom AS categorie_nom,
+
+      c_eff.id  AS categorie_effective_id,
+      c_eff.nom AS categorie_effective_nom,
+      fam.id    AS famille_effective_id,
+      fam.nom   AS famille_effective_nom
+    FROM produits p
+    LEFT JOIN unites       u      ON u.id   = p.unite_id
+    LEFT JOIN fournisseurs f      ON f.id   = p.fournisseur_id
+    LEFT JOIN categories   c_prod ON c_prod.id = p.categorie_id
+    LEFT JOIN categories   c_eff  ON c_eff.id  = COALESCE(p.categorie_id, f.categorie_id)
+    LEFT JOIN familles     fam    ON fam.id    = c_eff.famille_id
+    WHERE p.id = ?
+  `).get(Number(id));
 }
 
-const STMT_INSERT = db.prepare(`
-  INSERT INTO produits (nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id)
-  VALUES (@nom, @reference, @prix, @stock, @code_barre, @unite_id, @fournisseur_id, @categorie_id)
-`);
+// ─────────────────────────────────────────────────────────────
+// ÉCRITURE
+// ─────────────────────────────────────────────────────────────
+function ajouterProduit(p = {}) {
+  const nom = p.nom || 'Nouveau produit';
+  const reference = p.reference || genRefFromName(nom);
+  const prix = toNumber(p.prix, 0);
+  const code_barre = p.code_barre || null;
+  const unite_id = p.unite_id ?? null;
+  const fournisseur_id = p.fournisseur_id ?? null;
+  const categorie_id = p.categorie_id ?? null;
+  const stockInit = toNumber(p.stock, 0);
 
-function ajouterProduit(payload = {}) {
-  const data = {
-    nom:           String(payload.nom || '').trim(),
-    reference:     (payload.reference && String(payload.reference).trim()) || null,
-    prix:          toNumber(payload.prix, 0),
-    stock:         toNumber(payload.stock, 0),
-    code_barre:    payload.code_barre ? String(payload.code_barre).trim() : null,
-    unite_id:      payload.unite_id ? Number(payload.unite_id) : null,
-    fournisseur_id:payload.fournisseur_id ? Number(payload.fournisseur_id) : null,
-    categorie_id:  payload.categorie_id ? Number(payload.categorie_id) : null,
-  };
-  if (!data.nom) throw new Error('Nom requis');
+  const tx = db.transaction(() => {
+    const r = db.prepare(`
+      INSERT INTO produits (nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
+      VALUES (?,?,?,?,?,?,?,?, datetime('now','localtime'))
+    `).run(nom, reference, prix, stockInit, code_barre, unite_id, fournisseur_id, categorie_id);
+    const id = r.lastInsertRowid;
 
-  // Génère une référence si absente
-  data.reference = ensureUniqueReference(data.reference || genRefFromName(data.nom));
+    if (stockInit !== 0) {
+      enqueueOp({
+        deviceId: DEVICE_ID,
+        opType: 'inventory.adjust',
+        entityType: 'produit',
+        entityId: String(id),
+        payload: { produitId: id, delta: stockInit, reason: 'create.initial_stock' },
+      });
+    }
 
-  const info = STMT_INSERT.run(data);
-  return getProduit(info.lastInsertRowid);
+    try {
+      const { pushOpsNow } = require('../sync');
+      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
+    } catch {}
+    return id;
+  });
+  return tx();
 }
 
-const STMT_UPDATE = db.prepare(`
-  UPDATE produits
-     SET nom            = @nom,
-         reference      = COALESCE(@reference, reference),  -- garde l’existante si null
-         prix           = @prix,
-         stock          = @stock,
-         code_barre     = @code_barre,
-         unite_id       = @unite_id,
-         fournisseur_id = @fournisseur_id,
-         categorie_id   = @categorie_id
-   WHERE id = @id
-`);
+/**
+ * Modifier un produit.
+ * - Si "stock" est fourni : delta = nouveau - actuel => inventory.adjust
+ * - Si "prix"/champs changent : product.updated
+ */
+function modifierProduit(p = {}) {
+  const id = Number(p.id);
+  if (!Number.isFinite(id)) throw new Error('id produit manquant');
 
-function modifierProduit(payload = {}) {
-  const id = Number(payload.id);
-  if (!id) throw new Error('ID produit manquant');
-
-  // Lire l’existant pour éviter d’écraser par des null/undefined involontaires
   const cur = db.prepare(`SELECT * FROM produits WHERE id = ?`).get(id);
-  if (!cur) throw new Error('Produit introuvable');
+  if (!cur) throw new Error('produit introuvable');
 
-  // Prépare la mise à jour champ par champ
-  const merged = {
-    id,
-    nom:            (payload.nom ?? cur.nom) ? String(payload.nom ?? cur.nom).trim() : cur.nom,
-    reference:      payload.reference === undefined
-                      ? null    // => COALESCE gardera cur.reference
-                      : (payload.reference ? String(payload.reference).trim() : null),
-    prix:           toNumber(payload.prix ?? cur.prix, cur.prix),
-    stock:          toNumber(payload.stock ?? cur.stock, cur.stock),
-    code_barre:     payload.code_barre === undefined
-                      ? (cur.code_barre ?? null)
-                      : (payload.code_barre ? String(payload.code_barre).trim() : null),
-    unite_id:       payload.unite_id !== undefined
-                      ? (payload.unite_id ? Number(payload.unite_id) : null)
-                      : (cur.unite_id ?? null),
-    fournisseur_id: payload.fournisseur_id !== undefined
-                      ? (payload.fournisseur_id ? Number(payload.fournisseur_id) : null)
-                      : (cur.fournisseur_id ?? null),
-    categorie_id:   payload.categorie_id !== undefined
-                      ? (payload.categorie_id ? Number(payload.categorie_id) : null)
-                      : (cur.categorie_id ?? null),
-  };
+  const fields = [];
+  const values = [];
+  function setField(col, val) { fields.push(`${col} = ?`); values.push(val); }
 
-  if (!merged.nom) throw new Error('Nom requis');
-  // Si on choisit *de remplacer* la référence (non null/undefined), s’assurer unicité
-  if (merged.reference) {
-    merged.reference = ensureUniqueReference(merged.reference);
-  }
+  const nom = (p.nom !== undefined) ? String(p.nom) : cur.nom;
+  const reference = (p.reference !== undefined) ? String(p.reference) : cur.reference;
+  const code_barre = (p.code_barre !== undefined) ? (p.code_barre || null) : cur.code_barre;
+  const prix = (p.prix !== undefined) ? toNumber(p.prix, cur.prix) : cur.prix;
+  const unite_id = (p.unite_id !== undefined) ? (p.unite_id ?? null) : cur.unite_id;
+  const fournisseur_id = (p.fournisseur_id !== undefined) ? (p.fournisseur_id ?? null) : cur.fournisseur_id;
+  const categorie_id = (p.categorie_id !== undefined) ? (p.categorie_id ?? null) : cur.categorie_id;
 
-  STMT_UPDATE.run(merged);
-  return getProduit(id);
+  const stockProvided = (p.stock !== undefined);
+  const newStock = stockProvided ? toNumber(p.stock, cur.stock) : cur.stock;
+  const delta = stockProvided ? (newStock - toNumber(cur.stock, 0)) : 0;
+
+  const tx = db.transaction(() => {
+    setField('nom', nom);
+    setField('reference', reference);
+    setField('code_barre', code_barre);
+    setField('prix', prix);
+    setField('unite_id', unite_id);
+    setField('fournisseur_id', fournisseur_id);
+    setField('categorie_id', categorie_id);
+    if (stockProvided) setField('stock', newStock);
+
+    const sql = `
+      UPDATE produits
+      SET ${fields.join(', ')}, updated_at = datetime('now','localtime')
+      WHERE id = ?
+    `;
+    db.prepare(sql).run(...values, id);
+
+    enqueueOp({
+      deviceId: DEVICE_ID,
+      opType: 'product.updated',
+      entityType: 'produit',
+      entityId: String(id),
+      payload: { id, nom, reference, code_barre, prix, unite_id, fournisseur_id, categorie_id },
+    });
+
+    if (stockProvided && delta !== 0) {
+      enqueueOp({
+        deviceId: DEVICE_ID,
+        opType: 'inventory.adjust',
+        entityType: 'produit',
+        entityId: String(id),
+        payload: { produitId: id, delta, reason: 'manual.edit' },
+      });
+    }
+
+    try {
+      const { pushOpsNow } = require('../sync');
+      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
+    } catch {}
+  });
+
+  tx();
+  return { ok: true };
 }
 
-const STMT_DELETE = db.prepare(`DELETE FROM produits WHERE id = ?`);
 function supprimerProduit(id) {
-  return STMT_DELETE.run(Number(id));
+  db.prepare(`DELETE FROM produits WHERE id = ?`).run(Number(id));
+  return { ok: true };
 }
 
-// ------------------------------
-// (Optionnel) Catégories/familles distinctes des produits *effectifs*
-// Utile si tu as besoin d’un endpoint pour construire des filtres.
-// ------------------------------
-const STMT_CATS_EFFECTIVES = db.prepare(`
-  SELECT DISTINCT
-    COALESCE(p.categorie_id, f.categorie_id) AS categorie_id,
-    c.nom  AS categorie_nom,
-    fam.id AS famille_id,
-    fam.nom AS famille_nom
-  FROM produits p
-  LEFT JOIN fournisseurs f ON f.id = p.fournisseur_id
-  LEFT JOIN categories  c  ON c.id = COALESCE(p.categorie_id, f.categorie_id)
-  LEFT JOIN familles    fam ON fam.id = c.famille_id
-  WHERE c.id IS NOT NULL
-  ORDER BY fam.nom COLLATE NOCASE, c.nom COLLATE NOCASE
-`);
 function getCategoriesProduitsEffectives() {
-  return STMT_CATS_EFFECTIVES.all();
+  return db.prepare(`
+    SELECT c.id, c.nom, COUNT(p.id) AS nb
+    FROM categories c
+    LEFT JOIN produits p ON p.categorie_id = c.id
+    GROUP BY c.id, c.nom
+    ORDER BY c.nom
+  `).all();
 }
 
 module.exports = {
-  // lecture
   getProduits,
+  countProduits,
   getProduit,
-
-  // écriture
   ajouterProduit,
   modifierProduit,
   supprimerProduit,
-
-  // optionnel
   getCategoriesProduitsEffectives,
 };
