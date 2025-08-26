@@ -1,15 +1,14 @@
-// src/main/db/db.js — schéma unifié (ancien + ajouts récents)
+// src/main/db/db.js — Schéma propre (local) prêt pour la synchro multi‑postes
 const Database = require('better-sqlite3');
 const path = require('path');
 
-// Base au même endroit qu’avant
-const dbPath = path.resolve(__dirname, '../../../coopaz.db');
+const dbPath = path.resolve(__dirname, '../../../coopaz.db'); // gardé comme chez toi
 const db = new Database(dbPath);
 
 db.pragma('foreign_keys = ON');
 
 // ─────────────────────────────────────────────────────────────
-// META (pour futures migrations)
+// META (version schéma locale)
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS app_meta (
@@ -69,7 +68,6 @@ db.prepare(`
   )
 `).run();
 
-// (Conservé de ta version actuelle)
 db.prepare(`
   CREATE TABLE IF NOT EXISTS prospects (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,11 +129,12 @@ db.prepare(`
     nom            TEXT NOT NULL,
     reference      TEXT UNIQUE NOT NULL,
     prix           REAL NOT NULL,
-    stock          INTEGER NOT NULL,          -- ⬅️ comme l’ancienne version
+    stock          INTEGER NOT NULL DEFAULT 0, -- cache local tenu à jour par triggers
     code_barre     TEXT,
     unite_id       INTEGER,
     fournisseur_id INTEGER,
     categorie_id   INTEGER,
+    updated_at     TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (unite_id)       REFERENCES unites(id),
     FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id),
     FOREIGN KEY (categorie_id)   REFERENCES categories(id)
@@ -150,8 +149,8 @@ db.prepare(`
   CREATE TABLE IF NOT EXISTS modes_paiement (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     nom          TEXT UNIQUE NOT NULL,
-    taux_percent REAL DEFAULT 0,   -- ex: 0.55 pour 0,55 %
-    frais_fixe   REAL DEFAULT 0,   -- ex: 0.20 pour 0,20 €
+    taux_percent REAL DEFAULT 0,
+    frais_fixe   REAL DEFAULT 0,
     actif        INTEGER DEFAULT 1
   )
 `).run();
@@ -164,9 +163,9 @@ db.prepare(`
     date_vente       TEXT DEFAULT (datetime('now','localtime')),
     mode_paiement_id INTEGER,
     frais_paiement   REAL DEFAULT 0,
-    -- champs ajoutés utiles à ta version actuelle
     sale_type        TEXT NOT NULL DEFAULT 'adherent',   -- 'adherent' | 'exterieur' | 'prospect'
     client_email     TEXT,
+    updated_at       TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
     FOREIGN KEY (mode_paiement_id) REFERENCES modes_paiement(id)
   )
@@ -176,13 +175,13 @@ db.prepare(`CREATE INDEX IF NOT EXISTS idx_ventes_date ON ventes(date_vente)`).r
 db.prepare(`
   CREATE TABLE IF NOT EXISTS lignes_vente (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    vente_id       INTEGER,
-    produit_id     INTEGER,
-    quantite       REAL,
-    prix           REAL,
-    -- champs supplémentaires conservés (compat UI récente)
-    prix_unitaire  REAL,
+    vente_id       INTEGER NOT NULL,
+    produit_id     INTEGER NOT NULL,
+    quantite       REAL NOT NULL,
+    prix           REAL NOT NULL,          -- prix appliqué (après remise / marge)
+    prix_unitaire  REAL,                   -- PU avant remise
     remise_percent REAL DEFAULT 0,
+    updated_at     TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (vente_id)   REFERENCES ventes(id)     ON DELETE CASCADE,
     FOREIGN KEY (produit_id) REFERENCES produits(id)   ON DELETE CASCADE
   )
@@ -190,13 +189,13 @@ db.prepare(`
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_lignes_vente_vente ON lignes_vente(vente_id)`).run();
 
 // ─────────────────────────────────────────────────────────────
-// COTISATIONS (reprise de l’ancienne version)
+// COTISATIONS
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS cotisations (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     adherent_id   INTEGER NOT NULL,
-    mois          TEXT NOT NULL,                     -- 'YYYY-MM'
+    mois          TEXT NOT NULL, -- 'YYYY-MM'
     montant       REAL NOT NULL,
     date_paiement TEXT DEFAULT (date('now')),
     FOREIGN KEY (adherent_id) REFERENCES adherents(id)
@@ -204,7 +203,7 @@ db.prepare(`
 `).run();
 
 // ─────────────────────────────────────────────────────────────
-// RÉCEPTIONS / STOCKS (comme l’ancienne version)
+// RÉCEPTIONS
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS receptions (
@@ -212,6 +211,7 @@ db.prepare(`
     fournisseur_id INTEGER,
     date           TEXT DEFAULT (datetime('now','localtime')),
     reference      TEXT,
+    updated_at     TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id)
   )
 `).run();
@@ -221,12 +221,121 @@ db.prepare(`
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     reception_id   INTEGER NOT NULL,
     produit_id     INTEGER NOT NULL,
-    quantite       REAL,
-    prix_unitaire  REAL,          -- attendu par getDetailsReception()
-    FOREIGN KEY (reception_id) REFERENCES receptions(id),
-    FOREIGN KEY (produit_id)   REFERENCES produits(id)
+    quantite       REAL NOT NULL,
+    prix_unitaire  REAL,
+    updated_at     TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE,
+    FOREIGN KEY (produit_id)   REFERENCES produits(id)   ON DELETE CASCADE
   )
 `).run();
+
+// ─────────────────────────────────────────────────────────────
+// JOURNAL D’OPÉRATIONS (LOCAL → pour push vers Neon)
+// ─────────────────────────────────────────────────────────────
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS ops_queue (
+    id           TEXT PRIMARY KEY,                  -- UUID
+    device_id    TEXT NOT NULL,                     -- identifiant du poste
+    created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    op_type      TEXT NOT NULL,                     -- ex: sale.created, sale.line_added, reception.line_added, stock.adjustment
+    entity_type  TEXT,                              -- ex: vente, ligne_vente, produit...
+    entity_id    TEXT,                              -- id local (integer) ou uuid si tu en utilises
+    payload_json TEXT NOT NULL,                     -- JSON.stringify(...)
+    sent_at      TEXT,                              -- quand on a tenté de l’envoyer
+    ack          INTEGER NOT NULL DEFAULT 0         -- 0 = pas confirmé, 1 = confirmé par le serveur
+  )
+`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_ack ON ops_queue(ack)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_created ON ops_queue(created_at)`).run();
+
+// ─────────────────────────────────────────────────────────────
+// MOUVEMENTS DE STOCK (source de vérité des variations)
+// + déclencheurs pour tenir produits.stock à jour
+// ─────────────────────────────────────────────────────────────
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS stock_movements (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id   INTEGER NOT NULL,
+    source_type  TEXT NOT NULL,          -- 'sale_line' | 'reception_line' | 'adjustment'
+    source_id    TEXT NOT NULL,          -- identifiant de la source (ex: lignes_vente.id)
+    qty_change   REAL NOT NULL,          -- + pour réception, - pour vente
+    at           TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    UNIQUE (source_type, source_id),
+    FOREIGN KEY (product_id) REFERENCES produits(id) ON DELETE CASCADE
+  )
+`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id)`).run();
+
+/** Triggers pour maintenir produits.stock (cache) en phase avec stock_movements **/
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS trg_sm_ai
+  AFTER INSERT ON stock_movements
+  BEGIN
+    UPDATE produits SET stock = stock + NEW.qty_change, updated_at = datetime('now','localtime')
+    WHERE id = NEW.product_id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_sm_ad
+  AFTER DELETE ON stock_movements
+  BEGIN
+    UPDATE produits SET stock = stock - OLD.qty_change, updated_at = datetime('now','localtime')
+    WHERE id = OLD.product_id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_sm_au
+  AFTER UPDATE ON stock_movements
+  BEGIN
+    UPDATE produits SET stock = stock + (NEW.qty_change - OLD.qty_change), updated_at = datetime('now','localtime')
+    WHERE id = NEW.product_id;
+  END;
+`);
+
+/** (Optionnel) Triggers pour créer automatiquement des mouvements depuis les lignes de vente/réception **/
+db.exec(`
+  -- VENTES → mouvement négatif
+  CREATE TRIGGER IF NOT EXISTS trg_lv_ai
+  AFTER INSERT ON lignes_vente
+  BEGIN
+    INSERT OR IGNORE INTO stock_movements (product_id, source_type, source_id, qty_change, at)
+    VALUES (NEW.produit_id, 'sale_line', NEW.id, -NEW.quantite, datetime('now','localtime'));
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_lv_ad
+  AFTER DELETE ON lignes_vente
+  BEGIN
+    DELETE FROM stock_movements WHERE source_type = 'sale_line' AND source_id = OLD.id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_lv_au
+  AFTER UPDATE OF quantite ON lignes_vente
+  BEGIN
+    UPDATE stock_movements
+      SET qty_change = -NEW.quantite, at = datetime('now','localtime')
+    WHERE source_type = 'sale_line' AND source_id = NEW.id;
+  END;
+
+  -- RÉCEPTIONS → mouvement positif
+  CREATE TRIGGER IF NOT EXISTS trg_lr_ai
+  AFTER INSERT ON lignes_reception
+  BEGIN
+    INSERT OR IGNORE INTO stock_movements (product_id, source_type, source_id, qty_change, at)
+    VALUES (NEW.produit_id, 'reception_line', NEW.id, NEW.quantite, datetime('now','localtime'));
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_lr_ad
+  AFTER DELETE ON lignes_reception
+  BEGIN
+    DELETE FROM stock_movements WHERE source_type = 'reception_line' AND source_id = OLD.id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS trg_lr_au
+  AFTER UPDATE OF quantite ON lignes_reception
+  BEGIN
+    UPDATE stock_movements
+      SET qty_change = NEW.quantite, at = datetime('now','localtime')
+    WHERE source_type = 'reception_line' AND source_id = NEW.id;
+  END;
+`);
 
 // ─────────────────────────────────────────────────────────────
 // SEEDS
@@ -240,17 +349,14 @@ db.prepare(`
 const DEFAULT_TREE = [
   { famille: 'Fruits & Légumes (frais)', cats: ['Fruits frais','Légumes frais','Herbes & aromates','Champignons','Pommes de terre & tubercules','Fruits secs & oléagineux'] },
   { famille: 'Crèmerie & Œufs', cats: ['Lait & boissons lactées','Yaourts & desserts lactés','Beurre & matières grasses','Crèmes & fromages blancs','Fromages','Œufs'] },
-  { famille: 'Boucherie / Charcuterie / Poissonnerie', cats: ['Viande boeuf & agneau','Viande porc','Viande autres','Volaille','Charcuterie','Poisson & fruits de mer','Alternatives végétales (tofu, seitan, tempeh)'] },
-  { famille: 'Épicerie salée', cats: ['Pâtes, riz & céréales','Légumineuses','Conserves & bocaux','Sauces, condiments & épices','Huiles & vinaigres','Apéro salé (chips, crackers)'] },
+  { famille: 'Boucherie / Charcuterie / Poissonnerie', cats: ['Viande boeuf & agneau','Viande porc','Viande autres','Volaille','Charcuterie','Poisson & fruits de mer','Alternatives végétales'] },
+  { famille: 'Épicerie salée', cats: ['Pâtes, riz & céréales','Légumineuses','Conserves & bocaux','Sauces, condiments & épices','Huiles & vinaigres','Apéro salé'] },
   { famille: 'Épicerie sucrée', cats: ['Biscuits & gâteaux','Chocolat & confiseries','Confitures & pâtes à tartiner','Sucres & farines','Aides pâtisserie & levures','Miel & sirops'] },
   { famille: 'Boulangerie', cats: ['Pains & viennoiseries','Biscottes & pains grillés'] },
-  { famille: 'Boissons', cats: ['Eaux & eaux pétillantes','Sodas & boissons sans alcool','Jus & nectars','Bières & cidres','Vins & spiritueux','Boissons chaudes (café, thé, infusions, cacao)'] },
-  { famille: 'Surgelés', cats: ['Surgelés salés','Surgelés sucrés','Glaces & desserts glacés'] },
-  { famille: 'Bébé & Enfant', cats: ['Laits & petits pots','Couches & soins bébé','Biscuits & boissons enfant'] },
-  { famille: 'Animaux', cats: ['Nourriture chiens','Nourriture chats','NAC & oiseaux'] },
-  { famille: 'Hygiène & Entretien', cats: ['Hygiène corporelle','Soins & beauté','Papeterie & accessoires hygiène','Entretien maison & lessive','Vaisselle & accessoires ménage'] },
-  { famille: 'Local / Saisonnier', cats: ['Producteurs locaux','Produits de saison','Éditions limitées'] },
-  { famille: 'VRAC', cats: ['Vrac salé (pâtes, riz, légumineuses)','Vrac sucré (fruits secs, céréales)'] },
+  { famille: 'Boissons', cats: ['Eaux','Sodas','Jus & nectars','Bières & cidres','Vins & spiritueux','Boissons chaudes'] },
+  { famille: 'Surgelés', cats: ['Surgelés salés','Surgelés sucrés','Glaces'] },
+  { famille: 'Hygiène & Entretien', cats: ['Hygiène','Beauté','Papeterie','Entretien','Vaisselle'] },
+  { famille: 'VRAC', cats: ['Vrac salé','Vrac sucré'] },
 ];
 
 (function seedFamiliesAndCategories() {
@@ -278,12 +384,9 @@ const DEFAULT_TREE = [
   ins.run('Virement', 0, 0);
 })();
 
-// Version du schéma (facultatif pour le moment)
+// META version
 const cur = db.prepare('SELECT COUNT(*) AS n FROM app_meta').get().n;
-if (cur === 0) {
-  db.prepare('INSERT INTO app_meta (schema_version) VALUES (?)').run(1);
-} else {
-  db.prepare('UPDATE app_meta SET schema_version = ?').run(1);
-}
+if (cur === 0) db.prepare('INSERT INTO app_meta (schema_version) VALUES (1)').run();
+else db.prepare('UPDATE app_meta SET schema_version = 1').run();
 
 module.exports = db;
