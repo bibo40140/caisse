@@ -2,9 +2,11 @@
 const { ipcMain } = require('electron');
 const produitsDb = require('../db/produits');
 
-ipcMain.handle('get-produits', () => {
-  return produitsDb.getProduits();
+ipcMain.handle('get-produits', async (_evt, opts = {}) => {
+  const produitsDb = require('../db/produits');
+  return produitsDb.getProduits(opts); // ← important : pas de SELECT “*” maison
 });
+
 
 ipcMain.handle('ajouter-produit', (event, produit) => {
   produitsDb.ajouterProduit(produit);
@@ -26,6 +28,9 @@ ipcMain.handle('supprimer-et-remplacer-produit', (event, nouveau, idExistant) =>
 ipcMain.handle('rechercher-produit-par-nom-et-fournisseur', (event, nom, fournisseurId) => {
   return produitsDb.rechercherProduitParNomEtFournisseur(nom, fournisseurId);
 });
+
+
+
 
 ipcMain.handle('produits:list', async () => {
   // Les méthodes exactes peuvent varier : getAll / list / findAll...

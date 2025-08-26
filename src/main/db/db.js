@@ -1,16 +1,14 @@
-// src/main/db/db.js — CENTRALISÉ (schéma propre)
+// src/main/db/db.js — Schéma local "synchro-first" (sans triggers de stock)
 const Database = require('better-sqlite3');
 const path = require('path');
 
-// Emplacement de la base (à la racine du projet)
 const dbPath = path.resolve(__dirname, '../../../coopaz.db');
 const db = new Database(dbPath);
 
-// Sécurité FK
 db.pragma('foreign_keys = ON');
 
 // ─────────────────────────────────────────────────────────────
-// Table de version de schéma (utile pour évoluer proprement)
+// META (version schéma locale)
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS app_meta (
@@ -87,7 +85,6 @@ db.prepare(`
     FOREIGN KEY (adherent_id) REFERENCES adherents(id) ON DELETE SET NULL
   )
 `).run();
-
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_prospects_email  ON prospects(email)`).run();
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status)`).run();
 
@@ -106,7 +103,7 @@ db.prepare(`
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_invits_prospect ON prospects_invitations(prospect_id)`).run();
 
 // ─────────────────────────────────────────────────────────────
-/** FOURNISSEURS / PRODUITS **/
+// FOURNISSEURS / PRODUITS
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS fournisseurs (
@@ -132,11 +129,12 @@ db.prepare(`
     nom            TEXT NOT NULL,
     reference      TEXT UNIQUE NOT NULL,
     prix           REAL NOT NULL,
-    stock          REAL NOT NULL DEFAULT 0,
+    stock          INTEGER NOT NULL DEFAULT 0, -- valeur recadrée par le pull depuis Neon
     code_barre     TEXT,
     unite_id       INTEGER,
     fournisseur_id INTEGER,
     categorie_id   INTEGER,
+    updated_at     TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (unite_id)       REFERENCES unites(id),
     FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id),
     FOREIGN KEY (categorie_id)   REFERENCES categories(id)
@@ -145,7 +143,7 @@ db.prepare(`
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_barcode ON produits(code_barre)`).run();
 
 // ─────────────────────────────────────────────────────────────
-/** MODES DE PAIEMENT / VENTES **/
+// MODES DE PAIEMENT / VENTES
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS modes_paiement (
@@ -167,6 +165,7 @@ db.prepare(`
     frais_paiement   REAL DEFAULT 0,
     sale_type        TEXT NOT NULL DEFAULT 'adherent',   -- 'adherent' | 'exterieur' | 'prospect'
     client_email     TEXT,
+    updated_at       TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
     FOREIGN KEY (mode_paiement_id) REFERENCES modes_paiement(id)
   )
@@ -182,6 +181,7 @@ db.prepare(`
     prix           REAL NOT NULL,          -- prix appliqué (après remise / marge)
     prix_unitaire  REAL,                   -- PU avant remise
     remise_percent REAL DEFAULT 0,
+    updated_at     TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (vente_id)   REFERENCES ventes(id)     ON DELETE CASCADE,
     FOREIGN KEY (produit_id) REFERENCES produits(id)   ON DELETE CASCADE
   )
@@ -189,7 +189,21 @@ db.prepare(`
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_lignes_vente_vente ON lignes_vente(vente_id)`).run();
 
 // ─────────────────────────────────────────────────────────────
-/** RÉCEPTIONS / STOCKS **/
+// COTISATIONS
+// ─────────────────────────────────────────────────────────────
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS cotisations (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    adherent_id   INTEGER NOT NULL,
+    mois          TEXT NOT NULL, -- 'YYYY-MM'
+    montant       REAL NOT NULL,
+    date_paiement TEXT DEFAULT (date('now')),
+    FOREIGN KEY (adherent_id) REFERENCES adherents(id)
+  )
+`).run();
+
+// ─────────────────────────────────────────────────────────────
+// RÉCEPTIONS
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS receptions (
@@ -197,6 +211,7 @@ db.prepare(`
     fournisseur_id INTEGER,
     date           TEXT DEFAULT (datetime('now','localtime')),
     reference      TEXT,
+    updated_at     TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id)
   )
 `).run();
@@ -208,13 +223,49 @@ db.prepare(`
     produit_id     INTEGER NOT NULL,
     quantite       REAL NOT NULL,
     prix_unitaire  REAL,
+    updated_at     TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE,
     FOREIGN KEY (produit_id)   REFERENCES produits(id)   ON DELETE CASCADE
   )
 `).run();
 
 // ─────────────────────────────────────────────────────────────
-/** SEEDS **/
+// JOURNAL D’OPÉRATIONS (LOCAL → pour push vers Neon)
+// ─────────────────────────────────────────────────────────────
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS ops_queue (
+    id           TEXT PRIMARY KEY,                  -- UUID
+    device_id    TEXT NOT NULL,                     -- identifiant du poste
+    created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    op_type      TEXT NOT NULL,                     -- ex: sale.created, sale.line_added, reception.line_added
+    entity_type  TEXT,                              -- ex: vente, ligne_vente, produit...
+    entity_id    TEXT,                              -- id local (integer) ou uuid
+    payload_json TEXT NOT NULL,                     -- JSON.stringify(...)
+    sent_at      TEXT,
+    ack          INTEGER NOT NULL DEFAULT 0         -- 0 = pas confirmé, 1 = confirmé par le serveur
+  )
+`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_ack ON ops_queue(ack)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_created ON ops_queue(created_at)`).run();
+
+// ─────────────────────────────────────────────────────────────
+// ⚠️ Nettoyage : supprimer d’anciens triggers locaux de stock
+// (évite le double comptage; le stock est recalé par le PULL)
+// ─────────────────────────────────────────────────────────────
+db.exec(`
+  DROP TRIGGER IF EXISTS trg_sm_ai;
+  DROP TRIGGER IF EXISTS trg_sm_ad;
+  DROP TRIGGER IF EXISTS trg_sm_au;
+  DROP TRIGGER IF EXISTS trg_lv_ai;
+  DROP TRIGGER IF EXISTS trg_lv_ad;
+  DROP TRIGGER IF EXISTS trg_lv_au;
+  DROP TRIGGER IF EXISTS trg_lr_ai;
+  DROP TRIGGER IF EXISTS trg_lr_ad;
+  DROP TRIGGER IF EXISTS trg_lr_au;
+`);
+
+// ─────────────────────────────────────────────────────────────
+// SEEDS
 // ─────────────────────────────────────────────────────────────
 (function seedUnites() {
   const have = db.prepare('SELECT nom FROM unites').all().map(x => (x.nom || '').toLowerCase());
@@ -225,17 +276,14 @@ db.prepare(`
 const DEFAULT_TREE = [
   { famille: 'Fruits & Légumes (frais)', cats: ['Fruits frais','Légumes frais','Herbes & aromates','Champignons','Pommes de terre & tubercules','Fruits secs & oléagineux'] },
   { famille: 'Crèmerie & Œufs', cats: ['Lait & boissons lactées','Yaourts & desserts lactés','Beurre & matières grasses','Crèmes & fromages blancs','Fromages','Œufs'] },
-  { famille: 'Boucherie / Charcuterie / Poissonnerie', cats: ['Viande boeuf & agneau','Viande porc','Viande autres','Volaille','Charcuterie','Poisson & fruits de mer','Alternatives végétales (tofu, seitan, tempeh)'] },
-  { famille: 'Épicerie salée', cats: ['Pâtes, riz & céréales','Légumineuses','Conserves & bocaux','Sauces, condiments & épices','Huiles & vinaigres','Apéro salé (chips, crackers)'] },
+  { famille: 'Boucherie / Charcuterie / Poissonnerie', cats: ['Viande boeuf & agneau','Viande porc','Viande autres','Volaille','Charcuterie','Poisson & fruits de mer','Alternatives végétales'] },
+  { famille: 'Épicerie salée', cats: ['Pâtes, riz & céréales','Légumineuses','Conserves & bocaux','Sauces, condiments & épices','Huiles & vinaigres','Apéro salé'] },
   { famille: 'Épicerie sucrée', cats: ['Biscuits & gâteaux','Chocolat & confiseries','Confitures & pâtes à tartiner','Sucres & farines','Aides pâtisserie & levures','Miel & sirops'] },
   { famille: 'Boulangerie', cats: ['Pains & viennoiseries','Biscottes & pains grillés'] },
-  { famille: 'Boissons', cats: ['Eaux & eaux pétillantes','Sodas & boissons sans alcool','Jus & nectars','Bières & cidres','Vins & spiritueux','Boissons chaudes (café, thé, infusions, cacao)'] },
-  { famille: 'Surgelés', cats: ['Surgelés salés','Surgelés sucrés','Glaces & desserts glacés'] },
-  { famille: 'Bébé & Enfant', cats: ['Laits & petits pots','Couches & soins bébé','Biscuits & boissons enfant'] },
-  { famille: 'Animaux', cats: ['Nourriture chiens','Nourriture chats','NAC & oiseaux'] },
-  { famille: 'Hygiène & Entretien', cats: ['Hygiène corporelle','Soins & beauté','Papeterie & accessoires hygiène','Entretien maison & lessive','Vaisselle & accessoires ménage'] },
-  { famille: 'Local / Saisonnier', cats: ['Producteurs locaux','Produits de saison','Éditions limitées'] },
-  { famille: 'VRAC', cats: ['Vrac salé (pâtes, riz, légumineuses)','Vrac sucré (fruits secs, céréales)'] },
+  { famille: 'Boissons', cats: ['Eaux','Sodas','Jus & nectars','Bières & cidres','Vins & spiritueux','Boissons chaudes'] },
+  { famille: 'Surgelés', cats: ['Surgelés salés','Surgelés sucrés','Glaces'] },
+  { famille: 'Hygiène & Entretien', cats: ['Hygiène','Beauté','Papeterie','Entretien','Vaisselle'] },
+  { famille: 'VRAC', cats: ['Vrac salé','Vrac sucré'] },
 ];
 
 (function seedFamiliesAndCategories() {
@@ -263,12 +311,9 @@ const DEFAULT_TREE = [
   ins.run('Virement', 0, 0);
 })();
 
-// Version du schéma
+// META version
 const cur = db.prepare('SELECT COUNT(*) AS n FROM app_meta').get().n;
-if (cur === 0) {
-  db.prepare('INSERT INTO app_meta (schema_version) VALUES (?)').run(1);
-} else {
-  db.prepare('UPDATE app_meta SET schema_version = ?').run(1);
-}
+if (cur === 0) db.prepare('INSERT INTO app_meta (schema_version) VALUES (2)').run();
+else db.prepare('UPDATE app_meta SET schema_version = 2').run();
 
 module.exports = db;

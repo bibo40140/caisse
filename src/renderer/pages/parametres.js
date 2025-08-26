@@ -1,5 +1,39 @@
 // src/renderer/pages/parametres.js
 (() => {
+  function showBusy(message = 'Veuillez patienter…') {
+  let overlay = document.getElementById('busy-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'busy-overlay';
+    overlay.innerHTML = `
+      <div class="busy-backdrop"></div>
+      <div class="busy-modal">
+        <div class="busy-spinner"></div>
+        <div class="busy-text"></div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const style = document.createElement('style');
+    style.id = 'busy-style';
+    style.textContent = `
+      #busy-overlay { position: fixed; inset: 0; display: grid; place-items: center; z-index: 9999; }
+      .busy-backdrop { position:absolute; inset:0; background: rgba(0,0,0,.35); backdrop-filter: blur(2px); }
+      .busy-modal { position:relative; background:#fff; border-radius:12px; padding:20px 28px; min-width: 280px; display:flex; gap:12px; align-items:center; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+      .busy-spinner { width: 26px; height: 26px; border: 3px solid #ddd; border-top-color: #4a89dc; border-radius: 50%; animation: spin .9s linear infinite; }
+      .busy-text { font-size: 14px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    `;
+    document.head.appendChild(style);
+  }
+  overlay.querySelector('.busy-text').textContent = message;
+  overlay.style.display = 'grid';
+}
+
+function hideBusy() {
+  const overlay = document.getElementById('busy-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
 	function renderParametresHome() {
   const content = document.getElementById("page-content");
   content.innerHTML = `
@@ -69,21 +103,82 @@ document.getElementById('btn-param-import').addEventListener('click', () => wind
     if (btnModes) btnModes.style.display = mods.modes_paiement ? '' : 'none';
   })();
   
-  document.getElementById('btn-sync-push')?.addEventListener('click', async () => {
-  const r = await window.electronAPI.syncPushProduits();
-  if (r?.ok) alert(`Push OK : ${r.applied} produits envoyés vers Neon.`);
-  else alert('Push KO : ' + (r?.error || 'inconnu'));
+// Push TOUT (local → Neon)
+document.getElementById('btn-sync-push')?.addEventListener('click', async () => {
+  if (!confirm("Envoyer TOUTE la base locale vers Neon (création/mise à jour) ?")) return;
+  showBusy('Envoi vers Neon en cours…');
+  try {
+    const r = await window.electronAPI.syncPushAll();
+    hideBusy();
+    if (r?.ok) {
+      const c = r.counts || {};
+      alert(
+        "✅ Push terminé.\n\n" +
+        `• Unités: ${c.unites ?? '—'}\n` +
+        `• Familles: ${c.familles ?? '—'}\n` +
+        `• Catégories: ${c.categories ?? '—'}\n` +
+        `• Adhérents: ${c.adherents ?? '—'}\n` +
+        `• Fournisseurs: ${c.fournisseurs ?? '—'}\n` +
+        `• Produits: ${c.produits ?? '—'}`
+      );
+    } else {
+      alert("Push KO : " + (r?.error || 'inconnu'));
+    }
+  } catch (e) {
+    hideBusy();
+    alert("Push KO : " + (e?.message || e));
+  }
 });
 
+// Pull TOUT (Neon → local)
 document.getElementById('btn-sync-pull')?.addEventListener('click', async () => {
-  const r = await window.electronAPI.syncPullProduits();
-  if (r?.ok) alert(`Pull OK : ${r.count} produits reçus (table miroir).`);
-  else alert('Pull KO : ' + (r?.error || 'inconnu'));
+  if (!confirm("Remplacer/mettre à jour la base LOCALE depuis Neon ?")) return;
+  showBusy('Récupération depuis Neon…');
+  try {
+    const r = await window.electronAPI.syncPullAll();
+    hideBusy();
+    if (r?.ok) {
+      const c = r.counts || {};
+      alert(
+        "✅ Pull terminé.\n\n" +
+        `• Unités: ${c.unites ?? '—'}\n` +
+        `• Familles: ${c.familles ?? '—'}\n` +
+        `• Catégories: ${c.categories ?? '—'}\n` +
+        `• Adhérents: ${c.adherents ?? '—'}\n` +
+        `• Fournisseurs: ${c.fournisseurs ?? '—'}\n` +
+        `• Produits: ${c.produits ?? '—'}`
+      );
+    } else {
+      alert("Pull KO : " + (r?.error || 'inconnu'));
+    }
+  } catch (e) {
+    hideBusy();
+    alert("Pull KO : " + (e?.message || e));
+  }
 });
+
+
+// === Push/Pull TOUT ===
+    document.getElementById('btn-sync-push')?.addEventListener('click', async () => {
+      if (!confirm("Envoyer TOUTE la base locale vers Neon (création/mise à jour) ?")) return;
+      const r = await window.electronAPI.syncPushAll();
+      if (r?.ok) alert("Push complet OK."); else alert("Push KO : " + (r?.error || 'inconnu'));
+    });
+
+    document.getElementById('btn-sync-pull')?.addEventListener('click', async () => {
+      if (!confirm("Remplacer/mettre à jour la base LOCALE depuis Neon ?")) return;
+      const r = await window.electronAPI.syncPullAll();
+      if (r?.ok) alert(`Pull complet OK : ${r.counts?.produits ?? 0} produits, ${r.counts?.fournisseurs ?? 0} fournisseurs…`);
+      else alert("Pull KO : " + (r?.error || 'inconnu'));
+    });
+  }
+
 
   
   
-}
+
+
+
 
 function loadScriptOnce(src) {
   return new Promise((resolve, reject) => {

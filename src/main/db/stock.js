@@ -1,60 +1,68 @@
 // src/main/db/stock.js
 const db = require('./db');
+const { enqueueOp } = require('./ops');
+const { getDeviceId } = require('../device');
+const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
-// Normalise une quantité (nombre >= 0)
-function _toPosNumber(n) {
-  const x = Number(n);
-  return Number.isFinite(x) && x > 0 ? x : 0;
-}
-
-// 🔽 Décrémenter le stock d’un produit (ex : vente)
-function decrementerStock(produitId, quantite) {
-  const q = _toPosNumber(quantite);
-  if (!q) return; // rien à faire
-  const stmt = db.prepare(`UPDATE produits SET stock = stock - ? WHERE id = ?`);
-  stmt.run(q, Number(produitId));
-}
-
-// 🔼 Incrémenter le stock (ex : retour produit)
-function incrementerStock(produitId, quantite) {
-  const q = _toPosNumber(quantite);
-  if (!q) return;
-  const stmt = db.prepare(`UPDATE produits SET stock = stock + ? WHERE id = ?`);
-  stmt.run(q, Number(produitId));
-}
-
-// 🔄 Mettre à jour le stock à une valeur fixe
-function mettreAJourStock(produitId, quantite) {
-  const q = Number(quantite);
-  if (!Number.isFinite(q)) return;
-  const stmt = db.prepare(`UPDATE produits SET stock = ? WHERE id = ?`);
-  stmt.run(q, Number(produitId));
-}
-
-// 🔍 Obtenir le stock actuel d’un produit
+// lecture simple
 function getStock(produitId) {
-  const row = db.prepare(`SELECT stock FROM produits WHERE id = ?`).get(Number(produitId));
-  return row ? row.stock : null;
+  const r = db.prepare(`SELECT stock FROM produits WHERE id = ?`).get(Number(produitId));
+  return r ? Number(r.stock || 0) : 0;
 }
 
-// 🔁 Réinitialiser tout le stock (ex : inventaire complet)
-function reinitialiserStock() {
-  db.prepare(`UPDATE produits SET stock = 0`).run();
+// ajustement absolu -> delta + op inventory.adjust + push
+function mettreAJourStock(produitId, newStock) {
+  const id = Number(produitId);
+  const current = getStock(id);
+  const next = Number(newStock);
+  if (!Number.isFinite(next)) return;
+
+  const delta = next - current;
+  if (delta === 0) return;
+
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE produits SET stock = ?, updated_at = datetime('now','localtime') WHERE id = ?`)
+      .run(next, id);
+
+    enqueueOp({
+      deviceId: DEVICE_ID,
+      opType: 'inventory.adjust',
+      entityType: 'produit',
+      entityId: String(id),
+      payload: { produitId: id, delta, reason: 'manual.set' },
+    });
+
+    try {
+      const { pushOpsNow } = require('../sync');
+      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
+    } catch {}
+  });
+
+  tx();
 }
 
-// ——— Aliases pour compatibilité ———
-// Certains modules appellent decrementStock / incrementStock
+// helpers compat (incr/decr) -> utilisent l’absolu
+function incrementerStock(produitId, quantite) {
+  const cur = getStock(produitId);
+  mettreAJourStock(produitId, cur + Number(quantite || 0));
+}
+function decrementerStock(produitId, quantite) {
+  const cur = getStock(produitId);
+  mettreAJourStock(produitId, cur - Number(quantite || 0));
+}
+function reinitialiserStock(produitId) {
+  mettreAJourStock(produitId, 0);
+}
+
 const decrementStock = decrementerStock;
 const incrementStock = incrementerStock;
 
 module.exports = {
-  // noms “historiques”
   decrementerStock,
   incrementerStock,
   mettreAJourStock,
   getStock,
   reinitialiserStock,
-  // aliases compatibles
   decrementStock,
   incrementStock,
 };

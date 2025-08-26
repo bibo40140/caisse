@@ -1,202 +1,163 @@
+// src/main/db/ventes.js
 const db = require('./db');
 const fs = require('fs');
 const path = require('path');
-const stockDb = require('./stock'); // ← on le charge une fois ici
+const { enqueueOp } = require('./ops');
+const { getDeviceId } = require('../device');
 
-// Charger la config pour savoir si le module adhérents est actif
+const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
+
 function isModuleActive(moduleName) {
   try {
-    const configPath = path.join(__dirname, '..', '..','..', 'config.json');
+    const configPath = path.join(__dirname, '..', '..', '..', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    return cfg.modules && cfg.modules[moduleName] === true;
-  } catch (err) {
-    console.error("Impossible de lire config.json :", err);
-    return false;
-  }
+    return !!(cfg && cfg.modules && cfg.modules[moduleName] === true);
+  } catch { return false; }
 }
 
-// Ajouter une vente
-function enregistrerVente(vente) {
-  const adherentsActive = isModuleActive('adherents');
+/**
+ * Crée une vente + lignes en local (sans toucher au stock)
+ * et enfile les ops de vente (le serveur créera le mouvement de stock).
+ */
+function enregistrerVente(vente, lignes) {
+  if (!vente) throw new Error('vente manquante');
+  if (!Array.isArray(lignes) || lignes.length === 0) throw new Error('aucune ligne de vente');
+
+  const useAdherents = isModuleActive('adherents');
 
   const insertVente = db.prepare(`
-    INSERT INTO ventes (date_vente, total, adherent_id, mode_paiement_id, frais_paiement, sale_type, client_email)
-    VALUES (datetime('now'), ?, ?, ?, ?, ?, ?)
+    INSERT INTO ventes
+      (total, adherent_id, date_vente, mode_paiement_id, frais_paiement, sale_type, client_email, updated_at)
+    VALUES
+      (?, ?, datetime('now','localtime'), ?, ?, ?, ?, datetime('now','localtime'))
   `);
 
   const insertLigne = db.prepare(`
-    INSERT INTO lignes_vente (vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO lignes_vente
+      (vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent, updated_at)
+    VALUES
+      (?, ?, ?, ?, ?, ?, datetime('now','localtime'))
   `);
 
-  const insertCotisation = db.prepare(`
-    INSERT INTO cotisations (adherent_id, montant, date_paiement, mois)
-    VALUES (?, ?, ?, ?)
-  `);
+  const tx = db.transaction(() => {
+    const saleType = vente.sale_type || (useAdherents ? 'adherent' : 'exterieur');
+    const adherentId = useAdherents ? (Number(vente.adherent_id) || null) : null;
 
-  const transaction = db.transaction(() => {
-    const saleType = (vente.sale_type === 'exterieur') ? 'exterieur' : 'adherent';
-    const clientEmail = vente.client_email ?? null;
-    const adherentId = (adherentsActive && saleType === 'adherent' && vente.adherent_id)
-      ? Number(vente.adherent_id)
-      : null;
-
-    const res = insertVente.run(
+    const rV = insertVente.run(
       Number(vente.total || 0),
       adherentId,
       (vente.mode_paiement_id ?? null),
       Number(vente.frais_paiement || 0),
       saleType,
-      clientEmail
+      (vente.client_email || null)
     );
+    const venteId = rV.lastInsertRowid;
 
-    const venteId = res.lastInsertRowid;
-
-    if (Array.isArray(vente.lignes)) {
-      for (const l of vente.lignes) {
-        const puApplique = (l.prix != null) ? Number(l.prix) : Number(l.prix_unitaire || 0);
-        const puOrig     = (l.prix_unitaire != null) ? Number(l.prix_unitaire) : Number(l.prix || 0);
-        const remisePct  = (l.remise_percent != null) ? Number(l.remise_percent) : 0;
-
-        insertLigne.run(
-          venteId,
-          Number(l.produit_id),
-          Number(l.quantite || 0),
-          puApplique,
-          puOrig,
-          remisePct
-        );
-
-        // Décrémenter le stock uniquement si module Stocks actif
-        if (isModuleActive('stocks') && Number(l.quantite) > 0) {
-          try {
-            // Choix de la bonne fonction exportée par stockDb
-            const dec =
-              stockDb.decrementStock ||
-              stockDb.decrementerStock ||
-              stockDb.decrement ||
-              stockDb.ajusterStock;
-
-            if (typeof dec === 'function') {
-              dec(Number(l.produit_id), Number(l.quantite));
-            } else {
-              console.warn('[STOCK] Aucune fonction de décrément trouvée dans stockDb. Mise à jour du stock ignorée.');
-            }
-          } catch (err) {
-            console.error("Erreur lors de la mise à jour du stock :", err);
-            // Ne pas throw → on n'annule pas la vente si la MàJ stock échoue
-          }
-        }
-      }
-    }
-
-    // Cotisation uniquement si module adhérents actif, vente adherent, et montant > 0
-    if (adherentsActive && saleType === 'adherent' && vente.cotisation && Number(vente.cotisation) > 0) {
-      const datePaiement = new Date().toISOString().slice(0, 10);
-      const mois = datePaiement.slice(0, 7);
-      insertCotisation.run(
+    // Op header
+    enqueueOp({
+      deviceId: DEVICE_ID,
+      opType: 'sale.created',
+      entityType: 'vente',
+      entityId: String(venteId),
+      payload: {
+        venteId,
+        total: Number(vente.total || 0),
         adherentId,
-        Number(vente.cotisation),
-        datePaiement,
-        mois
-      );
+        modePaiementId: (vente.mode_paiement_id ?? null),
+        saleType,
+        clientEmail: (vente.client_email || null),
+      },
+    });
+
+    for (const l of lignes) {
+      const produitId = Number(l.produit_id);
+      const qte = Number(l.quantite);
+      const prix = Number(l.prix);
+      const pu = (l.prix_unitaire != null && l.prix_unitaire !== '') ? Number(l.prix_unitaire) : null;
+      const remise = (l.remise_percent != null && l.remise_percent !== '') ? Number(l.remise_percent) : 0;
+
+      if (!Number.isFinite(produitId) || !Number.isFinite(qte) || qte <= 0) {
+        throw new Error('ligne de vente invalide');
+      }
+
+      const rL = insertLigne.run(venteId, produitId, qte, prix, pu, remise);
+      const ligneId = rL.lastInsertRowid;
+
+      // Op ligne
+      enqueueOp({
+        deviceId: DEVICE_ID,
+        opType: 'sale.line_added',
+        entityType: 'ligne_vente',
+        entityId: String(ligneId),
+        payload: {
+          ligneId,
+          venteId,
+          produitId,
+          quantite: qte,
+          prix,
+          prixUnitaire: pu,
+          remisePercent: remise,
+        },
+      });
     }
 
-    // DEBUG TEMP – à retirer après test
-    const row = db.prepare(`SELECT id, total, adherent_id, mode_paiement_id, frais_paiement, date_vente
-                            FROM ventes WHERE id = ?`).get(venteId);
-    console.log('[VENTE INSERTED]', {
-      venteId,
-      adherentIdUtilise: adherentId,
-      mode_paiement_id_recu: (vente.mode_paiement_id ?? null),
-      rowEnBase: row
-    });
+    // Push immédiat + petit pull
+    try {
+      const { pushOpsNow } = require('../sync');
+      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
+    } catch {}
 
     return venteId;
   });
 
-  return transaction();
+  return tx();
 }
 
-// Obtenir l’historique des ventes
-function getHistoriqueVentes({ from = null, to = null, adherentId = null } = {}) {
-  let sql = `
-    SELECT
-      v.id,
-      v.total,
-      v.date_vente,
-      v.mode_paiement_id,
-      mp.nom AS mode_paiement_nom,
-      v.frais_paiement,
-      v.sale_type,
-      v.client_email,
-      a.nom    AS adherent_nom,
-      a.prenom AS adherent_prenom
-    FROM ventes v
-    LEFT JOIN adherents a       ON a.id = v.adherent_id
-    LEFT JOIN modes_paiement mp ON mp.id = v.mode_paiement_id
-    WHERE 1=1
-  `;
+function getHistoriqueVentes(opts = {}) {
+  const {
+    limit = 50,
+    offset = 0,
+    search = '',
+    dateFrom = null,
+    dateTo = null,
+    adherentId = null,
+  } = opts;
+
   const params = [];
+  let where = '1=1';
 
-  if (from)       { sql += ` AND v.date_vente >= ?`; params.push(from); }
-  if (to)         { sql += ` AND v.date_vente <= ?`; params.push(to); }
-  if (adherentId) { sql += ` AND v.adherent_id = ?`; params.push(adherentId); }
+  if (search) { where += ` AND (v.id LIKE ? OR v.client_email LIKE ?)`; params.push(`%${search}%`, `%${search}%`); }
+  if (dateFrom) { where += ` AND v.date_vente >= ?`; params.push(dateFrom); }
+  if (dateTo) { where += ` AND v.date_vente < ?`; params.push(dateTo); }
+  if (adherentId != null) { where += ` AND v.adherent_id = ?`; params.push(Number(adherentId)); }
 
-  sql += ` ORDER BY v.date_vente DESC, v.id DESC`;
-
-  const rows = db.prepare(sql).all(...params);
-  console.log('[DEBUG getHistoriqueVentes RESULT]', rows);
-  return rows;
+  return db.prepare(`
+    SELECT v.id, v.date_vente, v.total, v.adherent_id, v.mode_paiement_id, v.sale_type, v.client_email
+    FROM ventes v
+    WHERE ${where}
+    ORDER BY v.date_vente DESC, v.id DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, Number(limit), Number(offset));
 }
 
-// Détail d’une vente (header + lignes)
 function getDetailsVente(venteId) {
-  console.log('[DEBUG getDetailsVente] Vente demandée :', venteId);
-
   const header = db.prepare(`
-    SELECT
-      v.id,
-      v.total,
-      v.date_vente,
-      v.mode_paiement_id,
-      mp.nom AS mode_paiement_nom,
-      v.frais_paiement,
-      v.sale_type,
-      v.client_email,
-      a.nom    AS adherent_nom,
-      a.prenom AS adherent_prenom,
-      a.email1,
-      a.email2
+    SELECT v.*, a.nom AS adherent_nom, a.prenom AS adherent_prenom
     FROM ventes v
-    LEFT JOIN adherents a       ON a.id = v.adherent_id
-    LEFT JOIN modes_paiement mp ON mp.id = v.mode_paiement_id
+    LEFT JOIN adherents a ON a.id = v.adherent_id
     WHERE v.id = ?
-  `).get(venteId);
+  `).get(Number(venteId));
 
   const lignes = db.prepare(`
-    SELECT
-      lv.id,
-      lv.produit_id,
-      lv.quantite,
-      lv.prix,
-      lv.prix_unitaire,
-      lv.remise_percent,
-      p.nom          AS produit_nom,
-      p.code_barre,
-      p.unite_id,
-      p.fournisseur_id
+    SELECT lv.*, p.nom AS produit_nom, p.reference AS produit_reference, p.code_barre AS produit_code_barre,
+           p.prix AS produit_prix, p.unite_id, p.fournisseur_id, p.categorie_id
     FROM lignes_vente lv
     LEFT JOIN produits p ON p.id = lv.produit_id
     WHERE lv.vente_id = ?
     ORDER BY lv.id
-  `).all(venteId);
+  `).all(Number(venteId));
 
   return { header, lignes };
 }
 
-module.exports = {
-  enregistrerVente,
-  getHistoriqueVentes,
-  getDetailsVente
-};
+module.exports = { enregistrerVente, getHistoriqueVentes, getDetailsVente };

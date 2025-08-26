@@ -62,7 +62,7 @@
     document.getElementById('btn-import-adherents')?.addEventListener('click', renderImportAdherents);
   }
 
-  // ========= IMPORT PRODUITS (avec héritage catégorie + wizard conflits) =========
+  // ========= IMPORT PRODUITS (avec héritage catégorie + wizard conflits + "Appliquer à tous") =========
   async function renderImportProduits() {
     const container = document.getElementById('parametres-souspage');
     const filePath = await window.electronAPI.choisirFichier();
@@ -83,7 +83,7 @@
     const fourByNameLite   = new Map(fournisseurs.map(f => [String(f.nom || '').toLowerCase(), f])); // issus du parse
 
     // catégories
-    const catsDetailed     = await window.getCategoriesDetailed();
+    const catsDetailed     = await window.getCategoriesDetailed?.() || await window.getAllCategoriesDetailed?.();
     const categorieById    = new Map(catsDetailed.map(c => [Number(c.id), c]));
     const categorieByName  = new Map(catsDetailed.map(c => [String(c.nom || '').toLowerCase(), c]));
 
@@ -277,7 +277,7 @@
     renderRows();
     filtreInput.addEventListener('input', renderRows);
 
-    // ========= Wizard de conflits =========
+    // ========= Wizard de conflits (existant) + NOUVEAU: bulk =========
     const canDeleteExisting = typeof window.electronAPI?.supprimerProduit === 'function';
 
     const buildConflictForm = (modif, index, total) => {
@@ -354,7 +354,6 @@
         </div>
       `;
 
-      // rends la catégorie searchable dans la popup
       try { window.SearchableSelect?.wire(wrap.querySelector('.select-categorie-conflit')); } catch {}
       return wrap;
     };
@@ -364,16 +363,14 @@
       for (let i = 0; i < modifications.length; i++) {
         const form = buildConflictForm(modifications[i], i, modifications.length);
         const ok = await showFormModal('Conflit sur un produit', form);
-        if (!ok) return null; // annulation
+        if (!ok) return null;
 
         const action = (form.querySelector('input[name="action"]:checked')?.value) || 'remplacer';
 
-        // applique les modifs de saisie sur "nouveau"
         const nouveau = { ...modifications[i].nouveau };
         const uVal = form.querySelector('.select-unite-conflit')?.value || '';
         const cVal = form.querySelector('.select-categorie-conflit')?.value || '';
 
-        // Unité → possibilité de mapper en ID pour le backend, si nécessaire
         if (uVal) {
           nouveau.unite = uVal;
           const u = unitesConnues.find(x => String(x.nom).toLowerCase() === String(uVal).toLowerCase());
@@ -383,7 +380,6 @@
           nouveau.unite_id = null;
         }
 
-        // Catégorie
         if (cVal) {
           nouveau.categorie_id  = parseInt(cVal, 10);
           nouveau.categorie_nom = (categorieById.get(nouveau.categorie_id)?.nom || '');
@@ -397,6 +393,25 @@
         decisions.push({ action, modif: modifications[i], nouveau });
       }
       return decisions;
+    }
+
+    // 🔥 NOUVEAU : choix “Appliquer à tous”
+    async function resolveConflictsBulkChoice(modifications) {
+      const form = document.createElement('form');
+      form.innerHTML = `
+        <div style="min-width:540px">
+          <p>${modifications.length} doublon(s) détecté(s). Que veux-tu faire pour <strong>tous</strong> ?</p>
+          <label><input type="radio" name="bulk" value="step" checked> Résoudre un par un (assistant)</label><br>
+          <label><input type="radio" name="bulk" value="remplacer"> Remplacer tout (écraser l’existant)</label><br>
+          <label><input type="radio" name="bulk" value="ajouter"> Ajouter tout (conserver l’existant et créer des nouveaux)</label><br>
+          <label><input type="radio" name="bulk" value="ignorer"> Ignorer tout (ne rien changer)</label><br>
+          ${canDeleteExisting ? `<label><input type="radio" name="bulk" value="supprimer"> Supprimer l’existant & ajouter tout</label>` : ''}
+        </div>
+      `;
+      const ok = await showFormModal('Conflits détectés', form);
+      if (!ok) return null;
+      const value = form.querySelector('input[name="bulk"]:checked')?.value || 'step';
+      return value;
     }
 
     // ========= Validation / backend =========
@@ -422,9 +437,30 @@
       }
 
       if (resultat.status === 'partiel' && Array.isArray(resultat.modifications) && resultat.modifications.length) {
-        // 2) Wizard de conflits
-        const decisions = await resolveConflictsWizard(resultat.modifications);
-        if (!decisions) return; // annulation par l’utilisateur
+        // 👉 d’abord proposer un mode “Appliquer à tous”
+        const bulkChoice = await resolveConflictsBulkChoice(resultat.modifications);
+        if (bulkChoice === null) return; // annulation
+
+        let decisions = null;
+
+        if (bulkChoice === 'step') {
+          // mode existant : un par un
+          decisions = await resolveConflictsWizard(resultat.modifications);
+          if (!decisions) return; // annulation
+        } else {
+          // 🔁 Appliquer la même action à tous
+          decisions = resultat.modifications.map(m => {
+            // on reprend "nouveau" tel que parsé + on mape unite -> unite_id si possible
+            const nouveau = { ...m.nouveau };
+            if (nouveau.unite && !nouveau.unite_id) {
+              const u = unitesConnues.find(x => String(x.nom).toLowerCase() === String(nouveau.unite).toLowerCase());
+              if (u) nouveau.unite_id = u.id;
+            }
+            nouveau.fournisseur_id = parseInt(nouveau.fournisseur_id || 0, 10) || null;
+            if (nouveau.categorie_id != null) nouveau.categorie_id = parseInt(nouveau.categorie_id, 10);
+            return { action: bulkChoice, modif: m, nouveau };
+          });
+        }
 
         // 3) Application des décisions
         for (const d of decisions) {
@@ -438,11 +474,10 @@
               try { await window.electronAPI.supprimerProduit(modif.idExistant); } catch {}
               await window.electronAPI.resoudreConflitProduit('ajouter', nouveau);
             } else {
-              // fallback si suppression indisponible : on remplace
               await window.electronAPI.resoudreConflitProduit('remplacer', nouveau, modif.idExistant);
             }
           } else {
-            // ignorer (conserver l’existant) -> rien
+            // ignorer -> rien
           }
         }
 
@@ -468,7 +503,7 @@
     if (!data || data.status !== 'ok') { container.innerHTML = `<p>Erreur lors de l'import du fichier.</p>`; return; }
 
     const { fournisseurs, categories: fileCategories, referents } = data;
-    const catsDetailed = await window.getCategoriesDetailed();
+    const catsDetailed = await window.getCategoriesDetailed?.() || await window.getAllCategoriesDetailed?.();
     const existants    = await window.electronAPI.getFournisseurs();
 
     if (!document.getElementById('import-missing-cell-style')) {
@@ -569,8 +604,14 @@
 
     container.innerHTML = htmlMain + htmlConf + `<button id="valider-import-fournisseurs" class="btn-valider" style="margin-top: 20px;">✅ Valider l'import</button>`;
 
-    // autowire SearchableSelect
     window.SearchableSelect?.init(container);
+
+    if (!document.getElementById('import-missing-cell-style')) {
+      const st = document.createElement('style');
+      st.id = 'import-missing-cell-style';
+      st.textContent = ` td.cell-missing { background:#fff7e6; } `;
+      document.head.appendChild(st);
+    }
 
     function refreshMissingCells(scope) {
       (scope || container).querySelectorAll('tbody tr').forEach(tr => {
@@ -651,10 +692,78 @@
   async function renderImportAdherents() {
     const container = document.getElementById('parametres-souspage');
     const filePath = await window.electronAPI.choisirFichier();
-    if (!filePath) { container.innerHTML = `<p>Aucun fichier sélectionné.</p>`; return; }
-    const res = await window.electronAPI.importerExcel('adherents', filePath);
-    await showAlertModal(res?.message || "Import adhérents terminé.");
-    renderImportExcel();
+    console.log("📁 Fichier choisi :", filePath);
+    if (!filePath) {
+      container.innerHTML = `<p>Aucun fichier sélectionné.</p>`;
+      return;
+    }
+    container.innerHTML = `<p>Chargement du fichier...</p>`;
+    const data = await window.electronAPI.analyserImportAdherents(filePath);
+    if (!data || data.status !== 'ok') {
+      container.innerHTML = `<p>Erreur lors de l'import du fichier.</p>`;
+      return;
+    }
+    const { adherents, tranches_age } = data;
+    container.innerHTML = `
+      <h3>Prévisualisation des adhérents importés</h3>
+      <table class="table-import">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Prénom</th>
+            <th>Email 1</th>
+            <th>Email 2</th>
+            <th>Téléphone 1</th>
+            <th>Téléphone 2</th>
+            <th>Adresse</th>
+            <th>CP</th>
+            <th>Ville</th>
+            <th>Foyer</th>
+            <th>Tranche d'âge</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${adherents.map((a, i) => `
+            <tr>
+              <td>${a.nom}</td>
+              <td>${a.prenom}</td>
+              <td>${a.email1}</td>
+              <td>${a.email2}</td>
+              <td>${a.telephone1}</td>
+              <td>${a.telephone2}</td>
+              <td>${a.adresse}</td>
+              <td>${a.code_postal}</td>
+              <td>${a.ville}</td>
+              <td>${a.nb_personnes_foyer || 0}</td>
+              <td>
+                <select data-index="${i}" class="select-tranche">
+                  <option value="">-- Choisir --</option>
+                  ${tranches_age.map(t => `
+                    <option value="${t}" ${a.tranche_age === t ? 'selected' : ''}>${t}</option>
+                  `).join('')}
+                </select>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <button class="btn-valider" id="valider-import-adherents" style="margin-top: 20px;">
+        ✅ Valider l'import
+      </button>
+    `;
+    document.querySelectorAll('.select-tranche').forEach(sel => {
+      sel.addEventListener('change', e => {
+        const index = parseInt(e.target.dataset.index);
+        adherents[index].tranche_age = e.target.value;
+      });
+    });
+    document.getElementById('valider-import-adherents').addEventListener('click', async () => {
+      const confirm = await showConfirmModal(`Confirmer l'import de ${adherents.length} adhérent(s) ?`);
+      if (!confirm) return;
+      const result = await window.electronAPI.validerImportAdherents(adherents);
+      await showAlertModal(result?.message || "Import terminé.");
+      renderImportExcel(); // retour à la liste
+    });
   }
 
   window.PageImports = {
