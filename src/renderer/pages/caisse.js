@@ -1406,6 +1406,12 @@ if (modesOn) {
       showLoader('Enregistrement de la vente…');
       const started = Date.now();
 
+      console.log('[payload vente]', {
+  total, adherent_id: (!isExt && modules.adherents) ? Number(adherentId) : null,
+  mode_paiement_id, frais_paiement, sale_type: (isExt ? 'exterieur' : (_prospectSelectedForSale ? 'prospect' : 'adherent')),
+});
+
+
       // 6) Enregistrer la vente
       await window.electronAPI.enregistrerVente({
         total,
@@ -1420,6 +1426,17 @@ if (modesOn) {
           : (clientEmailExt || null),
         lignes
       });
+      // ⬇️ Si une cotisation a été payée par un adhérent, on l'enregistre dans la table cotisations
+try {
+  if (adherentId && Number(totalCotisation) > 0) {
+    await window.electronAPI.ajouterCotisation(Number(adherentId), Number(totalCotisation));
+  }
+} catch (e) {
+  console.error('[cotisation] ajout KO :', e);
+  // On ne bloque pas la vente si l’ajout de cotisation échoue,
+  // mais on log l’erreur. Tu peux afficher un toast si tu veux.
+}
+
 
       // 8) Envoi facture si email dispo (adhérent, prospect OU extérieur) + module emails
       const emailsOn = !!(modules.email || modules.emails);

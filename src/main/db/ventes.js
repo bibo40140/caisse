@@ -41,8 +41,8 @@ function enregistrerVente(vente, lignes) {
 
   const tx = db.transaction(() => {
     const saleType = vente.sale_type || (useAdherents ? 'adherent' : 'exterieur');
-    const adherentId = useAdherents ? (Number(vente.adherent_id) || null) : null;
-
+  const adherentId = useAdherents ? (Number(vente.adherent_id) || null) : null;
+  // ⬇️ d’abord faire confiance au payload, sinon déduire
     const rV = insertVente.run(
       Number(vente.total || 0),
       adherentId,
@@ -64,6 +64,7 @@ function enregistrerVente(vente, lignes) {
         total: Number(vente.total || 0),
         adherentId,
         modePaiementId: (vente.mode_paiement_id ?? null),
+        fraisPaiement: Number(vente.frais_paiement || 0),
         saleType,
         clientEmail: (vente.client_email || null),
       },
@@ -101,7 +102,7 @@ function enregistrerVente(vente, lignes) {
       });
     }
 
-    // Push immédiat + petit pull
+    // Push immédiat + petit pull (si disponible)
     try {
       const { pushOpsNow } = require('../sync');
       if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
@@ -114,43 +115,46 @@ function enregistrerVente(vente, lignes) {
 }
 
 function getHistoriqueVentes(opts = {}) {
-  const {
-    limit = 50,
-    offset = 0,
-    search = '',
-    dateFrom = null,
-    dateTo = null,
-    adherentId = null,
-  } = opts;
-
-  const params = [];
-  let where = '1=1';
-
-  if (search) { where += ` AND (v.id LIKE ? OR v.client_email LIKE ?)`; params.push(`%${search}%`, `%${search}%`); }
-  if (dateFrom) { where += ` AND v.date_vente >= ?`; params.push(dateFrom); }
-  if (dateTo) { where += ` AND v.date_vente < ?`; params.push(dateTo); }
-  if (adherentId != null) { where += ` AND v.adherent_id = ?`; params.push(Number(adherentId)); }
+  const { limit=50, offset=0, search='', dateFrom=null, dateTo=null, adherentId=null } = opts;
+  const p=[]; let w='1=1';
+  if (search)   { w+=` AND (v.id LIKE ? OR v.client_email LIKE ?)`; p.push(`%${search}%`,`%${search}%`); }
+  if (dateFrom) { w+=` AND v.date_vente >= ?`; p.push(dateFrom); }
+  if (dateTo)   { w+=` AND v.date_vente < ?`;  p.push(dateTo); }
+  if (adherentId!=null) { w+=` AND v.adherent_id = ?`; p.push(Number(adherentId)); }
 
   return db.prepare(`
-    SELECT v.id, v.date_vente, v.total, v.adherent_id, v.mode_paiement_id, v.sale_type, v.client_email
+    SELECT
+      v.id, v.date_vente, v.total, v.adherent_id, v.mode_paiement_id,
+      v.frais_paiement, v.sale_type, v.client_email,
+      a.nom  AS adherent_nom,
+      a.prenom AS adherent_prenom,
+      mp.nom AS mode_paiement_nom
     FROM ventes v
-    WHERE ${where}
+    LEFT JOIN adherents a       ON a.id = v.adherent_id
+    LEFT JOIN modes_paiement mp ON mp.id = v.mode_paiement_id
+    WHERE ${w}
     ORDER BY v.date_vente DESC, v.id DESC
     LIMIT ? OFFSET ?
-  `).all(...params, Number(limit), Number(offset));
+  `).all(...p, Number(limit), Number(offset));
 }
 
 function getDetailsVente(venteId) {
   const header = db.prepare(`
-    SELECT v.*, a.nom AS adherent_nom, a.prenom AS adherent_prenom
+    SELECT
+      v.*,
+      a.nom  AS adherent_nom,
+      a.prenom AS adherent_prenom,
+      mp.nom AS mode_paiement_nom
     FROM ventes v
-    LEFT JOIN adherents a ON a.id = v.adherent_id
+    LEFT JOIN adherents a       ON a.id = v.adherent_id
+    LEFT JOIN modes_paiement mp ON mp.id = v.mode_paiement_id
     WHERE v.id = ?
   `).get(Number(venteId));
 
   const lignes = db.prepare(`
-    SELECT lv.*, p.nom AS produit_nom, p.reference AS produit_reference, p.code_barre AS produit_code_barre,
-           p.prix AS produit_prix, p.unite_id, p.fournisseur_id, p.categorie_id
+    SELECT lv.*, p.nom AS produit_nom, p.reference AS produit_reference,
+           p.code_barre AS produit_code_barre, p.prix AS produit_prix,
+           p.unite_id, p.fournisseur_id, p.categorie_id
     FROM lignes_vente lv
     LEFT JOIN produits p ON p.id = lv.produit_id
     WHERE lv.vente_id = ?

@@ -1,44 +1,54 @@
 // src/main/handlers/ventes.js
 const path = require('path');
-const fs = require('fs');
 const db = require('../db/db');
 
-// ⚠️ on force le chemin exact vers le fichier CJS
+// chemin du module DB ventes
 const ventesFile = path.join(__dirname, '..', 'db', 'ventes.js');
-console.log('[handlers/ventes] ventes.js expected at:', ventesFile, 'exists:', fs.existsSync(ventesFile));
 
 let ventesDb;
 try {
-  const resolved = require.resolve(ventesFile);
-  console.log('[handlers/ventes] require.resolve =', resolved);
   ventesDb = require(ventesFile);
-  console.log('[handlers/ventes] exports =', Object.keys(ventesDb));
 } catch (e) {
-  console.error('[handlers/ventes] require ventes.js failed:', e && e.message || e);
-  ventesDb = {};
+  console.error('[handlers/ventes] Impossible de charger', ventesFile, e);
+  ventesDb = null;
 }
 
-// utilitaire : prix produit si besoin
-function getPrixProduit(produitId) {
-  const row = db.prepare('SELECT prix FROM produits WHERE id=?').get(Number(produitId));
-  return row ? Number(row.prix || 0) : 0;
+// Utilitaires
+function getPrixProduit(id) {
+  try {
+    const row = db.prepare(`SELECT prix FROM produits WHERE id = ?`).get(Number(id));
+    return Number(row?.prix || 0);
+  } catch { return 0; }
 }
 
-// normalisation des lignes depuis le front
-function normalizeLignes(input) {
-  if (!Array.isArray(input)) return [];
-  return input.map(l => {
-    const produitId = Number(l.produit_id ?? l.produitId ?? l.product_id ?? l.id);
-    const quantite  = Number(l.quantite ?? l.qty ?? l.qte ?? l['quantité'] ?? 0);
-    const puRaw = (l.prix_unitaire ?? l.pu ?? l.price);
-    const prixUnitaire = (puRaw === '' || puRaw == null) ? null : Number(puRaw);
-    let prix = l.prix ?? l.total ?? l.prix_total;
-    if (prix == null) {
-      const base = (prixUnitaire != null && Number.isFinite(prixUnitaire)) ? prixUnitaire : getPrixProduit(produitId);
-      prix = Number(quantite) * Number(base);
-    }
+// Normalise un tableau de lignes
+function normalizeLignes(lignesRaw) {
+  const arr = Array.isArray(lignesRaw) ? lignesRaw : [];
+  return arr.map(l => {
+    const produitId = Number(l.produit_id ?? l.produitId ?? l.id);
+    const quantite  = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
+
+    const prixUnitaire = (l.prix_unitaire != null && l.prix_unitaire !== '' && Number.isFinite(Number(l.prix_unitaire)))
+      ? Number(l.prix_unitaire)
+      : (
+          Number.isFinite(Number(l.pu)) ? Number(l.pu) : getPrixProduit(produitId)
+        );
+
+    let totalLigne = (l.prix != null && l.prix !== '')
+      ? Number(l.prix)
+      : (quantite * prixUnitaire);
+
+    if (!Number.isFinite(totalLigne)) totalLigne = 0;
+
     const remise = Number(l.remise_percent ?? l.remise ?? 0) || 0;
-    return { produit_id: produitId, quantite, prix: Number(prix), prix_unitaire: prixUnitaire, remise_percent: remise };
+
+    return {
+      produit_id: produitId,
+      quantite,
+      prix: totalLigne,            // total de la ligne
+      prix_unitaire: prixUnitaire, // PU
+      remise_percent: remise
+    };
   }).filter(l =>
     Number.isFinite(l.produit_id) && l.produit_id > 0 &&
     Number.isFinite(l.quantite)   && l.quantite   > 0 &&
@@ -47,17 +57,40 @@ function normalizeLignes(input) {
 }
 
 module.exports = function registerVentesHandlers(ipcMain) {
-  ipcMain.handle('enregistrer-vente', (event, payload = {}) => {
+  if (!ventesDb || typeof ventesDb.enregistrerVente !== 'function') {
+    console.error('[handlers/ventes] ventesDb.enregistrerVente indisponible');
+  }
+
+  ipcMain.handle('enregistrer-vente', async (_e, payload = {}) => {
     try {
-      if (!ventesDb || typeof ventesDb.enregistrerVente !== 'function') {
-        throw new Error('ventesDb.enregistrerVente indisponible (export manquant ou erreur au chargement)');
-      }
-      const vente = payload.vente || {};
-      const lignesRaw = payload.lignes ?? payload.lignesVente ?? payload.items ?? payload.panier ?? [];
-      const lignes = normalizeLignes(lignesRaw);
+      const hasNested = payload && typeof payload.vente === 'object';
+      const lignesIn  = hasNested
+        ? (payload.lignes ?? payload.vente?.lignes ?? payload.items ?? payload.panier ?? [])
+        : (payload.lignes ?? payload.items ?? payload.panier ?? []);
+
+      const lignes = normalizeLignes(lignesIn);
       if (lignes.length === 0) throw new Error('aucune ligne de vente');
-      if (vente.total == null) vente.total = lignes.reduce((s, l) => s + Number(l.prix || 0), 0);
-      const venteId = ventesDb.enregistrerVente(vente, lignes);
+
+      const vente = hasNested ? { ...(payload.vente || {}) } : { ...payload };
+
+      const adherent_id      = Number.isFinite(Number(vente.adherent_id)) ? Number(vente.adherent_id) : null;
+      const mode_paiement_id = Number.isFinite(Number(vente.mode_paiement_id)) ? Number(vente.mode_paiement_id) : null;
+      const frais_paiement   = Number(vente.frais_paiement || 0);
+      const sale_type        = vente.sale_type || (adherent_id ? 'adherent' : 'exterieur');
+      const client_email     = vente.client_email ?? null;
+
+      const total = lignes.reduce((s, l) => s + Number(l.prix || 0), 0);
+
+      const venteObj = {
+        total,
+        adherent_id,
+        mode_paiement_id,
+        frais_paiement,
+        sale_type,
+        client_email
+      };
+
+      const venteId = ventesDb.enregistrerVente(venteObj, lignes);
       return { ok: true, venteId };
     } catch (e) {
       console.error('[ipc] enregistrer-vente ERROR:', e?.message || e);
@@ -65,13 +98,13 @@ module.exports = function registerVentesHandlers(ipcMain) {
     }
   });
 
-  ipcMain.handle('ventes:list', (event, opts) => {
+  ipcMain.handle('get-historique-ventes', (_e, opts) => {
     try { return ventesDb.getHistoriqueVentes(opts || {}); }
-    catch (e) { console.error('[ipc] ventes:list ERROR:', e?.message || e); return []; }
+    catch (e) { console.error('[ipc] get-historique-ventes', e?.message || e); return []; }
   });
 
-  ipcMain.handle('ventes:get', (event, venteId) => {
-    try { return ventesDb.getDetailsVente(venteId); }
-    catch (e) { console.error('[ipc] ventes:get ERROR:', e?.message || e); return { header: null, lignes: [] }; }
+  ipcMain.handle('get-details-vente', (_e, id) => {
+    try { return ventesDb.getDetailsVente(Number(id)); }
+    catch (e) { console.error('[ipc] get-details-vente', e?.message || e); return { header: null, lignes: [] }; }
   });
 };

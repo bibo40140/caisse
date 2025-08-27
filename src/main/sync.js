@@ -14,8 +14,10 @@ function notifyRenderer(channel, payload) {
 async function pullRefs({ since = null } = {}) {
   const url = new URL(`${API_URL}/sync/pull_refs`);
   if (since) url.searchParams.set('since', since);
+
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`pull_refs ${res.status} ${await res.text().catch(()=> '')}`);
+
   const json = await res.json();
   const d = json?.data || {};
   const { unites=[], familles=[], categories=[], adherents=[], fournisseurs=[], produits=[] } = d;
@@ -82,25 +84,52 @@ function takePendingOps(limit = 200) {
 async function pushOpsNow(deviceId) {
   const ops = takePendingOps(200);
   if (ops.length === 0) return { ok: true, sent: 0 };
+
   const payload = {
     deviceId,
     ops: ops.map(o => ({ id: o.id, op_type: o.op_type, entity_type: o.entity_type, entity_id: o.entity_id, payload_json: o.payload_json })),
   };
-  const res = await fetch(`${API_URL}/sync/push_ops`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+
+  const res = await fetch(`${API_URL}/sync/push_ops`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
   if (!res.ok) throw new Error(`push_ops ${res.status} ${await res.text().catch(()=> '')}`);
 
   const ids = ops.map(o => o.id);
   db.prepare(`UPDATE ops_queue SET ack = 1, sent_at = datetime('now','localtime') WHERE id IN (${ids.map(()=>'?').join(',')})`).run(...ids);
 
   notifyRenderer('ops:pushed', { count: ids.length });
+
   try { await pullRefs(); } catch {}
   return { ok: true, sent: ids.length };
 }
 
-// Démarrage
+// —————————————————————————————————————————————
+// Démarrage + utilitaires
+// —————————————————————————————————————————————
 async function hydrateOnStartup() { return pullRefs(); }
 
 // Alias lisible pour bouton “Pull tout”
 async function pullAll() { return pullRefs(); }
 
-module.exports = { hydrateOnStartup, pullRefs, pullAll, pushOpsNow };
+// (Optionnel) Retry doux pour réseau instable — à appeler depuis main si tu veux
+let _autoTimer = null;
+let _intervalMs = 30000; // 30s
+function startAutoSync(deviceId) {
+  if (_autoTimer) return;
+  _autoTimer = setInterval(async () => {
+    try {
+      await pushOpsNow(deviceId);
+      _intervalMs = 30000; // reset sur succès
+    } catch {
+      // backoff simple jusqu'à 2 min
+      _intervalMs = Math.min(_intervalMs + 15000, 120000);
+      clearInterval(_autoTimer); _autoTimer = null;
+      _autoTimer = setInterval(() => startAutoSync(deviceId), _intervalMs);
+    }
+  }, _intervalMs);
+}
+
+module.exports = { hydrateOnStartup, pullRefs, pullAll, pushOpsNow, startAutoSync };
