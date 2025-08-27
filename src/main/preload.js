@@ -3,11 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // —————————————————————————————————————————————
 // Bus d’événements (main -> renderer)
-// Permet window.electronEvents.on('ops:pushed', ...) etc.
 // —————————————————————————————————————————————
 contextBridge.exposeInMainWorld('electronEvents', {
   on: (channel, listener) => {
-    // on laisse passer uniquement les canaux qu’on utilise dans l’app
     const allowed = new Set(['ops:pushed', 'data:refreshed']);
     if (!allowed.has(channel)) return;
     ipcRenderer.on(channel, listener);
@@ -28,9 +26,9 @@ contextBridge.exposeInMainWorld('electronEvents', {
 contextBridge.exposeInMainWorld('electronAPI', {
   // --- Produits
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
-  getProduits: () => ipcRenderer.invoke('get-produits'),
-  modifierProduit: (produit) => ipcRenderer.invoke('modifier-produit', produit),
-  supprimerProduit: (id) => ipcRenderer.invoke('supprimer-produit', id),
+  getProduits:    () => ipcRenderer.invoke('get-produits'),
+  modifierProduit:(produit) => ipcRenderer.invoke('modifier-produit', produit),
+  supprimerProduit:(id) => ipcRenderer.invoke('supprimer-produit', id),
   supprimerEtRemplacerProduit: (n, id) => ipcRenderer.invoke('supprimer-et-remplacer-produit', n, id),
   rechercherProduitParNomEtFournisseur: (nom, fournisseurId) =>
     ipcRenderer.invoke('rechercher-produit-par-nom-et-fournisseur', nom, fournisseurId),
@@ -44,6 +42,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Compat ancien code (redirigé vers full sync)
   syncPushProduits: () => ipcRenderer.invoke('sync:push-all'),
   syncPullProduits: () => ipcRenderer.invoke('sync:pull-all'),
+
+  // ——— Ajouts utiles sync (push manuel + compteur d’ops) ———
+  opsPushNow: () => ipcRenderer.invoke('ops:push-now'),
+  opsPendingCount: () => ipcRenderer.invoke('ops:pending-count'),
 
   // --- Fournisseurs
   getFournisseurs: () => ipcRenderer.invoke('get-fournisseurs'),
@@ -68,7 +70,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Catégories (API unifiée compatible avec parametres.js)
   getCategoryTree: () => ipcRenderer.invoke('categories:tree'),
   getAllCategoriesDetailed: () => ipcRenderer.invoke('categories:all'),
-  getCategories: () => ipcRenderer.invoke('categories:all'), // renvoie au moins {id, nom, famille_id}
+  getCategories: () => ipcRenderer.invoke('categories:all'), // {id, nom, famille_id}
   getCategoriesByFamily: (familleId) => ipcRenderer.invoke('categories:by-family', Number(familleId)),
   createCategory: ({ nom, famille_id, familleId }) =>
     ipcRenderer.invoke('categories:create', { nom, familleId: Number(famille_id ?? familleId) }),
@@ -79,7 +81,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteCategory: (arg) => ipcRenderer.invoke('categories:delete', Number(arg?.id ?? arg)),
   getCategoriesProduits: () => ipcRenderer.invoke('categories:all'),
 
-  // (anciens alias simples, si encore utilisés quelque part)
+  // Anciens alias (si encore utilisés)
   ajouterCategorie: (nom) => ipcRenderer.invoke('ajouter-categorie', nom),
   modifierCategorie: (id, nom) => ipcRenderer.invoke('modifier-categorie', id, nom),
   supprimerCategorie: (id) => ipcRenderer.invoke('supprimer-categorie', id),
@@ -118,12 +120,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   validerImportAdherents: (adherents) => ipcRenderer.invoke('valider-import-adherents', adherents),
 
   // --- Cotisations
-getCotisations: () => ipcRenderer.invoke('get-cotisations'),
-getCotisationsParAdherent: (id) => ipcRenderer.invoke('get-cotisations-par-adherent', id),
-ajouterCotisation: (adherentId, montant, date_paiement = null) =>  ipcRenderer.invoke('ajouter-cotisation', adherentId, montant, date_paiement),
-modifierCotisation: (c) => ipcRenderer.invoke('modifier-cotisation', c),
-supprimerCotisation: (id) => ipcRenderer.invoke('supprimer-cotisation', id),
-verifierCotisation: (adherentId) => ipcRenderer.invoke('verifier-cotisation', adherentId),
+  getCotisations: () => ipcRenderer.invoke('get-cotisations'),
+  getCotisationsParAdherent: (id) => ipcRenderer.invoke('get-cotisations-par-adherent', id),
+  ajouterCotisation: (adherentId, montant, date_paiement = null) =>
+    ipcRenderer.invoke('ajouter-cotisation', adherentId, montant, date_paiement),
+  modifierCotisation: (c) => ipcRenderer.invoke('modifier-cotisation', c),
+  supprimerCotisation: (id) => ipcRenderer.invoke('supprimer-cotisation', id),
+  verifierCotisation: (adherentId) => ipcRenderer.invoke('verifier-cotisation', adherentId),
 
   // --- Réceptions
   enregistrerReception: (reception) => ipcRenderer.invoke('enregistrer-reception', reception),
@@ -168,7 +171,7 @@ verifierCotisation: (adherentId) => ipcRenderer.invoke('verifier-cotisation', ad
   listProspectInvitations: (filters) => ipcRenderer.invoke('prospects:invitations', filters),
   prospectsListInvitations: (args) => ipcRenderer.invoke('prospects:invitations', args),
 
-  // --- Inventaire / produits
+  // --- Inventaire / produits (espace de noms)
   produits: {
     list: () => ipcRenderer.invoke('produits:list'),
   },

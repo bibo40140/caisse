@@ -18,42 +18,51 @@ function getPrixProduit(id) {
   try {
     const row = db.prepare(`SELECT prix FROM produits WHERE id = ?`).get(Number(id));
     return Number(row?.prix || 0);
-  } catch { return 0; }
+  } catch {
+    return 0;
+  }
 }
 
-// Normalise un tableau de lignes
+// Normalise un tableau de lignes vers le format attendu par la DB
 function normalizeLignes(lignesRaw) {
   const arr = Array.isArray(lignesRaw) ? lignesRaw : [];
-  return arr.map(l => {
-    const produitId = Number(l.produit_id ?? l.produitId ?? l.id);
-    const quantite  = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
+  return arr
+    .map((l) => {
+      const produitId = Number(l.produit_id ?? l.produitId ?? l.id);
+      const quantite = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
 
-    const prixUnitaire = (l.prix_unitaire != null && l.prix_unitaire !== '' && Number.isFinite(Number(l.prix_unitaire)))
-      ? Number(l.prix_unitaire)
-      : (
-          Number.isFinite(Number(l.pu)) ? Number(l.pu) : getPrixProduit(produitId)
-        );
+      const prixUnitaire =
+        l.prix_unitaire != null &&
+        l.prix_unitaire !== '' &&
+        Number.isFinite(Number(l.prix_unitaire))
+          ? Number(l.prix_unitaire)
+          : Number.isFinite(Number(l.pu))
+          ? Number(l.pu)
+          : getPrixProduit(produitId);
 
-    let totalLigne = (l.prix != null && l.prix !== '')
-      ? Number(l.prix)
-      : (quantite * prixUnitaire);
+      let totalLigne =
+        l.prix != null && l.prix !== '' ? Number(l.prix) : quantite * prixUnitaire;
 
-    if (!Number.isFinite(totalLigne)) totalLigne = 0;
+      if (!Number.isFinite(totalLigne)) totalLigne = 0;
 
-    const remise = Number(l.remise_percent ?? l.remise ?? 0) || 0;
+      const remise = Number(l.remise_percent ?? l.remise ?? 0) || 0;
 
-    return {
-      produit_id: produitId,
-      quantite,
-      prix: totalLigne,            // total de la ligne
-      prix_unitaire: prixUnitaire, // PU
-      remise_percent: remise
-    };
-  }).filter(l =>
-    Number.isFinite(l.produit_id) && l.produit_id > 0 &&
-    Number.isFinite(l.quantite)   && l.quantite   > 0 &&
-    Number.isFinite(l.prix)
-  );
+      return {
+        produit_id: produitId,
+        quantite,
+        prix: totalLigne, // total de la ligne
+        prix_unitaire: prixUnitaire, // PU de référence si fourni
+        remise_percent: remise,
+      };
+    })
+    .filter(
+      (l) =>
+        Number.isFinite(l.produit_id) &&
+        l.produit_id > 0 &&
+        Number.isFinite(l.quantite) &&
+        l.quantite > 0 &&
+        Number.isFinite(l.prix)
+    );
 }
 
 module.exports = function registerVentesHandlers(ipcMain) {
@@ -61,33 +70,42 @@ module.exports = function registerVentesHandlers(ipcMain) {
     console.error('[handlers/ventes] ventesDb.enregistrerVente indisponible');
   }
 
+  // Enregistrement d'une vente
   ipcMain.handle('enregistrer-vente', async (_e, payload = {}) => {
     try {
       const hasNested = payload && typeof payload.vente === 'object';
-      const lignesIn  = hasNested
-        ? (payload.lignes ?? payload.vente?.lignes ?? payload.items ?? payload.panier ?? [])
-        : (payload.lignes ?? payload.items ?? payload.panier ?? []);
+      const lignesIn = hasNested
+        ? payload.lignes ?? payload.vente?.lignes ?? payload.items ?? payload.panier ?? []
+        : payload.lignes ?? payload.items ?? payload.panier ?? [];
 
       const lignes = normalizeLignes(lignesIn);
       if (lignes.length === 0) throw new Error('aucune ligne de vente');
 
-      const vente = hasNested ? { ...(payload.vente || {}) } : { ...payload };
+      const venteIn = hasNested ? { ...(payload.vente || {}) } : { ...payload };
 
-      const adherent_id      = Number.isFinite(Number(vente.adherent_id)) ? Number(vente.adherent_id) : null;
-      const mode_paiement_id = Number.isFinite(Number(vente.mode_paiement_id)) ? Number(vente.mode_paiement_id) : null;
-      const frais_paiement   = Number(vente.frais_paiement || 0);
-      const sale_type        = vente.sale_type || (adherent_id ? 'adherent' : 'exterieur');
-      const client_email     = vente.client_email ?? null;
+      const adherent_id =
+        Number.isFinite(Number(venteIn.adherent_id)) ? Number(venteIn.adherent_id) : null;
+      const mode_paiement_id =
+        Number.isFinite(Number(venteIn.mode_paiement_id))
+          ? Number(venteIn.mode_paiement_id)
+          : null;
 
-      const total = lignes.reduce((s, l) => s + Number(l.prix || 0), 0);
+      const frais_paiement = Number(venteIn.frais_paiement || 0);
+      const cotisation = Number(venteIn.cotisation || 0); // ⬅️ important
+      const sale_type = venteIn.sale_type || (adherent_id ? 'adherent' : 'exterieur');
+      const client_email = venteIn.client_email ?? null;
+
+      // total produits (les lignes contiennent déjà le total par ligne)
+      const totalProduits = lignes.reduce((s, l) => s + Number(l.prix || 0), 0);
 
       const venteObj = {
-        total,
+        total: totalProduits, // côté UI on affichera total + frais + cotisation
         adherent_id,
         mode_paiement_id,
         frais_paiement,
+        cotisation, // ⬅️ passe bien dans la DB
         sale_type,
-        client_email
+        client_email,
       };
 
       const venteId = ventesDb.enregistrerVente(venteObj, lignes);
@@ -98,13 +116,15 @@ module.exports = function registerVentesHandlers(ipcMain) {
     }
   });
 
-  ipcMain.handle('get-historique-ventes', (_e, opts) => {
-    try { return ventesDb.getHistoriqueVentes(opts || {}); }
-    catch (e) { console.error('[ipc] get-historique-ventes', e?.message || e); return []; }
+  // Historique des ventes
+  ipcMain.handle('get-historique-ventes', (_evt, opts) => {
+    const vdb = require('../db/ventes');
+    return vdb.getHistoriqueVentes(opts || {});
   });
 
-  ipcMain.handle('get-details-vente', (_e, id) => {
-    try { return ventesDb.getDetailsVente(Number(id)); }
-    catch (e) { console.error('[ipc] get-details-vente', e?.message || e); return { header: null, lignes: [] }; }
+  // Détail d'une vente
+  ipcMain.handle('get-details-vente', (_evt, id) => {
+    const vdb = require('../db/ventes');
+    return vdb.getDetailsVente(Number(id));
   });
 };

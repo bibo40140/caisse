@@ -12,48 +12,67 @@ function isModuleActive(moduleName) {
     const configPath = path.join(__dirname, '..', '..', '..', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     return !!(cfg && cfg.modules && cfg.modules[moduleName] === true);
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Crée une vente + lignes en local (sans toucher au stock)
- * et enfile les ops de vente (le serveur créera le mouvement de stock).
+ * Crée une vente + lignes en local.
+ * - Écrit l'en-tête et les lignes dans SQLite
+ * - Décrémente le stock local si le module "stocks" est actif
+ * - Enfile des opérations (sale.created / sale.line_added) pour la synchro Neon
  */
 function enregistrerVente(vente, lignes) {
   if (!vente) throw new Error('vente manquante');
   if (!Array.isArray(lignes) || lignes.length === 0) throw new Error('aucune ligne de vente');
 
-  const useAdherents = isModuleActive('adherents');
+  const useAdherents   = isModuleActive('adherents');
+  const stocksOn       = isModuleActive('stocks');
 
+  const saleType       = (vente.sale_type || (useAdherents ? 'adherent' : 'exterieur'));
+  const adherentId     = useAdherents ? (Number(vente.adherent_id) || null) : null;
+  const modePaiementId = (vente.mode_paiement_id ?? null);
+  const fraisPaiement  = Number(vente.frais_paiement || 0);
+  const cotisation     = Number(vente.cotisation || 0);
+  const total          = Number(vente.total || 0);
+  const clientEmail    = (vente.client_email || null);
+
+  // INSERT header (laisse SQLite remplir date_vente & updated_at)
   const insertVente = db.prepare(`
     INSERT INTO ventes
-      (total, adherent_id, date_vente, mode_paiement_id, frais_paiement, sale_type, client_email, updated_at)
+      (total, adherent_id, date_vente, mode_paiement_id, frais_paiement, cotisation, sale_type, client_email, updated_at)
     VALUES
-      (?, ?, datetime('now','localtime'), ?, ?, ?, ?, datetime('now','localtime'))
+      (?,     ?,           datetime('now','localtime'), ?,               ?,              ?,          ?,         ?,            datetime('now','localtime'))
   `);
 
+  // INSERT ligne
   const insertLigne = db.prepare(`
     INSERT INTO lignes_vente
       (vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent, updated_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+      (?,        ?,          ?,        ?,    ?,             ?,              datetime('now','localtime'))
   `);
 
+  // Décrément du stock local (si stocks ON)
+  const decStock = stocksOn
+    ? db.prepare(`UPDATE produits SET stock = stock - ? WHERE id = ?`)
+    : null;
+
   const tx = db.transaction(() => {
-    const saleType = vente.sale_type || (useAdherents ? 'adherent' : 'exterieur');
-  const adherentId = useAdherents ? (Number(vente.adherent_id) || null) : null;
-  // ⬇️ d’abord faire confiance au payload, sinon déduire
+    // En-tête de vente
     const rV = insertVente.run(
-      Number(vente.total || 0),
+      total,
       adherentId,
-      (vente.mode_paiement_id ?? null),
-      Number(vente.frais_paiement || 0),
+      modePaiementId,
+      fraisPaiement,
+      cotisation,
       saleType,
-      (vente.client_email || null)
+      clientEmail
     );
     const venteId = rV.lastInsertRowid;
 
-    // Op header
+    // Opération "header"
     enqueueOp({
       deviceId: DEVICE_ID,
       opType: 'sale.created',
@@ -61,37 +80,41 @@ function enregistrerVente(vente, lignes) {
       entityId: String(venteId),
       payload: {
         venteId,
-        total: Number(vente.total || 0),
+        total,
         adherentId,
-        modePaiementId: (vente.mode_paiement_id ?? null),
-        fraisPaiement: Number(vente.frais_paiement || 0),
+        modePaiementId,
         saleType,
-        clientEmail: (vente.client_email || null),
+        clientEmail,
+        fraisPaiement,
+        cotisation,
       },
     });
 
+    // Lignes de vente
     for (const l of lignes) {
       const produitId = Number(l.produit_id);
-      const qte = Number(l.quantite);
-      const prix = Number(l.prix);
-      const pu = (l.prix_unitaire != null && l.prix_unitaire !== '') ? Number(l.prix_unitaire) : null;
-      const remise = (l.remise_percent != null && l.remise_percent !== '') ? Number(l.remise_percent) : 0;
+      const qte       = Number(l.quantite);
+      const prix      = Number(l.prix); // total ligne (après remise/marge si déjà calculé)
+      const pu        = (l.prix_unitaire != null && l.prix_unitaire !== '') ? Number(l.prix_unitaire) : null;
+      const remise    = (l.remise_percent != null && l.remise_percent !== '') ? Number(l.remise_percent) : 0;
 
       if (!Number.isFinite(produitId) || !Number.isFinite(qte) || qte <= 0) {
         throw new Error('ligne de vente invalide');
       }
 
-      const rL = insertLigne.run(venteId, produitId, qte, prix, pu, remise);
-      const ligneId = rL.lastInsertRowid;
+      insertLigne.run(venteId, produitId, qte, prix, pu, remise);
 
-      // Op ligne
+      // 🔻 Décrémente le stock local si activé
+      if (decStock) decStock.run(qte, produitId);
+
+      // Opération "ligne" (pour Neon)
       enqueueOp({
         deviceId: DEVICE_ID,
         opType: 'sale.line_added',
         entityType: 'ligne_vente',
-        entityId: String(ligneId),
+        entityId: String(`${venteId}:${produitId}`), // ou l'id auto si tu préfères
         payload: {
-          ligneId,
+          ligneId: null,           // optionnel si tu n'utilises pas l'id ligne local côté serveur
           venteId,
           produitId,
           quantite: qte,
@@ -102,10 +125,10 @@ function enregistrerVente(vente, lignes) {
       });
     }
 
-    // Push immédiat + petit pull (si disponible)
+    // Tentative de push immédiat (best-effort)
     try {
       const { pushOpsNow } = require('../sync');
-      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
+      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(() => {});
     } catch {}
 
     return venteId;
@@ -114,37 +137,50 @@ function enregistrerVente(vente, lignes) {
   return tx();
 }
 
+/**
+ * Historique des ventes (enrichi avec adhérent + mode de paiement + frais + cotisation)
+ */
 function getHistoriqueVentes(opts = {}) {
-  const { limit=50, offset=0, search='', dateFrom=null, dateTo=null, adherentId=null } = opts;
-  const p=[]; let w='1=1';
-  if (search)   { w+=` AND (v.id LIKE ? OR v.client_email LIKE ?)`; p.push(`%${search}%`,`%${search}%`); }
-  if (dateFrom) { w+=` AND v.date_vente >= ?`; p.push(dateFrom); }
-  if (dateTo)   { w+=` AND v.date_vente < ?`;  p.push(dateTo); }
-  if (adherentId!=null) { w+=` AND v.adherent_id = ?`; p.push(Number(adherentId)); }
+  const {
+    limit = 50,
+    offset = 0,
+    search = '',
+    dateFrom = null,
+    dateTo = null,
+    adherentId = null,
+  } = opts;
+
+  const params = [];
+  let where = '1=1';
+
+  if (search)    { where += ` AND (v.id LIKE ? OR v.client_email LIKE ?)`; params.push(`%${search}%`, `%${search}%`); }
+  if (dateFrom)  { where += ` AND v.date_vente >= ?`;                     params.push(dateFrom); }
+  if (dateTo)    { where += ` AND v.date_vente < ?`;                      params.push(dateTo); }
+  if (adherentId != null) { where += ` AND v.adherent_id = ?`;            params.push(Number(adherentId)); }
 
   return db.prepare(`
     SELECT
-      v.id, v.date_vente, v.total, v.adherent_id, v.mode_paiement_id,
-      v.frais_paiement, v.sale_type, v.client_email,
-      a.nom  AS adherent_nom,
-      a.prenom AS adherent_prenom,
+      v.id, v.date_vente, v.total, v.adherent_id, v.mode_paiement_id, v.sale_type, v.client_email,
+      v.frais_paiement, v.cotisation,
+      a.nom AS adherent_nom, a.prenom AS adherent_prenom,
       mp.nom AS mode_paiement_nom
     FROM ventes v
-    LEFT JOIN adherents a       ON a.id = v.adherent_id
+    LEFT JOIN adherents a       ON a.id  = v.adherent_id
     LEFT JOIN modes_paiement mp ON mp.id = v.mode_paiement_id
-    WHERE ${w}
+    WHERE ${where}
     ORDER BY v.date_vente DESC, v.id DESC
     LIMIT ? OFFSET ?
-  `).all(...p, Number(limit), Number(offset));
+  `).all(...params, Number(limit), Number(offset));
 }
 
+/**
+ * Détail d’une vente (enrichi)
+ */
 function getDetailsVente(venteId) {
   const header = db.prepare(`
-    SELECT
-      v.*,
-      a.nom  AS adherent_nom,
-      a.prenom AS adherent_prenom,
-      mp.nom AS mode_paiement_nom
+    SELECT v.*,
+           a.nom AS adherent_nom, a.prenom AS adherent_prenom,
+           mp.nom AS mode_paiement_nom
     FROM ventes v
     LEFT JOIN adherents a       ON a.id = v.adherent_id
     LEFT JOIN modes_paiement mp ON mp.id = v.mode_paiement_id
@@ -152,8 +188,11 @@ function getDetailsVente(venteId) {
   `).get(Number(venteId));
 
   const lignes = db.prepare(`
-    SELECT lv.*, p.nom AS produit_nom, p.reference AS produit_reference,
-           p.code_barre AS produit_code_barre, p.prix AS produit_prix,
+    SELECT lv.*,
+           p.nom AS produit_nom,
+           p.reference AS produit_reference,
+           p.code_barre AS produit_code_barre,
+           p.prix AS produit_prix,
            p.unite_id, p.fournisseur_id, p.categorie_id
     FROM lignes_vente lv
     LEFT JOIN produits p ON p.id = lv.produit_id

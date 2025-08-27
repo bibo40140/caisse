@@ -18,7 +18,7 @@
   },
   "ventes_exterieur_margin_percent": 30,
   "ventes_ext_margin_percent": 200,
-  "api_base_url": "http://localhost:3000",
+  "api_base_url": "http://localhost:3001",
   "api_email": "fabien.hicauber@gmail.com",
   "api_password": "demo1234"
 }

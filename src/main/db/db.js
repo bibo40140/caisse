@@ -1,4 +1,4 @@
-// src/main/db/db.js — Schéma local "synchro-first" (sans triggers de stock)
+// src/main/db/db.js — Schéma local "from scratch"
 const Database = require('better-sqlite3');
 const path = require('path');
 
@@ -8,7 +8,7 @@ const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // ─────────────────────────────────────────────────────────────
-// META (version schéma locale)
+// META
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS app_meta (
@@ -129,7 +129,7 @@ db.prepare(`
     nom            TEXT NOT NULL,
     reference      TEXT UNIQUE NOT NULL,
     prix           REAL NOT NULL,
-    stock          INTEGER NOT NULL DEFAULT 0, -- valeur recadrée par le pull depuis Neon
+    stock          INTEGER NOT NULL DEFAULT 0,
     code_barre     TEXT,
     unite_id       INTEGER,
     fournisseur_id INTEGER,
@@ -163,7 +163,8 @@ db.prepare(`
     date_vente       TEXT DEFAULT (datetime('now','localtime')),
     mode_paiement_id INTEGER,
     frais_paiement   REAL DEFAULT 0,
-    sale_type        TEXT NOT NULL DEFAULT 'adherent',   -- 'adherent' | 'exterieur' | 'prospect'
+    cotisation       REAL DEFAULT 0,
+    sale_type        TEXT NOT NULL DEFAULT 'adherent',
     client_email     TEXT,
     updated_at       TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
@@ -178,8 +179,8 @@ db.prepare(`
     vente_id       INTEGER NOT NULL,
     produit_id     INTEGER NOT NULL,
     quantite       REAL NOT NULL,
-    prix           REAL NOT NULL,          -- prix appliqué (après remise / marge)
-    prix_unitaire  REAL,                   -- PU avant remise
+    prix           REAL NOT NULL,
+    prix_unitaire  REAL,
     remise_percent REAL DEFAULT 0,
     updated_at     TEXT DEFAULT (datetime('now','localtime')),
     FOREIGN KEY (vente_id)   REFERENCES ventes(id)     ON DELETE CASCADE,
@@ -195,7 +196,7 @@ db.prepare(`
   CREATE TABLE IF NOT EXISTS cotisations (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     adherent_id   INTEGER NOT NULL,
-    mois          TEXT NOT NULL, -- 'YYYY-MM'
+    mois          TEXT NOT NULL,
     montant       REAL NOT NULL,
     date_paiement TEXT DEFAULT (date('now')),
     FOREIGN KEY (adherent_id) REFERENCES adherents(id)
@@ -230,42 +231,26 @@ db.prepare(`
 `).run();
 
 // ─────────────────────────────────────────────────────────────
-// JOURNAL D’OPÉRATIONS (LOCAL → pour push vers Neon)
+// JOURNAL D’OPÉRATIONS
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS ops_queue (
-    id           TEXT PRIMARY KEY,                  -- UUID
-    device_id    TEXT NOT NULL,                     -- identifiant du poste
+    id           TEXT PRIMARY KEY,
+    device_id    TEXT NOT NULL,
     created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-    op_type      TEXT NOT NULL,                     -- ex: sale.created, sale.line_added, reception.line_added
-    entity_type  TEXT,                              -- ex: vente, ligne_vente, produit...
-    entity_id    TEXT,                              -- id local (integer) ou uuid
-    payload_json TEXT NOT NULL,                     -- JSON.stringify(...)
+    op_type      TEXT NOT NULL,
+    entity_type  TEXT,
+    entity_id    TEXT,
+    payload_json TEXT NOT NULL,
     sent_at      TEXT,
-    ack          INTEGER NOT NULL DEFAULT 0         -- 0 = pas confirmé, 1 = confirmé par le serveur
+    ack          INTEGER NOT NULL DEFAULT 0
   )
 `).run();
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_ack ON ops_queue(ack)`).run();
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_created ON ops_queue(created_at)`).run();
 
 // ─────────────────────────────────────────────────────────────
-// ⚠️ Nettoyage : supprimer d’anciens triggers locaux de stock
-// (évite le double comptage; le stock est recalé par le PULL)
-// ─────────────────────────────────────────────────────────────
-db.exec(`
-  DROP TRIGGER IF EXISTS trg_sm_ai;
-  DROP TRIGGER IF EXISTS trg_sm_ad;
-  DROP TRIGGER IF EXISTS trg_sm_au;
-  DROP TRIGGER IF EXISTS trg_lv_ai;
-  DROP TRIGGER IF EXISTS trg_lv_ad;
-  DROP TRIGGER IF EXISTS trg_lv_au;
-  DROP TRIGGER IF EXISTS trg_lr_ai;
-  DROP TRIGGER IF EXISTS trg_lr_ad;
-  DROP TRIGGER IF EXISTS trg_lr_au;
-`);
-
-// ─────────────────────────────────────────────────────────────
-// SEEDS
+// SEEDS (unités, familles/catégories, modes de paiement)
 // ─────────────────────────────────────────────────────────────
 (function seedUnites() {
   const have = db.prepare('SELECT nom FROM unites').all().map(x => (x.nom || '').toLowerCase());
@@ -313,7 +298,7 @@ const DEFAULT_TREE = [
 
 // META version
 const cur = db.prepare('SELECT COUNT(*) AS n FROM app_meta').get().n;
-if (cur === 0) db.prepare('INSERT INTO app_meta (schema_version) VALUES (2)').run();
-else db.prepare('UPDATE app_meta SET schema_version = 2').run();
+if (cur === 0) db.prepare('INSERT INTO app_meta (schema_version) VALUES (3)').run();
+else db.prepare('UPDATE app_meta SET schema_version = 3').run();
 
 module.exports = db;

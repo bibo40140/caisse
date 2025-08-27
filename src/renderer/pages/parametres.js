@@ -515,108 +515,70 @@ document.getElementById('btn-param-historiquerecetpion')  .addEventListener('cli
 const ventesAvecProduits = await Promise.all(
   ventes.map(async (v) => {
     const details = await window.electronAPI.getDetailsVente(v.id);
-    const header  = details.header || details || {};
+    const header  = details.header || details;
     const lignes  = details.lignes || [];
 
-    // 🔎 robustesse: différentes variantes possibles
-    const adherent =
-      `${header.adherent_nom || header.nom_adherent || v.adherent_nom || ''} ` +
-      `${header.adherent_prenom || header.prenom_adherent || v.adherent_prenom || ''}`.trim();
+    // total produits = v.total (calcul côté vente)
+    const totalProduits = Number(v.total ?? header.total ?? 0);
+    const frais         = Number(v.frais_paiement ?? header.frais_paiement ?? 0) || 0;
+    const cotisation    = Number(v.cotisation    ?? header.cotisation    ?? 0) || 0;
 
-    const modeNom =
-      header.mode_paiement_nom || v.mode_paiement_nom || header.mode || v.mode || '—';
+    const totalAffiche  = totalProduits + cotisation + frais;
 
-    const frais = Number(
-      header.frais_paiement ??
-      v.frais_paiement ??
-      header.frais ??
-      v.frais ??
-      0
-    ) || 0;
-
-    // total produits depuis v.total (base) sinon somme des lignes
-    const totalProduits = Number.isFinite(Number(v.total))
-      ? Number(v.total)
-      : lignes.reduce((s, l) => {
-          const q = Number(l.quantite || 0);
-          const tot = (l.prix != null && l.prix !== '')
-            ? Number(l.prix)
-            : q * Number(l.prix_unitaire || 0);
-          return s + (Number.isFinite(tot) ? tot : 0);
-        }, 0);
-
-    // cotisation éventuellement stockée dans le header
-    const coti = Number(header.cotisation || details.cotisation || 0) || 0;
-
-    const totalAffiche = totalProduits + frais + coti;
-
-    // index de recherche
-    const produitsIndex = lignes.map(l => [
-      (l.nom || l.produit_nom || ''), (l.fournisseur_nom || ''), (l.unite || ''), (l.code_barre || '')
-    ].join(' ')).join(' ').toLowerCase();
-
-    const searchIndex = [
-      adherent,
-      new Date(v.date_vente).toLocaleString(),
-      produitsIndex,
-      (modeNom || '').toLowerCase(),
-      String(totalAffiche),
-      String(v.id),
-      coti > 0 ? `cotisation ${coti.toFixed(2)}` : ''
-    ].join(' ').toLowerCase();
+    const adherent = `${v.adherent_nom || header.adherent_nom || ''} ${v.adherent_prenom || header.adherent_prenom || ''}`.trim();
 
     return {
       vente_id: v.id,
       date_vente: v.date_vente,
       adherent,
-      mode_paiement_nom: modeNom,
+      mode_paiement_nom: (v.mode_paiement_nom || header.mode_paiement_nom || '—'),
+      total_affiche: totalAffiche,     // ⬅️ on affiche ceci dans le tableau
       frais_paiement: frais,
-      total_affiche: totalAffiche,
-      searchIndex,
+      cotisation: cotisation,
     };
   })
 );
 
     container.innerHTML = `
-      <h2>Historique des ventes</h2>
-      <input type="text" id="recherche-vente" placeholder="🔍 Rechercher par nom, date, produit, fournisseur, unité, code-barres, mode, total, n° de vente, cotisation..." style="margin-bottom: 10px; padding: 6px; width: 100%;">
-      <table class="historique-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Adhérent</th>
-            <th>Total</th>
-            <th>Paiement</th>
-            <th>Frais</th>
-            <th>Détail</th>
-          </tr>
-        </thead>
-   <tbody id="ventes-tbody">
+  <h2>Historique des ventes</h2>
+  <input type="text" id="recherche-vente"
+    placeholder="🔍 Rechercher par nom, date, produit, fournisseur, unité, code-barres, mode, total, n° de vente, cotisation, frais…"
+    style="margin-bottom: 10px; padding: 6px; width: 100%;">
 
-   
-  ${ventesAvecProduits.map(v => `
-    <tr data-search="${v.searchIndex}">
-      <td>${new Date(v.date_vente).toLocaleString()}</td>
-      <td>${v.adherent || '—'}</td>
-      <td>${v.total_affiche.toFixed(2)} €</td>
-      <td>${v.mode_paiement_nom || '—'}</td>
-      <td>${v.frais_paiement.toFixed(2)} €</td>
-      <td><button data-id="${v.vente_id}" class="voir-detail-btn">Voir</button></td>
+  <table class="historique-table">
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Adhérent</th>
+      <th>Total</th>
+      <th>Paiement</th>
+      <th>Détail</th>
     </tr>
-  `).join('')}
-</tbody>
+  </thead>
+  <tbody id="ventes-tbody">
+    ${ventesAvecProduits.map(v => `
+      <tr data-search="${v.searchIndex}">
+        <td>${new Date(v.date_vente).toLocaleString()}</td>
+        <td>${v.adherent || '—'}</td>
+        <td>${v.total_affiche.toFixed(2)} €</td>
+        <td>${v.mode_paiement_nom || '—'}</td>
+        <td><button data-id="${v.vente_id}" class="voir-detail-btn">Voir</button></td>
+      </tr>
+    `).join('')}
+  </tbody>
+</table>
 
-
-      </table>
-      <div id="facture-popup" class="modal-overlay" style="display:none;">
-        <div class="modal">
-          <div id="facture-detail"></div>
-          <div style="text-align: right; margin-top: 10px;">
-            <button id="btn-fermer-facture">Fermer</button>
-          </div>
-        </div>
+  <div id="facture-popup" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div id="facture-detail"></div>
+      <div style="text-align: right; margin-top: 10px;">
+        <button id="btn-fermer-facture">Fermer</button>
       </div>
-    `;
+    </div>
+  </div>
+`;
+
+
 
     console.log('[debug] 1re vente brute', ventes[0]);
 const d0 = await window.electronAPI.getDetailsVente(ventes[0]?.id);
@@ -732,7 +694,14 @@ const html = `
   </table>
   <p style="margin-top: 10px;">
     <strong>Total produits :</strong> ${totalProduits.toFixed(2)} €<br>
-    ${montantCotisation > 0 ? `<strong>Cotisation :</strong> ${montantCotisation.toFixed(2)} €<br>` : ''}
+${montantCotisation > 0 ? `
+  <tr>
+    <td><em>Cotisation</em></td>
+    <td>—</td>
+    <td colspan="3">${montantCotisation.toFixed(2)} €</td>
+    <td>${montantCotisation.toFixed(2)} €</td>
+  </tr>
+` : ''}
     ${fraisPaiement > 0 ? `<strong>Frais de paiement :</strong> ${fraisPaiement.toFixed(2)} €<br>` : ''}
     <strong>Total :</strong> ${totalGlobal.toFixed(2)} €<br>
   </p>
