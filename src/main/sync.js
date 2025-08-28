@@ -4,8 +4,10 @@ const { BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db/db');
+const b2i = (v) => (v ? 1 : 0);
 
-// ➜ lit l’URL depuis env OU config.json OU défaut 3000
+
+// ➜ lit l’URL depuis env OU config.json OU défaut 3001
 function readApiBase() {
   try {
     if (process.env.CAISSE_API_URL) return process.env.CAISSE_API_URL;
@@ -13,7 +15,7 @@ function readApiBase() {
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
     if (cfg && cfg.api_base_url) return cfg.api_base_url;
   } catch (_) {}
-  return 'http://localhost:3000';
+  return 'http://localhost:3001';
 }
 const API_URL = readApiBase();
 
@@ -91,26 +93,27 @@ async function pullRefs({ since = null } = {}) {
     for (const r of unites) upUnite.run(r.id, r.nom);
     for (const r of familles) upFam.run(r.id, r.nom);
     for (const r of categories) upCat.run(r.id, r.nom, r.famille_id ?? null);
-    for (const r of adherents)
-      upAdh.run(
-        r.id,
-        r.nom,
-        r.prenom,
-        r.email1,
-        r.email2,
-        r.telephone1,
-        r.telephone2,
-        r.adresse,
-        r.code_postal,
-        r.ville,
-        r.nb_personnes_foyer,
-        r.tranche_age,
-        r.droit_entree,
-        r.date_inscription,
-        r.archive,
-        r.date_archivage,
-        r.date_reactivation
-      );
+   for (const r of adherents)
+  upAdh.run(
+    r.id,
+    r.nom,
+    r.prenom,
+    r.email1,
+    r.email2,
+    r.telephone1,
+    r.telephone2,
+    r.adresse,
+    r.code_postal,
+    r.ville,
+    r.nb_personnes_foyer,
+    r.tranche_age,
+    Number(r.droit_entree ?? 0),
+    r.date_inscription,
+    b2i(r.archive),           
+    r.date_archivage,
+    r.date_reactivation
+  );
+
     for (const r of fournisseurs)
       upFour.run(
         r.id,

@@ -176,3 +176,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: () => ipcRenderer.invoke('produits:list'),
   },
 });
+
+
+  // --- Paniers / Carts ---
+
+
+contextBridge.exposeInMainWorld('carts', {
+  save:   (payload)       => ipcRenderer.invoke('cart-save', payload),
+  list:   (filter = {})   => ipcRenderer.invoke('cart-list', filter),
+  load:   (id)            => ipcRenderer.invoke('cart-load', id),
+  close:  (id)            => ipcRenderer.invoke('cart-close', id),
+  delete: (id)                   => ipcRenderer.invoke('cart-delete', id),
+  remove: (id)            => ipcRenderer.invoke('cart-delete', id),
+});

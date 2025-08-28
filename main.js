@@ -94,6 +94,7 @@ require('./src/main/handlers/config')(ipcMain);
 require('./src/main/handlers/produits');
 require('./src/main/handlers/unites')(ipcMain);
 require('./src/main/handlers/modules');
+require('./src/main/handlers/carts');
 
 const registerVentesHandlers = require('./src/main/handlers/ventes');
 registerVentesHandlers(ipcMain);

@@ -37,7 +37,7 @@ function getCategoriesProduits() {
   return db.prepare(`
     SELECT DISTINCT c.id, c.nom, c.famille_id, f.nom AS famille_nom
     FROM produits p
-    JOIN categories c ON c.id = p.categorie_id
+    LEFT JOIN categories c ON c.id = p.categorie_id
     LEFT JOIN familles f ON f.id = c.famille_id
     ORDER BY f.nom, c.nom
   `).all();

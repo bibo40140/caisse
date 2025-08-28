@@ -72,11 +72,26 @@ module.exports = function registerVentesHandlers(ipcMain) {
 
   // Enregistrement d'une vente
   ipcMain.handle('enregistrer-vente', async (_e, payload = {}) => {
+    console.group('[DEBUG main] enregistrer-vente - payload reçu');
+console.log('payload.lignes length:', Array.isArray(payload?.lignes) ? payload.lignes.length : 'n/a');
+console.log('payload.lignes:', payload?.lignes);
+console.log('payload.meta:', {
+  total: payload?.total,
+  adherent_id: payload?.adherent_id,
+  cotisation: payload?.cotisation,
+  mode_paiement_id: payload?.mode_paiement_id,
+  sale_type: payload?.sale_type,
+  client_email: payload?.client_email
+});
+console.groupEnd();
+
     try {
       const hasNested = payload && typeof payload.vente === 'object';
       const lignesIn = hasNested
         ? payload.lignes ?? payload.vente?.lignes ?? payload.items ?? payload.panier ?? []
         : payload.lignes ?? payload.items ?? payload.panier ?? [];
+
+        console.warn('[DEBUG main] Aucune ligne validée -> payload.lignes =', payload?.lignes);
 
       const lignes = normalizeLignes(lignesIn);
       if (lignes.length === 0) throw new Error('aucune ligne de vente');

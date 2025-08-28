@@ -26,17 +26,37 @@ function isModuleActive(moduleName) {
 function enregistrerVente(vente, lignes) {
   if (!vente) throw new Error('vente manquante');
   if (!Array.isArray(lignes) || lignes.length === 0) throw new Error('aucune ligne de vente');
+const useAdherents   = isModuleActive('adherents');
+const stocksOn       = isModuleActive('stocks');
+const modesOn        = isModuleActive('modes_paiement');
+const cotisationsOn  = isModuleActive('cotisations');
+const prospectsOn    = isModuleActive('prospects');
 
-  const useAdherents   = isModuleActive('adherents');
-  const stocksOn       = isModuleActive('stocks');
+let saleType = vente.sale_type || (useAdherents ? 'adherent' : 'exterieur');
+if (!useAdherents && saleType === 'adherent') saleType = 'exterieur';
+if (!prospectsOn  && saleType === 'prospect') saleType = useAdherents ? 'adherent' : 'exterieur';
 
-  const saleType       = (vente.sale_type || (useAdherents ? 'adherent' : 'exterieur'));
-  const adherentId     = useAdherents ? (Number(vente.adherent_id) || null) : null;
-  const modePaiementId = (vente.mode_paiement_id ?? null);
-  const fraisPaiement  = Number(vente.frais_paiement || 0);
-  const cotisation     = Number(vente.cotisation || 0);
-  const total          = Number(vente.total || 0);
-  const clientEmail    = (vente.client_email || null);
+const adherentId =
+  (saleType === 'adherent' && useAdherents && Number.isFinite(Number(vente.adherent_id)))
+    ? Number(vente.adherent_id)
+    : null;
+
+const modePaiementId =
+  (modesOn && Number.isFinite(Number(vente.mode_paiement_id)))
+    ? Number(vente.mode_paiement_id)
+    : null;
+
+const fraisPaiement = modesOn ? Number(vente.frais_paiement || 0) : 0;
+
+const cotisation =
+  (saleType === 'adherent' && useAdherents && cotisationsOn)
+    ? Number(vente.cotisation || 0)
+    : 0;
+
+const total       = Number(vente.total || 0);
+const clientEmail = (vente.client_email || null);
+
+
 
   // INSERT header (laisse SQLite remplir date_vente & updated_at)
   const insertVente = db.prepare(`

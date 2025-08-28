@@ -142,6 +142,8 @@ db.prepare(`
 `).run();
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_barcode ON produits(code_barre)`).run();
 
+
+
 // ─────────────────────────────────────────────────────────────
 // MODES DE PAIEMENT / VENTES
 // ─────────────────────────────────────────────────────────────
