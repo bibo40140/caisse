@@ -98,7 +98,7 @@
     document.getElementById('btn-param-historique')     .addEventListener('click', () => window.PageParams.renderHistoriqueFactures());
     document.getElementById('btn-param-cotisations')    .addEventListener('click', () => window.renderCotisations?.());
     document.getElementById('btn-param-historiquerecetpion')  .addEventListener('click', () => window.PageReceptions?.renderReceptions?.());
-    document.getElementById('btn-param-inv-histo')?.addEventListener('click', async () => { alert("Écran d’historique des inventaires à venir.\n(La finalisation écrit déjà le journal côté API.)"); });
+    document.getElementById('btn-param-inv-histo')?.addEventListener('click', () => renderHistoriqueInventaires());
     document.getElementById('btn-param-categories')     .addEventListener('click', () => renderGestionCategories());
     document.getElementById('btn-param-unites')         .addEventListener('click', () => renderGestionUnites());
     document.getElementById('btn-param-modes')          .addEventListener('click', () => renderGestionModesPaiement());
@@ -972,6 +972,214 @@
       }
     });
   }
+async function getApiBaseFromConfig() {
+  try {
+    const cfg = await (window.electronAPI?.getConfig?.() || {});
+    return (cfg && cfg.api_base_url) ? cfg.api_base_url.replace(/\/+$/, '') : '';
+  } catch { return ''; }
+}
+
+function formatEUR(v) {
+  const n = Number(v || 0);
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+async function renderHistoriqueInventaires() {
+  const container = document.getElementById('parametres-souspage') || document.getElementById('page-content');
+  const apiBase = await getApiBaseFromConfig();
+  if (!apiBase) {
+    container.innerHTML = `<p style="color:#b00020">API non configurée (paramètre <code>api_base_url</code> manquant).</p>`;
+    return;
+  }
+
+  showBusy('Chargement des sessions…');
+  try {
+    const r = await fetch(`${apiBase}/inventory/sessions`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const js = await r.json();
+    if (!js?.ok) throw new Error(js?.error || 'Réponse invalide');
+    const sessions = js.sessions || [];
+
+    container.innerHTML = `
+      <h3>Historique des inventaires</h3>
+      <div class="muted">Liste des sessions. Clique “Voir” pour le détail, ou exporte le CSV.</div>
+      <table class="historique-table" style="width:100%; border-collapse: collapse; margin-top: 10px;">
+        <thead>
+          <tr>
+            <th style="border:1px solid #ddd; padding:6px;">Nom</th>
+            <th style="border:1px solid #ddd; padding:6px;">Début</th>
+            <th style="border:1px solid #ddd; padding:6px;">Fin</th>
+            <th style="border:1px solid #ddd; padding:6px;">Statut</th>
+            <th style="border:1px solid #ddd; padding:6px;">Comptés / Total</th>
+            <th style="border:1px solid #ddd; padding:6px;">Valeur inventaire</th>
+            <th style="border:1px solid #ddd; padding:6px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sessions.map(s => `
+            <tr data-id="${s.id}">
+              <td style="border:1px solid #ddd; padding:6px;">${s.name || '—'}</td>
+              <td style="border:1px solid #ddd; padding:6px;">${s.started_at ? new Date(s.started_at).toLocaleString() : '—'}</td>
+              <td style="border:1px solid #ddd; padding:6px;">${s.ended_at ? new Date(s.ended_at).toLocaleString() : '—'}</td>
+              <td style="border:1px solid #ddd; padding:6px;">${s.status}</td>
+              <td style="border:1px solid #ddd; padding:6px;">${s.counted_lines}/${s.total_products}</td>
+              <td style="border:1px solid #ddd; padding:6px;">${formatEUR(s.inventory_value)}</td>
+              <td style="border:1px solid #ddd; padding:6px; white-space:nowrap;">
+                <button class="btn-see" data-id="${s.id}">Voir</button>
+                <button class="btn-csv" data-id="${s.id}">CSV</button>
+              </td>
+            </tr>
+          `).join('')}
+          ${sessions.length === 0 ? `<tr><td colspan="7" style="padding:8px;">Aucune session.</td></tr>` : ''}
+        </tbody>
+      </table>
+    `;
+
+    // Actions
+    container.querySelectorAll('.btn-see').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = Number(btn.dataset.id);
+        await showInventoryDetailModal(apiBase, id);
+      });
+    });
+    container.querySelectorAll('.btn-csv').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = Number(btn.dataset.id);
+        await exportInventoryCSV(apiBase, id);
+      });
+    });
+
+  } catch (e) {
+    container.innerHTML = `<p style="color:#b00020">Erreur: ${e?.message || e}</p>`;
+  } finally {
+    hideBusy();
+  }
+}
+
+async function fetchInventorySummary(apiBase, sessionId) {
+  const r = await fetch(`${apiBase}/inventory/${sessionId}/summary`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const js = await r.json();
+  if (!js?.ok) throw new Error(js?.error || 'Réponse invalide');
+  return js;
+}
+
+async function showInventoryDetailModal(apiBase, sessionId) {
+  showBusy('Chargement du détail…');
+  try {
+    const js = await fetchInventorySummary(apiBase, sessionId);
+    const lines = js.lines || [];
+    const sess  = js.session || {};
+    const date  = sess.started_at ? new Date(sess.started_at).toLocaleString() : '—';
+
+    // Valeur inventaire = somme(counted_total * prix)
+    const invValue = lines.reduce((acc, r) => acc + Number(r.counted_total || 0) * Number(r.prix || 0), 0);
+    const counted  = lines.filter(r => Number(r.counted_total || 0) !== 0).length;
+
+    // Modale
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-backdrop';
+    wrap.innerHTML = `
+      <div class="modal" style="background:#fff; border-radius:10px; padding:14px; max-width:95vw; max-height:90vh; overflow:auto;">
+        <h3 style="margin-top:0;">Inventaire #${sessionId} — ${sess.name || ''}</h3>
+        <div style="margin-bottom:8px; color:#555;">
+          Date : <strong>${date}</strong> — Produits inventoriés : <strong>${counted}</strong> — Valeur : <strong>${formatEUR(invValue)}</strong>
+        </div>
+        <table style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="border:1px solid #ddd; padding:6px;">Produit</th>
+              <th style="border:1px solid #ddd; padding:6px;">Code</th>
+              <th style="border:1px solid #ddd; padding:6px;">Stock initial</th>
+              <th style="border:1px solid #ddd; padding:6px;">Compté</th>
+              <th style="border:1px solid #ddd; padding:6px;">Écart</th>
+              <th style="border:1px solid #ddd; padding:6px;">Prix</th>
+              <th style="border:1px solid #ddd; padding:6px;">Valeur comptée</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lines.map(r => {
+              const start = Number(r.stock_start || 0);
+              const counted = Number(r.counted_total || 0);
+              const delta = counted - start;
+              const price = Number(r.prix || 0);
+              const val = counted * price;
+              return `
+                <tr>
+                  <td style="border:1px solid #ddd; padding:6px;">${r.nom || ''}</td>
+                  <td style="border:1px solid #ddd; padding:6px;">${r.code_barre || ''}</td>
+                  <td style="border:1px solid #ddd; padding:6px;">${start}</td>
+                  <td style="border:1px solid #ddd; padding:6px;">${counted}</td>
+                  <td style="border:1px solid #ddd; padding:6px;">${delta > 0 ? '+' : ''}${delta}</td>
+                  <td style="border:1px solid #ddd; padding:6px;">${formatEUR(price)}</td>
+                  <td style="border:1px solid #ddd; padding:6px;">${formatEUR(val)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+        <div style="text-align:right; margin-top:10px;">
+          <button class="modal-close">Fermer</button>
+        </div>
+      </div>
+      <style>
+        .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:9999; }
+      </style>
+    `;
+    document.body.appendChild(wrap);
+    wrap.querySelector('.modal-close').addEventListener('click', () => wrap.remove());
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+  } catch (e) {
+    alert('Erreur: ' + (e?.message || e));
+  } finally {
+    hideBusy();
+  }
+}
+
+function toCSV(rows) {
+  const esc = (v) => {
+    const s = String(v ?? '');
+    if (/[",;\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const header = ['product_id','nom','code_barre','stock_start','counted_total','ecart','prix','valeur_comptee'];
+  const body = rows.map(r => {
+    const start = Number(r.stock_start || 0);
+    const counted = Number(r.counted_total || 0);
+    const delta = counted - start;
+    const price = Number(r.prix || 0);
+    const val = counted * price;
+    return [
+      r.product_id, r.nom || '', r.code_barre || '',
+      start, counted, delta, price.toFixed(2), val.toFixed(2)
+    ].map(esc).join(';');
+  });
+  return [header.join(';'), ...body].join('\n');
+}
+
+async function exportInventoryCSV(apiBase, sessionId) {
+  showBusy('Préparation du CSV…');
+  try {
+    const js = await fetchInventorySummary(apiBase, sessionId);
+    const csv = toCSV(js.lines || []);
+    const name = (js.session?.name || `inventaire-${sessionId}`).replace(/[^\w\-]+/g, '_');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Export CSV impossible : ' + (e?.message || e));
+  } finally {
+    hideBusy();
+  }
+}
+
+
 
   // === Export global ===
   window.PageParams = {

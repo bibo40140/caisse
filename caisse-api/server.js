@@ -53,7 +53,9 @@ async function getCurrentStock(client, productId) {
 
 /* -------------------- INVENTAIRE -------------------- */
 
-// Crée une session d'inventaire + snapshot de TOUTES les références
+// Crée une session d'inventaire + snapshot de TOUTES les références (ultra rapide, 1 seule requête)
+// Crée OU réutilise une session d'inventaire "ouverte" du même nom.
+// Snapshot de tous les produits seulement si on crée réellement la session.
 app.post('/inventory/start', async (req, res) => {
   const { name, user, notes } = req.body || {};
   if (!name) return res.status(400).json({ ok:false, error:'name_required' });
@@ -62,6 +64,21 @@ app.post('/inventory/start', async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // 1) Regarder si une session OPEN du même name existe déjà
+    const existing = await client.query(
+      `SELECT id, name, status, started_at FROM inventory_sessions
+       WHERE name=$1 AND status='open'
+       ORDER BY id ASC
+       LIMIT 1`,
+      [name]
+    );
+
+    if (existing.rowCount > 0) {
+      await client.query('COMMIT');
+      return res.json({ ok:true, session: existing.rows[0], reused: true });
+    }
+
+    // 2) Sinon on la crée, puis on snapshot
     const s = await client.query(
       `INSERT INTO inventory_sessions(name, "user", notes)
        VALUES ($1,$2,$3) RETURNING id, name, status, started_at`,
@@ -69,22 +86,19 @@ app.post('/inventory/start', async (req, res) => {
     );
     const sessionId = s.rows[0].id;
 
-    // Liste de tous les produits pour le snapshot
     const prods = await client.query(`SELECT id, prix FROM produits ORDER BY id`);
-
-    // Snapshot: stock_start = stock courant; unit_cost = NULL (ou prix si tu préfères)
     for (const p of prods.rows) {
       const stockStart = await getCurrentStock(client, p.id);
       await client.query(
         `INSERT INTO inventory_snapshot(session_id, product_id, stock_start, unit_cost)
          VALUES ($1,$2,$3,$4)
          ON CONFLICT (session_id, product_id) DO NOTHING`,
-        [sessionId, p.id, stockStart, null] // ou p.prix si tu veux un proxy
+        [sessionId, p.id, stockStart, null]
       );
     }
 
     await client.query('COMMIT');
-    res.json({ ok:true, session: s.rows[0] });
+    res.json({ ok:true, session: s.rows[0], reused: false });
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('POST /inventory/start', e);
@@ -93,6 +107,7 @@ app.post('/inventory/start', async (req, res) => {
     client.release();
   }
 });
+
 
 // Ajouter (cumul) une quantité comptée pour un produit (multi-postes)
 app.post('/inventory/:id/count-add', async (req, res) => {
@@ -311,6 +326,39 @@ Session #${sessionId}`
     client.release();
   }
 });
+
+
+// Liste des sessions d'inventaire + KPIs (nombre comptés / total, valeur inventaire)
+app.get('/inventory/sessions', async (_req, res) => {
+  const client = await pool.connect();
+  try {
+    const r = await client.query(`
+      WITH cnt AS (
+        SELECT session_id, product_id, SUM(qty)::numeric AS counted
+        FROM inventory_counts
+        GROUP BY session_id, product_id
+      )
+      SELECT
+        s.id, s.name, s.status, s.started_at, s.ended_at,
+        COUNT(sn.product_id)::int AS total_products,
+        SUM(CASE WHEN COALESCE(c.counted,0) <> 0 THEN 1 ELSE 0 END)::int AS counted_lines,
+        COALESCE(SUM(COALESCE(c.counted,0) * COALESCE(p.prix,0)),0)::numeric AS inventory_value
+      FROM inventory_sessions s
+      JOIN inventory_snapshot sn ON sn.session_id = s.id
+      JOIN produits p ON p.id = sn.product_id
+      LEFT JOIN cnt c ON c.session_id = s.id AND c.product_id = sn.product_id
+      GROUP BY s.id
+      ORDER BY s.started_at DESC
+    `);
+    res.json({ ok: true, sessions: r.rows });
+  } catch (e) {
+    console.error('GET /inventory/sessions', e);
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
 
 /* -------------------- SYNC -------------------- */
 

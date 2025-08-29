@@ -184,13 +184,19 @@
       const validated = !!st.validated;
 
       let deltaCell = "";
-      let rowCls = "";
-      if (validated) {
-        const effectiveCount = (Number(st.remoteCount) > 0) ? Number(st.remoteCount) : Number(st.counted ?? 0);
-        const delta = effectiveCount - Number(st.system);
-        deltaCell = `${delta > 0 ? "+" : ""}${delta}`;
-        rowCls = delta === 0 ? "validated delta0" : (delta > 0 ? "validated pos" : "validated neg");
-      }
+let rowCls = "";
+if (validated) {
+  const effectiveCount = (Number(st.remoteCount) > 0) ? Number(st.remoteCount) : Number(st.counted ?? 0);
+  const delta = effectiveCount - Number(st.system);
+  deltaCell = `${delta > 0 ? "+" : ""}${delta}`;
+  rowCls = delta === 0 ? "validated delta0" : (delta > 0 ? "validated pos" : "validated neg");
+} else {
+  // Affiche un badge "live" si d'autres postes ont déjà compté quelque chose
+  if (Number(st.remoteCount) > 0) {
+    deltaCell = `<span class="live-badge" title="Total compté (tous postes)">∑ ${Number(st.remoteCount)}</span>`;
+  }
+}
+
 
       const prixVal = (typeof p.prix === "number" ? p.prix : Number(p.prix || 0));
       const prixStr = Number.isFinite(prixVal) ? prixVal.toFixed(2) : "";
@@ -307,6 +313,7 @@
           .busy-spinner { width:18px; height:18px; }
           @keyframes spin { to { transform: rotate(360deg);} }
           tr.row-busy { opacity:.6; }
+          
         </style>
       `;
 
@@ -601,26 +608,51 @@
         $apply.disabled = true;
         setBusy(true, 'Clôture de l’inventaire en cours…');
 
+        // 1) On récupère un résumé AVANT la clôture pour calculer le récap demandé
+        //    (nb produits inventoriés & valeur du stock inventorié = somme(counted_total * prix))
+        let countedProducts = 0;
+        let inventoryValue = 0;
         try {
+          const sum = await getSummary(apiBase, sessionId);
+          const lines = sum?.lines || [];
+          countedProducts = lines.filter(l => Number(l.counted_total || 0) !== 0).length;
+          inventoryValue = lines.reduce((acc, l) => {
+            const qty  = Number(l.counted_total || 0);
+            const pu   = Number(l.prix || 0);
+            return acc + qty * pu;
+          }, 0);
+        } catch (e) {
+          // si ça échoue, on mettra des fallback à 0
+          console.warn('[inventaire] summary avant finalisation indisponible:', e?.message || e);
+        }
+
+        try {
+          // 2) Clôture côté API (écrit les mouvements & peut envoyer l'email si configuré)
           const res = await finalizeInventory(apiBase, sessionId, currentUser, emailTo);
           if (!res?.ok) throw new Error(res?.error || 'finalize failed');
 
-         const sess  = res?.recap?.session || {};
-const stats = res?.recap?.stats || {};
-const end   = sess.ended_at ? new Date(sess.ended_at) : new Date();
-const dateStr = end.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
+          // 3) Rafraîchir la base LOCALE depuis Neon pour voir immédiatement les bons stocks
+          try {
+            await window.electronAPI.syncPullAll();
+          } catch (e) {
+            console.warn("[inventaire] pull après finalize a échoué:", e?.message || e);
+          }
 
-alert(
-  "✅ Inventaire clôturé.\n\n" +
-  `Date : ${dateStr}\n` +
-  `Produits inventoriés : ${stats.countedProducts ?? 0}\n` +
-  `Valeur du stock inventorié : ${Number(stats.inventoryValue || 0).toFixed(2)} €`
-);
-
-
-          // nettoyage local et reload
-          localStorage.removeItem(INV_SESSION_KEY);
+          // 4) Nettoyage local
+          try { localStorage.removeItem(INV_SESSION_KEY); } catch {}
           try { localStorage.removeItem(DRAFT_KEY); } catch {}
+
+          // 5) Récap SANS deltas : Date, nb produits inventoriés, valeur du stock inventorié
+          const end   = new Date();
+          const dateStr = end.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
+          alert(
+            "✅ Inventaire clôturé.\n\n" +
+            `Date : ${dateStr}\n` +
+            `Produits inventoriés : ${countedProducts}\n` +
+            `Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €`
+          );
+
+          // 6) Recharger l'écran
           location.reload();
         } catch (e) {
           alert('Erreur de clôture : ' + (e?.message || e));

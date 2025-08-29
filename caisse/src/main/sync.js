@@ -188,7 +188,7 @@ async function pullRefs({ since = null } = {}) {
    OPS queue → push vers Neon
 --------------------------------------------------*/
 
-function takePendingOps(limit = 200) {
+function takePendingOps(limit = 1000) {
   return db
     .prepare(
       `
