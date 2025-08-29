@@ -43,6 +43,7 @@
         <li><button id="btn-param-historique">🔧 Historique des ventes</button></li>
         <li><button id="btn-param-cotisations">🔧 Cotisations</button></li>
         <li><button id="btn-param-historiquerecetpion">🔧 historique réception</button></li>
+        <li><button id="btn-param-inv-histo">📦 Historique des inventaires</button></li>
         <li><button id="btn-param-categories">🗂️ Gérer les catégories</button></li>
         <li><button id="btn-param-unites">⚖️ Unités</button></li>
         <li><button id="btn-param-modes">💳 Modes de paiement</button></li>
@@ -55,7 +56,7 @@
       <div id="parametres-souspage" style="margin-top: 20px;"></div>
     `;
 
-    // Voyant réseau/sync (créé une fois)
+    // Voyant réseau/sync
     (function ensureSyncStatusBadge(){
       let el = document.getElementById('sync-status');
       if (!el) {
@@ -84,71 +85,64 @@
       window.addEventListener('offline', offline);
       if (navigator.onLine) online(); else offline();
 
-      // Écoute les événements main → renderer
       if (window.electronEvents && window.electronEvents.on) {
         window.electronEvents.on('ops:pushed',   (_e, p) => setStatus(`Envoyé: ${p?.count || 0}`, '#065f46'));
         window.electronEvents.on('data:refreshed', () => setStatus('Données à jour', '#065f46'));
       }
 
-      // Expose helpers pour ce fichier
       window.__syncBadgeSet = setStatus;
     })();
 
     // Boutons → sous-pages
     document.getElementById('btn-param-import')         .addEventListener('click', () => window.PageImports.renderImportExcel());
-document.getElementById('btn-param-historique')    .addEventListener('click', () => window.PageParams.renderHistoriqueFactures());    
-document.getElementById('btn-param-cotisations')    .addEventListener('click', () => window.renderCotisations?.());
-document.getElementById('btn-param-historiquerecetpion')  .addEventListener('click', () => window.PageReceptions?.renderReceptions?.());
+    document.getElementById('btn-param-historique')     .addEventListener('click', () => window.PageParams.renderHistoriqueFactures());
+    document.getElementById('btn-param-cotisations')    .addEventListener('click', () => window.renderCotisations?.());
+    document.getElementById('btn-param-historiquerecetpion')  .addEventListener('click', () => window.PageReceptions?.renderReceptions?.());
+    document.getElementById('btn-param-inv-histo')?.addEventListener('click', async () => { alert("Écran d’historique des inventaires à venir.\n(La finalisation écrit déjà le journal côté API.)"); });
     document.getElementById('btn-param-categories')     .addEventListener('click', () => renderGestionCategories());
     document.getElementById('btn-param-unites')         .addEventListener('click', () => renderGestionUnites());
     document.getElementById('btn-param-modes')          .addEventListener('click', () => renderGestionModesPaiement());
     document.getElementById('btn-param-modules')        .addEventListener('click', () => renderActivationModules());
     document.getElementById('btn-param-autres')         .addEventListener('click', () => window.renderGestionParametres?.());
 
-    // Prospects (chargement paresseux + dépendance module)
+    // Prospects
     document.getElementById('btn-param-prospects')?.addEventListener('click', async () => {
       try {
         const mods = await (window.getMods?.() || window.electronAPI.getModules());
-        if (!mods?.prospects) {
-          alert("Le module Prospects n'est pas activé (Paramètres > Modules).");
-          return;
-        }
-        if (!window.PageProspects?.render) {
-          await loadScriptOnce('src/renderer/pages/prospects.js');
-        }
+        if (!mods?.prospects) { alert("Le module Prospects n'est pas activé (Paramètres > Modules)."); return; }
+        if (!window.PageProspects?.render) { await loadScriptOnce('src/renderer/pages/prospects.js'); }
         const fn = window.PageProspects?.render || window.renderProspectsPage;
-        if (typeof fn === 'function') {
-          fn();
-        } else {
-          alert("Module Prospects non chargé.");
-        }
-      } catch (e) {
-        console.error(e);
-        alert("Impossible d'ouvrir la page Prospects.");
-      }
+        if (typeof fn === 'function') fn(); else alert("Module Prospects non chargé.");
+      } catch (e) { console.error(e); alert("Impossible d'ouvrir la page Prospects."); }
     });
 
-    // Masquer certains boutons si module OFF
+    // Masques si module OFF
     (async () => {
       const mods = await (window.getMods?.() || window.electronAPI.getModules());
-
       const btnCoti = document.getElementById('btn-param-cotisations');
       if (btnCoti) btnCoti.style.display = mods.cotisations ? '' : 'none';
-
       const btnPros = document.getElementById('btn-param-prospects');
       if (btnPros) btnPros.style.display = mods.prospects ? '' : 'none';
-
       const btnModes = document.getElementById('btn-param-modes');
       if (btnModes) btnModes.style.display = mods.modes_paiement ? '' : 'none';
     })();
 
-    // Push TOUT (local → Neon) — version avec overlay + badge
+    // === PUSH (local → Neon) : on réutilise TON bouton existant ===
     document.getElementById('btn-sync-push')?.addEventListener('click', async () => {
       if (!confirm("Envoyer TOUTE la base locale vers Neon (création/mise à jour) ?")) return;
       showBusy('Envoi vers Neon en cours…');
       try {
         window.__syncBadgeSet?.('Envoi en cours…', '#b45309');
-        const r = await window.electronAPI.syncPushAll();
+
+        // On privilégie l’API "référentiels complets" si exposée (inclut adhérents + modes)
+        let r;
+        if (window.electronAPI?.syncPushBootstrapRefs) {
+          r = await window.electronAPI.syncPushBootstrapRefs();
+        } else {
+          // fallback : ancien flux
+          r = await window.electronAPI.syncPushAll();
+        }
+
         hideBusy();
         if (r?.ok) {
           const c = r.counts || {};
@@ -160,8 +154,16 @@ document.getElementById('btn-param-historiquerecetpion')  .addEventListener('cli
             `• Catégories: ${c.categories ?? '—'}\n` +
             `• Adhérents: ${c.adherents ?? '—'}\n` +
             `• Fournisseurs: ${c.fournisseurs ?? '—'}\n` +
-            `• Produits: ${c.produits ?? '—'}`
+            `• Produits: ${c.produits ?? '—'}\n` +
+            `• Modes de paiement: ${c.modes_paiement ?? '—'}`
           );
+
+          // petit pull derrière pour rafraîchir local (best effort)
+          try {
+            window.__syncBadgeSet?.('Rafraîchissement…', '#b45309');
+            const pullRes = await window.electronAPI.syncPullAll?.();
+            if (pullRes?.ok) window.__syncBadgeSet?.('Données à jour', '#065f46');
+          } catch {}
         } else {
           window.__syncBadgeSet?.('Échec envoi', '#9f1239');
           alert("Push KO : " + (r?.error || 'inconnu'));
@@ -173,7 +175,7 @@ document.getElementById('btn-param-historiquerecetpion')  .addEventListener('cli
       }
     });
 
-    // Pull TOUT (Neon → local) — version avec overlay + badge
+    // === PULL (Neon → local) : on réutilise TON bouton existant ===
     document.getElementById('btn-sync-pull')?.addEventListener('click', async () => {
       if (!confirm("Remplacer/mettre à jour la base LOCALE depuis Neon ?")) return;
       showBusy('Récupération depuis Neon…');
@@ -191,7 +193,8 @@ document.getElementById('btn-param-historiquerecetpion')  .addEventListener('cli
             `• Catégories: ${c.categories ?? '—'}\n` +
             `• Adhérents: ${c.adherents ?? '—'}\n` +
             `• Fournisseurs: ${c.fournisseurs ?? '—'}\n` +
-            `• Produits: ${c.produits ?? '—'}`
+            `• Produits: ${c.produits ?? '—'}\n` +
+            `• Modes de paiement: ${c.modes_paiement ?? '—'}`
           );
         } else {
           window.__syncBadgeSet?.('Échec rafraîchissement', '#9f1239');
@@ -221,7 +224,7 @@ document.getElementById('btn-param-historiquerecetpion')  .addEventListener('cli
     });
   }
 
-  // --- Paramètres → Catégories (vue familles/catégories) ---
+  // --- Paramètres → Catégories ---
   async function renderGestionCategories() {
     const el = document.getElementById('parametres-souspage');
     if (!el) return;
@@ -512,32 +515,29 @@ document.getElementById('btn-param-historiquerecetpion')  .addEventListener('cli
     if (!container) return;
 
     const ventes = await window.electronAPI.getHistoriqueVentes();
-const ventesAvecProduits = await Promise.all(
-  ventes.map(async (v) => {
-    const details = await window.electronAPI.getDetailsVente(v.id);
-    const header  = details.header || details;
-    const lignes  = details.lignes || [];
+    const ventesAvecProduits = await Promise.all(
+      ventes.map(async (v) => {
+        const details = await window.electronAPI.getDetailsVente(v.id);
+        const header  = details.header || details;
+        const lignes  = details.lignes || [];
 
-    // total produits = v.total (calcul côté vente)
-    const totalProduits = Number(v.total ?? header.total ?? 0);
-    const frais         = Number(v.frais_paiement ?? header.frais_paiement ?? 0) || 0;
-    const cotisation    = Number(v.cotisation    ?? header.cotisation    ?? 0) || 0;
+        const totalProduits = Number(v.total ?? header.total ?? 0);
+        const frais         = Number(v.frais_paiement ?? header.frais_paiement ?? 0) || 0;
+        const cotisation    = Number(v.cotisation    ?? header.cotisation    ?? 0) || 0;
 
-    const totalAffiche  = totalProduits + cotisation + frais;
+        const totalAffiche  = totalProduits + cotisation + frais;
 
-    const adherent = `${v.adherent_nom || header.adherent_nom || ''} ${v.adherent_prenom || header.adherent_prenom || ''}`.trim();
+        const adherent = `${v.adherent_nom || header.adherent_nom || ''} ${v.adherent_prenom || header.adherent_prenom || ''}`.trim();
 
-    return {
-      vente_id: v.id,
-      date_vente: v.date_vente,
-      adherent,
-      mode_paiement_nom: (v.mode_paiement_nom || header.mode_paiement_nom || '—'),
-      total_affiche: totalAffiche,     // ⬅️ on affiche ceci dans le tableau
-      frais_paiement: frais,
-      cotisation: cotisation,
-    };
-  })
-);
+        return {
+          vente_id: v.id,
+          date_vente: v.date_vente,
+          adherent,
+          mode_paiement_nom: (v.mode_paiement_nom || header.mode_paiement_nom || '—'),
+          total_affiche: totalAffiche,
+        };
+      })
+    );
 
     container.innerHTML = `
   <h2>Historique des ventes</h2>
@@ -557,7 +557,7 @@ const ventesAvecProduits = await Promise.all(
   </thead>
   <tbody id="ventes-tbody">
     ${ventesAvecProduits.map(v => `
-      <tr data-search="${v.searchIndex}">
+      <tr>
         <td>${new Date(v.date_vente).toLocaleString()}</td>
         <td>${v.adherent || '—'}</td>
         <td>${v.total_affiche.toFixed(2)} €</td>
@@ -578,13 +578,6 @@ const ventesAvecProduits = await Promise.all(
   </div>
 `;
 
-
-
-    console.log('[debug] 1re vente brute', ventes[0]);
-const d0 = await window.electronAPI.getDetailsVente(ventes[0]?.id);
-console.log('[debug] details header', d0?.header || d0);
-
-
     const input = document.getElementById('recherche-vente');
     const rows = Array.from(document.querySelectorAll('#ventes-tbody tr'));
     let debounce;
@@ -593,7 +586,7 @@ console.log('[debug] details header', d0?.header || d0);
       clearTimeout(debounce);
       debounce = setTimeout(() => {
         rows.forEach(tr => {
-          const idx = tr.getAttribute('data-search') || '';
+          const idx = (tr.textContent || '').toLowerCase();
           tr.style.display = idx.includes(q) ? '' : 'none';
         });
       }, 80);
@@ -607,47 +600,38 @@ console.log('[debug] details header', d0?.header || d0);
         const lignes = details.lignes || [];
 
         const montantCotisation = Number(header.cotisation || details.cotisation || 0);
-const fraisPaiement = Number(header.frais_paiement || 0);
+        const fraisPaiement = Number(header.frais_paiement || 0);
 
-// 👇 Recalcule correctement les montants ligne par ligne
-const lignesCalc = lignes.map(l => {
-  const q = Number(l.quantite || 0);
+        const lignesCalc = lignes.map(l => {
+          const q = Number(l.quantite || 0);
+          const lineTotal = (l.prix != null && l.prix !== '')
+            ? Number(l.prix)
+            : Number(q) * Number(l.prix_unitaire || 0);
+          const puOrig = (l.prix_unitaire != null && l.prix_unitaire !== '')
+            ? Number(l.prix_unitaire)
+            : (q > 0 ? lineTotal / q : 0);
+          const remise = Number(l.remise_percent || 0);
+          const puRemise = puOrig * (1 - remise / 100);
+          return {
+            produit_nom: l.produit_nom || '',
+            qte: q,
+            puOrig,
+            remise,
+            puRemise,
+            lineTotal
+          };
+        });
 
-  // prix de la ligne si stocké (c’est le cas chez toi) ; fallback -> PU * q
-  const lineTotal = (l.prix != null && l.prix !== '')
-    ? Number(l.prix)
-    : Number(q) * Number(l.prix_unitaire || 0);
+        const totalProduits = lignes.reduce((s, l) => {
+          const q   = Number(l.quantite || 0);
+          const tot = (l.prix != null && l.prix !== '')
+            ? Number(l.prix)
+            : Number(q) * Number(l.prix_unitaire || 0);
+          return s + (Number.isFinite(tot) ? tot : 0);
+        }, 0);
+        const totalGlobal   = totalProduits + montantCotisation + fraisPaiement;
 
-  // prix unitaire : si on a un PU, on l’utilise, sinon on déduit PU = total / q (si q>0)
-  const puOrig = (l.prix_unitaire != null && l.prix_unitaire !== '')
-    ? Number(l.prix_unitaire)
-    : (q > 0 ? lineTotal / q : 0);
-
-  const remise = Number(l.remise_percent || 0);
-
-  // PU remisé (informationnel) = PU * (1 - remise%)
-  const puRemise = puOrig * (1 - remise / 100);
-
-  return {
-    produit_nom: l.produit_nom || '',
-    qte: q,
-    puOrig,
-    remise,
-    puRemise,
-    lineTotal
-  };
-});
-
-const totalProduits = lignes.reduce((s, l) => {
-  const q   = Number(l.quantite || 0);
-  const tot = (l.prix != null && l.prix !== '')
-    ? Number(l.prix)
-    : Number(q) * Number(l.prix_unitaire || 0);
-  return s + (Number.isFinite(tot) ? tot : 0);
-}, 0);
-const totalGlobal   = totalProduits + montantCotisation + fraisPaiement;
-
-const html = `
+        const html = `
   <h3>Détail de la vente #${id}</h3>
   <p><strong>Date :</strong> ${new Date(header.date_vente).toLocaleString()}</p>
   <p><strong>Adhérent :</strong> ${(header.adherent_nom || '')} ${(header.adherent_prenom || '')}</p>
@@ -694,21 +678,13 @@ const html = `
   </table>
   <p style="margin-top: 10px;">
     <strong>Total produits :</strong> ${totalProduits.toFixed(2)} €<br>
-${montantCotisation > 0 ? `
-  <tr>
-    <td><em>Cotisation</em></td>
-    <td>—</td>
-    <td colspan="3">${montantCotisation.toFixed(2)} €</td>
-    <td>${montantCotisation.toFixed(2)} €</td>
-  </tr>
-` : ''}
     ${fraisPaiement > 0 ? `<strong>Frais de paiement :</strong> ${fraisPaiement.toFixed(2)} €<br>` : ''}
+    ${montantCotisation > 0 ? `<strong>Cotisation :</strong> ${montantCotisation.toFixed(2)} €<br>` : ''}
     <strong>Total :</strong> ${totalGlobal.toFixed(2)} €<br>
   </p>
 `;
-document.getElementById('facture-detail').innerHTML = html;
-document.getElementById('facture-popup').style.display = 'flex';
-
+        document.getElementById('facture-detail').innerHTML = html;
+        document.getElementById('facture-popup').style.display = 'flex';
       });
     });
 
@@ -832,7 +808,6 @@ document.getElementById('facture-popup').style.display = 'flex';
         .mod-desc { color:#666; font-size: 12px; margin-left: 28px; margin-top: 4px; }
         .mod-children { margin-left: 22px; margin-top: 8px; display: grid; gap: 8px; }
         .mod-child { padding: 8px 10px; border: 1px dashed #ddd; border-radius: 8px; background: #fff; }
-        .mod-child .mod-head label { font-weight: 600; }
         .pill { display:inline-block; font-size:11px; padding:2px 6px; border-radius:999px; background:#eef3ff; border:1px solid #d7e2ff; color:#3756c5; margin-left: 6px; }
         .muted { color:#999; font-size: 12px; }
         .hr { height: 1px; background: #eee; margin: 14px 0; }
@@ -977,12 +952,8 @@ document.getElementById('facture-popup').style.display = 'flex';
           payload.email = false;
           payload.prospects = false;
         }
-        if (!payload.stocks) {
-          payload.inventaire = false;
-        }
-        if (!payload.fournisseurs) {
-          payload.receptions = false;
-        }
+        if (!payload.stocks) payload.inventaire = false;
+        if (!payload.fournisseurs) payload.receptions = false;
 
         const input = document.getElementById('ext-margin-input');
         if (input) {
@@ -1002,7 +973,7 @@ document.getElementById('facture-popup').style.display = 'flex';
     });
   }
 
-  // === Export global ==========================================================
+  // === Export global ===
   window.PageParams = {
     renderParametresHome,
     renderHistoriqueFactures,

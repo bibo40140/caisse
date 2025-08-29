@@ -1354,14 +1354,28 @@
             const bp = document.getElementById('prospect-selected');  // badge
             if (bp) { bp.style.display = 'none'; bp.textContent = ''; }
 
-            // Cotisation auto si module ON et mode "adherent"
-            if (cotisationsOn && saleMode === 'adherent') {
-              const dejaCotisation = panier.some(p => p.type === 'cotisation');
-              if (!dejaCotisation) {
-                const nomComplet = `${a.nom} ${a.prenom}`;
-                await verifierCotisationAdherent(a.id, nomComplet, panier, afficherPanier);
-              }
-            }
+            // Cotisation auto si module ON et mode "adherent" — SAUF statut partenaire/exempté
+const statut = String(a.statut || 'actif').toLowerCase();
+const skipCotisation = (statut === 'partenaire' || statut === 'exempté' || statut === 'exempte' || statut === 'exempte'); // tolère accents/variantes
+
+if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
+  const dejaCotisation = panier.some(p => p.type === 'cotisation');
+  if (!dejaCotisation) {
+    const nomComplet = `${a.nom} ${a.prenom}`;
+    await verifierCotisationAdherent(a.id, nomComplet, panier, afficherPanier);
+  }
+} else {
+  // On s'assure qu'aucune ligne de cotisation ne traîne si statut dispensé
+  if (skipCotisation) {
+    const idx = panier.findIndex(p => p.type === 'cotisation');
+    if (idx >= 0) {
+      panier.splice(idx, 1);
+      try { localStorage.setItem('panier', JSON.stringify(panier)); } catch {}
+      afficherPanier();
+    }
+  }
+}
+
 
             document.getElementById('search-produit')?.focus();
           });

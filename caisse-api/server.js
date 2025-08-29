@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { Pool } from 'pg';
+import nodemailer from 'nodemailer'; // npm i nodemailer
 
 dotenv.config();
 
@@ -20,6 +21,16 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+let mailer = null;
+if (process.env.SMTP_HOST) {
+  mailer = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: false,
+    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+  });
+}
+
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.get('/health/db', async (_req, res) => {
@@ -30,6 +41,278 @@ app.get('/health/db', async (_req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
+
+async function getCurrentStock(client, productId) {
+  const r = await client.query(
+    `SELECT COALESCE((SELECT SUM(qty_change)::numeric FROM stock_movements WHERE product_id=$1), p.stock, 0)::numeric AS stock
+     FROM produits p WHERE p.id=$1`,
+    [productId]
+  );
+  return Number(r.rows[0]?.stock || 0);
+}
+
+/* -------------------- INVENTAIRE -------------------- */
+
+// Crée une session d'inventaire + snapshot de TOUTES les références
+app.post('/inventory/start', async (req, res) => {
+  const { name, user, notes } = req.body || {};
+  if (!name) return res.status(400).json({ ok:false, error:'name_required' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const s = await client.query(
+      `INSERT INTO inventory_sessions(name, "user", notes)
+       VALUES ($1,$2,$3) RETURNING id, name, status, started_at`,
+      [name, user || null, notes || null]
+    );
+    const sessionId = s.rows[0].id;
+
+    // Liste de tous les produits pour le snapshot
+    const prods = await client.query(`SELECT id, prix FROM produits ORDER BY id`);
+
+    // Snapshot: stock_start = stock courant; unit_cost = NULL (ou prix si tu préfères)
+    for (const p of prods.rows) {
+      const stockStart = await getCurrentStock(client, p.id);
+      await client.query(
+        `INSERT INTO inventory_snapshot(session_id, product_id, stock_start, unit_cost)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (session_id, product_id) DO NOTHING`,
+        [sessionId, p.id, stockStart, null] // ou p.prix si tu veux un proxy
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok:true, session: s.rows[0] });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('POST /inventory/start', e);
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Ajouter (cumul) une quantité comptée pour un produit (multi-postes)
+app.post('/inventory/:id/count-add', async (req, res) => {
+  const sessionId = Number(req.params.id);
+  const { product_id, qty, device_id, user } = req.body || {};
+  if (!Number.isFinite(sessionId) || !Number.isFinite(product_id) || !Number.isFinite(qty) || !device_id) {
+    return res.status(400).json({ ok:false, error:'bad_payload' });
+  }
+
+  const client = await pool.connect();
+  try {
+    // refuser si session non 'open'
+    const st = await client.query(`SELECT status FROM inventory_sessions WHERE id=$1`, [sessionId]);
+    if (st.rowCount === 0) return res.status(404).json({ ok:false, error:'session_not_found' });
+    if (st.rows[0].status !== 'open') return res.status(409).json({ ok:false, error:'session_locked' });
+
+    await client.query(
+      `INSERT INTO inventory_counts(session_id, product_id, device_id, "user", qty, updated_at)
+       VALUES ($1,$2,$3,$4,$5, now())
+       ON CONFLICT (session_id, product_id, device_id)
+       DO UPDATE SET qty = inventory_counts.qty + EXCLUDED.qty, updated_at=now()`,
+      [sessionId, product_id, device_id, user || null, qty]
+    );
+
+    res.json({ ok:true });
+  } catch (e) {
+    console.error('POST /inventory/:id/count-add', e);
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Résumé agrégé live (somme par produit) + quelques KPIs
+app.get('/inventory/:id/summary', async (req, res) => {
+  const sessionId = Number(req.params.id);
+  const client = await pool.connect();
+  try {
+    const st = await client.query(`SELECT id, name, status, started_at FROM inventory_sessions WHERE id=$1`, [sessionId]);
+    if (st.rowCount === 0) return res.status(404).json({ ok:false, error:'session_not_found' });
+
+    const agg = await client.query(
+      `WITH summed AS (
+         SELECT product_id, SUM(qty)::numeric AS counted
+         FROM inventory_counts
+         WHERE session_id=$1
+         GROUP BY product_id
+       )
+       SELECT p.id AS product_id, p.nom, p.code_barre, p.prix,
+              s.stock_start,
+              COALESCE(sm.counted, 0) AS counted_total
+       FROM inventory_snapshot s
+       JOIN produits p ON p.id = s.product_id
+       LEFT JOIN summed sm ON sm.product_id = s.product_id
+       WHERE s.session_id=$1
+       ORDER BY p.id`,
+      [sessionId]
+    );
+
+    // KPIs
+    let countedLines = 0, zeroLines = 0, deltaPlus = 0, deltaMinus = 0, deltaValue = 0;
+    for (const r of agg.rows) {
+      const delta = Number(r.counted_total) - Number(r.stock_start);
+      if (r.counted_total !== 0) countedLines++; else zeroLines++;
+      if (delta > 0) deltaPlus += delta;
+      if (delta < 0) deltaMinus += Math.abs(delta);
+      deltaValue += delta * Number(r.prix || 0);
+    }
+
+    res.json({
+      ok:true,
+      session: st.rows[0],
+      lines: agg.rows,
+      kpis: {
+        countedLines,
+        zeroLines,
+        deltaPlus,
+        deltaMinus,
+        deltaNet: deltaPlus - deltaMinus,
+        deltaValue
+      }
+    });
+  } catch (e) {
+    console.error('GET /inventory/:id/summary', e);
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Finaliser : verrouiller, calculer deltas pour TOUS les produits (non scannés -> 0), écrire mouvements & journal, fermer
+app.post('/inventory/:id/finalize', async (req, res) => {
+  const sessionId = Number(req.params.id);
+  const { user, email_to } = req.body || {};
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const st = await client.query(
+      `SELECT id, status, name, started_at FROM inventory_sessions WHERE id=$1 FOR UPDATE`,
+      [sessionId]
+    );
+    if (st.rowCount === 0) {
+      await client.query('ROLLBACK'); return res.status(404).json({ ok:false, error:'session_not_found' });
+    }
+    if (st.rows[0].status !== 'open') {
+      await client.query('ROLLBACK'); return res.status(409).json({ ok:false, error:'session_locked' });
+    }
+
+    await client.query(`UPDATE inventory_sessions SET status='finalizing' WHERE id=$1`, [sessionId]);
+
+    const agg = await client.query(
+      `WITH summed AS (
+         SELECT product_id, SUM(qty)::numeric AS counted
+         FROM inventory_counts
+         WHERE session_id=$1
+         GROUP BY product_id
+       )
+       SELECT p.id AS product_id, p.nom, p.code_barre, p.prix,
+              s.stock_start, COALESCE(sm.counted, 0) AS counted_total
+       FROM inventory_snapshot s
+       JOIN produits p ON p.id = s.product_id
+       LEFT JOIN summed sm ON sm.product_id = s.product_id
+       WHERE s.session_id=$1
+       ORDER BY p.id`,
+      [sessionId]
+    );
+
+    // Journal + mouvements (idempotence) + KPIs voulus
+    let linesInserted = 0;
+    let countedProducts = 0;      // nb de produits avec un comptage (compté ≠ 0)
+    let inventoryValue  = 0;      // somme (compté * prix)
+
+    for (const r of agg.rows) {
+      const pid     = Number(r.product_id);
+      const start   = Number(r.stock_start);
+      const counted = Number(r.counted_total);   // 0 si jamais scanné
+      const delta   = counted - start;
+      const prix    = Number(r.prix || 0);
+
+      await client.query(
+        `INSERT INTO inventory_adjust(session_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [sessionId, pid, start, counted, delta, null, delta * prix]
+      );
+      linesInserted++;
+
+      if (counted !== 0) countedProducts++;
+      inventoryValue += counted * prix;
+
+      if (delta !== 0) {
+        await client.query(
+          `INSERT INTO stock_movements(product_id, source_type, source_id, qty_change)
+           VALUES ($1,'inventory_finalize',$2,$3)
+           ON CONFLICT (source_type, source_id) DO NOTHING`,
+          [pid, `inv:${sessionId}:${pid}`, delta]
+        );
+      }
+    }
+
+    const endUpd = await client.query(
+      `UPDATE inventory_sessions
+         SET status='closed', ended_at=now(), "user"=COALESCE("user",$2)
+       WHERE id=$1
+       RETURNING id, name, started_at, ended_at`,
+      [sessionId, user || null]
+    );
+
+    await client.query('COMMIT');
+
+    const sess = endUpd.rows[0];
+    const recap = {
+      session: {
+        id: sess.id,
+        name: sess.name,
+        started_at: sess.started_at,
+        ended_at: sess.ended_at
+      },
+      stats: {
+        linesInserted,
+        countedProducts,
+        inventoryValue
+      }
+    };
+
+    // Email (optionnel) — texte épuré demandé
+    if (mailer && (email_to || process.env.INVENTORY_MAIL_TO)) {
+      try {
+        const to = email_to || process.env.INVENTORY_MAIL_TO;
+        const d  = new Date(sess.ended_at);
+        const dateStr = d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
+        await mailer.sendMail({
+          from: process.env.INVENTORY_MAIL_FROM || 'no-reply@coopaz',
+          to,
+          subject: `Inventaire clôturé — ${sess.name}`,
+          text:
+`Inventaire "${sess.name}" clôturé le ${dateStr}.
+
+Produits inventoriés : ${countedProducts}
+Valeur du stock inventorié : ${inventoryValue.toFixed(2)} €.
+
+Session #${sessionId}`
+        });
+      } catch (err) {
+        console.warn('Email inventaire non envoyé:', err?.message);
+      }
+    }
+
+    res.json({ ok:true, recap });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('POST /inventory/:id/finalize', e);
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
+/* -------------------- SYNC -------------------- */
 
 // NEW: renseigne si bootstrap est nécessaire (ex: si produits est vide)
 app.get('/sync/bootstrap_needed', async (_req, res) => {
@@ -50,7 +333,7 @@ app.get('/sync/pull_refs', async (_req, res) => {
     ] = await Promise.all([
       client.query(`SELECT id, nom FROM unites ORDER BY id`),
       client.query(`SELECT id, nom FROM familles ORDER BY id`),
-      client.query(`SELECT id, nom FROM categories ORDER BY id`),
+client.query(`SELECT id, nom, famille_id FROM categories ORDER BY id`),
       client.query(`SELECT * FROM adherents ORDER BY id`),
       client.query(`SELECT * FROM fournisseurs ORDER BY id`),
       client.query(`
@@ -81,6 +364,15 @@ app.get('/sync/pull_refs', async (_req, res) => {
 });
 
 /**
+ * Helpers sync
+ */
+async function neonAdherentExists(client, id) {
+  if (!id) return false;
+  const r = await client.query('SELECT 1 FROM adherents WHERE id=$1', [id]);
+  return r.rowCount > 0;
+}
+
+/**
  * PUSH des opérations (event-driven)
  * Gère : sale.created, sale.line_added, reception.line_added, inventory.adjust, stock.set, product.updated
  */
@@ -89,6 +381,10 @@ app.post('/sync/push_ops', async (req, res) => {
   if (!deviceId || !Array.isArray(ops)) {
     return res.status(400).json({ ok: false, error: 'Bad payload' });
   }
+
+  // 1) Appliquer un ordre logique : adhérents avant ventes
+  const order = { 'adherent.created': 1, 'adherent.updated': 2, 'sale.created': 10, 'sale.updated': 11 };
+  ops.sort((a, b) => (order[a.op_type] || 100) - (order[b.op_type] || 100));
 
   const client = await pool.connect();
   try {
@@ -109,47 +405,52 @@ app.post('/sync/push_ops', async (req, res) => {
 
       // Route les types d’opérations
       switch (op.op_type) {
-    case 'sale.created': {
-  // ensure FK exists, otherwise set to NULL
-  let mpId = (p.modePaiementId ?? null);
-  if (mpId != null) {
-    const chk = await client.query(`SELECT 1 FROM modes_paiement WHERE id=$1`, [mpId]);
-    if (chk.rowCount === 0) {
-      console.warn('[push_ops] sale.created: mode_paiement_id', mpId, 'absent sur Neon -> NULL');
-      mpId = null;
-    }
-  }
 
-  await client.query(
-    `INSERT INTO ventes (id, total, adherent_id, mode_paiement_id, sale_type, client_email)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (id) DO NOTHING`,
-    [p.venteId || null, p.total || null, p.adherentId || null, mpId, p.saleType || 'adherent', p.clientEmail || null]
-  );
+        case 'sale.created': {
+          // Vérif mode_paiement
+          let mpId = (p.modePaiementId ?? null);
+          if (mpId != null) {
+            const chk = await client.query(`SELECT 1 FROM modes_paiement WHERE id=$1`, [mpId]);
+            if (chk.rowCount === 0) {
+              console.warn('[push_ops] sale.created: mode_paiement_id', mpId, 'absent sur Neon -> NULL');
+              mpId = null;
+            }
+          }
 
-  // Optionnel : frais & cotisation si colonnes présentes
-  try {
-    if (p.fraisPaiement != null) {
-      await client.query(`UPDATE ventes SET frais_paiement = $2 WHERE id = $1`, [p.venteId, p.fraisPaiement]);
-    }
-  } catch {}
-  try {
-    if (p.cotisation != null) {
-      await client.query(`UPDATE ventes SET cotisation = $2 WHERE id = $1`, [p.venteId, p.cotisation]);
-    }
-  } catch {}
-  break;
-}
+          // Vérif adherent_id (FK) → sinon NULL
+          let adherentId = (p.adherentId ?? null);
+          if (adherentId != null && !(await neonAdherentExists(client, adherentId))) {
+            console.warn('[push_ops] sale.created: adherent_id', adherentId, 'absent sur Neon -> NULL');
+            adherentId = null;
+          }
 
+          await client.query(
+            `INSERT INTO ventes (id, total, adherent_id, mode_paiement_id, sale_type, client_email)
+             VALUES ($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (id) DO NOTHING`,
+            [p.venteId || null, p.total || null, adherentId, mpId, p.saleType || 'adherent', p.clientEmail || null]
+          );
+
+          // Optionnel : frais & cotisation si colonnes présentes
+          try {
+            if (p.fraisPaiement != null) {
+              await client.query(`UPDATE ventes SET frais_paiement = $2 WHERE id = $1`, [p.venteId, p.fraisPaiement]);
+            }
+          } catch {}
+          try {
+            if (p.cotisation != null) {
+              await client.query(`UPDATE ventes SET cotisation = $2 WHERE id = $1`, [p.venteId, p.cotisation]);
+            }
+          } catch {}
+          break;
+        }
 
         case 'sale.line_added': {
-          // Fingerprint stable pour idempotence des mouvements
           const sourceKey =
             (p.ligneId != null && p.ligneId !== '')
               ? `lv:${p.ligneId}`
               : `sale:${p.venteId}:${p.produitId}:${Number(p.quantite)}:${Number(p.prix)}`;
 
-          // Éviter un doublon exact de ligne (même vente, produit, qté, prix)
           const chk = await client.query(
             `SELECT id FROM lignes_vente
              WHERE vente_id=$1 AND produit_id=$2 AND quantite=$3 AND prix=$4
@@ -158,7 +459,6 @@ app.post('/sync/push_ops', async (req, res) => {
           );
 
           if (chk.rowCount === 0) {
-            // Insérer la ligne sans 'id' (laisse Postgres auto-incrémenter)
             await client.query(
               `INSERT INTO lignes_vente (vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
                VALUES ($1,$2,$3,$4,$5,$6)`,
@@ -166,7 +466,6 @@ app.post('/sync/push_ops', async (req, res) => {
             );
           }
 
-          // Mouvement de stock idempotent via (source_type, source_id)
           await client.query(
             `INSERT INTO stock_movements (product_id, source_type, source_id, qty_change)
              VALUES ($1,'sale_line',$2,$3)
@@ -176,80 +475,76 @@ app.post('/sync/push_ops', async (req, res) => {
           break;
         }
 
-case 'reception.line_added': {
-  const pid = Number(p.produitId);
-  let rid = p.receptionId ? Number(p.receptionId) : null;
+        case 'reception.line_added': {
+          const pid = Number(p.produitId);
+          let rid = p.receptionId ? Number(p.receptionId) : null;
 
-  // header réception si nécessaire (inchangé)
-  if (rid) {
-    const chk = await client.query(`SELECT 1 FROM receptions WHERE id=$1`, [rid]);
-    if (chk.rowCount === 0) {
-      await client.query(
-        `INSERT INTO receptions (id, fournisseur_id, date, reference)
-         VALUES ($1,$2, now(), $3)
-         ON CONFLICT (id) DO NOTHING`,
-        [rid, p.fournisseurId || null, p.reference || null]
-      );
-    }
-  } else {
-    const ins = await client.query(
-      `INSERT INTO receptions (fournisseur_id, date, reference)
-       VALUES ($1, now(), $2)
-       RETURNING id`,
-      [p.fournisseurId || null, p.reference || null]
-    );
-    rid = ins.rows[0].id;
-  }
+          if (rid) {
+            const chk = await client.query(`SELECT 1 FROM receptions WHERE id=$1`, [rid]);
+            if (chk.rowCount === 0) {
+              await client.query(
+                `INSERT INTO receptions (id, fournisseur_id, date, reference)
+                 VALUES ($1,$2, now(), $3)
+                 ON CONFLICT (id) DO NOTHING`,
+                [rid, p.fournisseurId || null, p.reference || null]
+              );
+            }
+          } else {
+            const ins = await client.query(
+              `INSERT INTO receptions (fournisseur_id, date, reference)
+               VALUES ($1, now(), $2)
+               RETURNING id`,
+              [p.fournisseurId || null, p.reference || null]
+            );
+            rid = ins.rows[0].id;
+          }
 
-  // 🔧 LIGNE RÉCEPTION : brancher selon présence d'un id côté client
-  if (p.ligneRecId != null && p.ligneRecId !== '') {
-    await client.query(
-      `INSERT INTO lignes_reception (id, reception_id, produit_id, quantite, prix_unitaire)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (id) DO UPDATE SET
-         reception_id=EXCLUDED.reception_id,
-         produit_id=EXCLUDED.produit_id,
-         quantite=EXCLUDED.quantite,
-         prix_unitaire=EXCLUDED.prix_unitaire`,
-      [Number(p.ligneRecId), rid, pid, Number(p.quantite), p.prixUnitaire ?? null]
-    );
-  } else {
-    await client.query(
-      `INSERT INTO lignes_reception (reception_id, produit_id, quantite, prix_unitaire)
-       VALUES ($1,$2,$3,$4)`,
-      [rid, pid, Number(p.quantite), p.prixUnitaire ?? null]
-    );
-  }
+          if (p.ligneRecId != null && p.ligneRecId !== '') {
+            await client.query(
+              `INSERT INTO lignes_reception (id, reception_id, produit_id, quantite, prix_unitaire)
+               VALUES ($1,$2,$3,$4,$5)
+               ON CONFLICT (id) DO UPDATE SET
+                 reception_id=EXCLUDED.reception_id,
+                 produit_id=EXCLUDED.produit_id,
+                 quantite=EXCLUDED.quantite,
+                 prix_unitaire=EXCLUDED.prix_unitaire`,
+              [Number(p.ligneRecId), rid, pid, Number(p.quantite), p.prixUnitaire ?? null]
+            );
+          } else {
+            await client.query(
+              `INSERT INTO lignes_reception (reception_id, produit_id, quantite, prix_unitaire)
+               VALUES ($1,$2,$3,$4)`,
+              [rid, pid, Number(p.quantite), p.prixUnitaire ?? null]
+            );
+          }
 
-  // stock actuel agrégé (inchangé)
-  const cur = await client.query(
-    `SELECT COALESCE((SELECT SUM(qty_change)::numeric FROM stock_movements WHERE product_id=$1), p.stock, 0)::numeric AS stock
-     FROM produits p WHERE p.id=$1`,
-    [pid]
-  );
-  const currentStock = Number(cur.rows[0]?.stock || 0);
-  const qte = Number(p.quantite || 0);
-  const stockCorrige = (p.stockCorrige !== undefined && p.stockCorrige !== null) ? Number(p.stockCorrige) : null;
-  const base = (stockCorrige !== null && !Number.isNaN(stockCorrige)) ? stockCorrige : currentStock;
-  const target = base + qte;
-  const delta = target - currentStock;
+          const cur = await client.query(
+            `SELECT COALESCE((SELECT SUM(qty_change)::numeric FROM stock_movements WHERE product_id=$1), p.stock, 0)::numeric AS stock
+             FROM produits p WHERE p.id=$1`,
+            [pid]
+          );
+          const currentStock = Number(cur.rows[0]?.stock || 0);
+          const qte = Number(p.quantite || 0);
+          const stockCorrige = (p.stockCorrige !== undefined && p.stockCorrige !== null) ? Number(p.stockCorrige) : null;
+          const base = (stockCorrige !== null && !Number.isNaN(stockCorrige)) ? stockCorrige : currentStock;
+          const target = base + qte;
+          const delta = target - currentStock;
 
-  await client.query(
-    `INSERT INTO stock_movements (product_id, source_type, source_id, qty_change)
-     VALUES ($1,'reception_line',$2,$3)
-     ON CONFLICT (source_type, source_id) DO NOTHING`,
-    [pid, String(p.ligneRecId || `${rid}:${pid}`), delta]
-  );
+          await client.query(
+            `INSERT INTO stock_movements (product_id, source_type, source_id, qty_change)
+             VALUES ($1,'reception_line',$2,$3)
+             ON CONFLICT (source_type, source_id) DO NOTHING`,
+            [pid, String(p.ligneRecId || `${rid}:${pid}`), delta]
+          );
 
-  if (p.prixUnitaire != null) {
-    await client.query(`UPDATE produits SET prix = $1, updated_at = now() WHERE id = $2`,
-      [p.prixUnitaire, pid]);
-  }
-  break;
-}
+          if (p.prixUnitaire != null) {
+            await client.query(`UPDATE produits SET prix = $1, updated_at = now() WHERE id = $2`,
+              [p.prixUnitaire, pid]);
+          }
+          break;
+        }
 
         case 'inventory.adjust': {
-          // Ajustement d’inventaire (delta)
           await client.query(
             `INSERT INTO stock_movements (product_id, source_type, source_id, qty_change)
              VALUES ($1,'inventory_adjust',$2,$3)
@@ -260,7 +555,6 @@ case 'reception.line_added': {
         }
 
         case 'stock.set': {
-          // Fixer le stock à une valeur absolue (datée côté device)
           const pid = Number(p.productId);
           const desired = Number(p.newStock);
           if (Number.isFinite(pid) && Number.isFinite(desired)) {
@@ -283,7 +577,6 @@ case 'reception.line_added': {
         }
 
         case 'product.updated': {
-          // Met à jour les champs fournis (ex: prix, nom, reference)
           const fields = [];
           const values = [];
           let idx = 1;
@@ -345,11 +638,14 @@ app.post('/sync/bootstrap', async (req, res) => {
       [f.id, f.nom]
     );
 
-    for (const c of categories) await client.query(
-      `INSERT INTO categories (id, nom, famille_id) VALUES ($1,$2,$3)
-       ON CONFLICT (id) DO UPDATE SET nom = EXCLUDED.nom, famille_id = EXCLUDED.famille_id`,
-      [c.id, c.nom, c.famille_id || null]
-    );
+   for (const c of categories) await client.query(
+  `INSERT INTO categories (id, nom, famille_id)
+   VALUES ($1,$2,$3)
+   ON CONFLICT (id) DO UPDATE SET
+     nom = EXCLUDED.nom,
+     famille_id = COALESCE(EXCLUDED.famille_id, categories.famille_id)`,
+  [c.id, c.nom, c.famille_id ?? null]
+);
 
     for (const a of adherents) await client.query(
       `INSERT INTO adherents
@@ -401,7 +697,7 @@ app.post('/sync/bootstrap', async (req, res) => {
     }
 
     // réaligner les séquences (utile si ids explicites)
-     await client.query(`SELECT setval(pg_get_serial_sequence('unites','id'),       (SELECT COALESCE(MAX(id),0) FROM unites))`);
+    await client.query(`SELECT setval(pg_get_serial_sequence('unites','id'),       (SELECT COALESCE(MAX(id),0) FROM unites))`);
     await client.query(`SELECT setval(pg_get_serial_sequence('familles','id'),     (SELECT COALESCE(MAX(id),0) FROM familles))`);
     await client.query(`SELECT setval(pg_get_serial_sequence('categories','id'),   (SELECT COALESCE(MAX(id),0) FROM categories))`);
     await client.query(`SELECT setval(pg_get_serial_sequence('adherents','id'),    (SELECT COALESCE(MAX(id),0) FROM adherents))`);

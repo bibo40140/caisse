@@ -17,6 +17,7 @@
             <th>Prénom</th><th>Nom</th><th>Email</th><th>Téléphone</th><th>Adresse</th><th>CP</th><th>Ville</th>
             <th>Droit d'entrée</th><th>Date inscription</th>
             ${viewMode === 'archives' ? '<th>Archivé le</th><th>Réactivé le</th>' : ''}
+            <th>Statut</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -42,6 +43,7 @@
                 <td>${a.date_archivage ? new Date(a.date_archivage).toLocaleDateString() : '—'}</td>
                 <td>${a.date_reactivation ? new Date(a.date_reactivation).toLocaleDateString() : '—'}</td>
               ` : ''}
+              <td>${(a.statut || 'actif')}</td>
               <td>
                 <button class="btn-edit-adherent" data-id="${a.id}">✏️</button>
                 <button class="btn-archive-adherent" data-id="${a.id}" data-action="${viewMode === 'actifs' ? 'archiver' : 'reactiver'}">
@@ -76,7 +78,8 @@ document.getElementById("btn-ajouter-adherent").addEventListener("click", async 
     code_postal: adherent.code_postal,
     ville: adherent.ville,
     date_inscription: adherent.date_inscription,
-    droit_entree: adherent.droit_entree
+    droit_entree: adherent.droit_entree,
+    statut: adherent.statut || 'actif'
   });
 
   await showAlertModal("✅ Adhérent ajouté !");
@@ -127,6 +130,21 @@ document.getElementById("btn-ajouter-adherent").addEventListener("click", async 
   <label>Code Postal : <input name="code_postal" value="${a.code_postal || ''}"></label><br><br>
   <label>Ville : <input name="ville" value="${a.ville || ''}"></label><br><br>
 
+  <label>Statut :
+  <select name="statut">
+    ${(() => {
+      const s = (a.statut || 'actif').toLowerCase();
+      return `
+        <option value="actif" ${s==='actif'?'selected':''}>Actif</option>
+        <option value="partenaire" ${s==='partenaire'?'selected':''}>Partenaire</option>
+        <option value="exempté" ${s==='exempté'?'selected':''}>Exempté</option>
+        <option value="autre" ${s==='autre'?'selected':''}>Autre</option>
+      `;
+    })()}
+  </select>
+</label><br><br>
+
+
   <label>Droit d'entrée (€) : <input name="droit_entree" type="number" step="0.01" value="${a.droit_entree || 0}"></label><br><br>
   <label>Date inscription : <input name="date_inscription" type="date" value="${a.date_inscription ? a.date_inscription.substring(0, 10) : ''}"></label>
 `;
@@ -146,8 +164,10 @@ const modif = {
   code_postal: (form.code_postal.value || '').trim(),
   ville: (form.ville.value || '').trim(),
   droit_entree: parseFloat(form.droit_entree.value) || 0,
-  date_inscription: form.date_inscription.value || null
+  date_inscription: form.date_inscription.value || null,
+  statut: (form.statut.value || 'actif')
 };
+
 
 await window.electronAPI.modifierAdherent(modif);
 await showAlertModal("✅ Modifié !");
@@ -189,6 +209,16 @@ async function showFormModalAdherent() {
             <input type="date" name="date_inscription" value="${new Date().toISOString().split('T')[0]}">
           </label><br><br>
 
+          <label>Statut :
+  <select name="statut">
+    <option value="actif" selected>Actif</option>
+    <option value="partenaire">Partenaire</option>
+    <option value="exempté">Exempté</option>
+    <option value="autre">Autre</option>
+  </select>
+</label><br><br>
+
+
           <label>Droit d’entrée payé (€) :
             <input type="number" step="0.01" name="droit_entree" value="0">
           </label><br><br>
@@ -212,19 +242,21 @@ async function showFormModalAdherent() {
     document.getElementById('form-adherent').onsubmit = (e) => {
       e.preventDefault();
       const form = e.target;
-      const adherent = {
-        nom: (form.nom.value || '').trim(),
-        prenom: (form.prenom.value || '').trim(),
-        email1: (form.email1.value || '').trim(),
-        email2: (form.email2.value || '').trim(),
-        telephone1: (form.telephone1.value || '').trim(),
-        telephone2: (form.telephone2.value || '').trim(),
-        adresse: (form.adresse.value || '').trim(),
-        code_postal: (form.code_postal.value || '').trim(),
-        ville: (form.ville.value || '').trim(),
-        date_inscription: form.date_inscription.value || null,
-        droit_entree: parseFloat(form.droit_entree.value) || 0
-      };
+    const adherent = {
+  nom: (form.nom.value || '').trim(),
+  prenom: (form.prenom.value || '').trim(),
+  email1: (form.email1.value || '').trim(),
+  email2: (form.email2.value || '').trim(),
+  telephone1: (form.telephone1.value || '').trim(),
+  telephone2: (form.telephone2.value || '').trim(),
+  adresse: (form.adresse.value || '').trim(),
+  code_postal: (form.code_postal.value || '').trim(),
+  ville: (form.ville.value || '').trim(),
+  date_inscription: form.date_inscription.value || null,
+  droit_entree: parseFloat(form.droit_entree.value) || 0,
+  statut: (form.statut.value || 'actif')
+};
+
       modal.remove();
       resolve(adherent);
     };

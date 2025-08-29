@@ -7,6 +7,34 @@ const db = require('./src/main/db/db');
 const { getDeviceId } = require('./src/main/device');
 const { runBootstrap } = require('./src/main/bootstrap');
 const { hydrateOnStartup, pullAll, pushOpsNow, startAutoSync } = require('./src/main/sync');
+const sync = require('./src/main/sync');
+
+
+
+ipcMain.handle('sync:pushBootstrapRefs', async () => {
+  try {
+    return await sync.pushBootstrapRefs();   // renvoie { ok, counts }
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+});
+
+ipcMain.handle('sync:push_all', async () => {
+  try {
+    return await sync.syncPushAll();
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Pull ALL (Neon -> local)
+ipcMain.handle('sync:pull_all', async () => {
+  try {
+    return await sync.pullAll();
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
 
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 

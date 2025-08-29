@@ -47,25 +47,27 @@ db.prepare(`
 // ACTEURS
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
-  CREATE TABLE IF NOT EXISTS adherents (
-    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-    nom                  TEXT NOT NULL,
-    prenom               TEXT NOT NULL,
-    email1               TEXT,
-    email2               TEXT,
-    telephone1           TEXT,
-    telephone2           TEXT,
-    adresse              TEXT,
-    code_postal          TEXT,
-    ville                TEXT,
-    nb_personnes_foyer   INTEGER,
-    tranche_age          TEXT,
-    droit_entree         REAL DEFAULT 0,
-    date_inscription     TEXT,
-    archive              INTEGER DEFAULT 0,
-    date_archivage       TEXT,
-    date_reactivation    TEXT
-  )
+CREATE TABLE IF NOT EXISTS adherents (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  nom                  TEXT NOT NULL,
+  prenom               TEXT NOT NULL,
+  email1               TEXT,
+  email2               TEXT,
+  telephone1           TEXT,
+  telephone2           TEXT,
+  adresse              TEXT,
+  code_postal          TEXT,
+  ville                TEXT,
+  nb_personnes_foyer   INTEGER,
+  tranche_age          TEXT,
+  statut               TEXT NOT NULL DEFAULT 'actif',
+  droit_entree         REAL DEFAULT 0,
+  date_inscription     TEXT,
+  archive              INTEGER DEFAULT 0,
+  date_archivage       TEXT,
+  date_reactivation    TEXT
+)
+
 `).run();
 
 db.prepare(`

@@ -6,7 +6,7 @@
     "emails": true,
     "tickets": true,
     "stocks": true,
-    "inventaire": false,
+    "inventaire": true,
     "fournisseurs": true,
     "receptions": true,
     "exports": true,
@@ -17,7 +17,7 @@
     "modes_paiement": true
   },
   "ventes_exterieur_margin_percent": 30,
-  "ventes_ext_margin_percent": 200,
+  "ventes_ext_margin_percent": 30,
   "api_base_url": "http://localhost:3001",
   "api_email": "fabien.hicauber@gmail.com",
   "api_password": "demo1234"

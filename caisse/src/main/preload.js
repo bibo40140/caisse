@@ -36,8 +36,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('resoudre-conflit-produit', action, nouveau, existantId),
 
   // === Sync complet ===
-  syncPushAll: () => ipcRenderer.invoke('sync:push-all'),
-  syncPullAll: () => ipcRenderer.invoke('sync:pull-all'),
+  syncPushAll: () => ipcRenderer.invoke('sync:push_all'),
+syncPullAll: () => ipcRenderer.invoke('sync:pull_all'),
+
+  syncPushBootstrapRefs: () => ipcRenderer.invoke('sync:pushBootstrapRefs'), // <-- add
+
 
   // Compat ancien code (redirigé vers full sync)
   syncPushProduits: () => ipcRenderer.invoke('sync:push-all'),

@@ -6,8 +6,10 @@ const path = require('path');
 const db = require('./db/db');
 const b2i = (v) => (v ? 1 : 0);
 
+/* -------------------------------------------------
+   API base
+--------------------------------------------------*/
 
-// ➜ lit l’URL depuis env OU config.json OU défaut 3001
 function readApiBase() {
   try {
     if (process.env.CAISSE_API_URL) return process.env.CAISSE_API_URL;
@@ -26,6 +28,10 @@ function notifyRenderer(channel, payload) {
     } catch (_) {}
   });
 }
+
+/* -------------------------------------------------
+   PULL refs depuis Neon -> Sauvegarde locale
+--------------------------------------------------*/
 
 async function pullRefs({ since = null } = {}) {
   const url = new URL(`${API_URL}/sync/pull_refs`);
@@ -46,6 +52,7 @@ async function pullRefs({ since = null } = {}) {
     adherents = [],
     fournisseurs = [],
     produits = [],
+    modes_paiement = [], // <-- maintenant pris en charge
   } = d;
 
   const upUnite = db.prepare(
@@ -88,31 +95,38 @@ async function pullRefs({ since = null } = {}) {
       code_barre=excluded.code_barre, unite_id=excluded.unite_id, fournisseur_id=excluded.fournisseur_id,
       categorie_id=excluded.categorie_id, updated_at=excluded.updated_at
   `);
+  const upMode = db.prepare(`
+    INSERT INTO modes_paiement (id, nom, taux_percent, frais_fixe, actif)
+    VALUES (?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET
+      nom=excluded.nom, taux_percent=excluded.taux_percent, frais_fixe=excluded.frais_fixe, actif=excluded.actif
+  `);
 
   const tx = db.transaction(() => {
     for (const r of unites) upUnite.run(r.id, r.nom);
     for (const r of familles) upFam.run(r.id, r.nom);
     for (const r of categories) upCat.run(r.id, r.nom, r.famille_id ?? null);
-   for (const r of adherents)
-  upAdh.run(
-    r.id,
-    r.nom,
-    r.prenom,
-    r.email1,
-    r.email2,
-    r.telephone1,
-    r.telephone2,
-    r.adresse,
-    r.code_postal,
-    r.ville,
-    r.nb_personnes_foyer,
-    r.tranche_age,
-    Number(r.droit_entree ?? 0),
-    r.date_inscription,
-    b2i(r.archive),           
-    r.date_archivage,
-    r.date_reactivation
-  );
+
+    for (const r of adherents)
+      upAdh.run(
+        r.id,
+        r.nom,
+        r.prenom,
+        r.email1,
+        r.email2,
+        r.telephone1,
+        r.telephone2,
+        r.adresse,
+        r.code_postal,
+        r.ville,
+        r.nb_personnes_foyer,
+        r.tranche_age,
+        Number(r.droit_entree ?? 0),
+        r.date_inscription,
+        b2i(r.archive),
+        r.date_archivage,
+        r.date_reactivation
+      );
 
     for (const r of fournisseurs)
       upFour.run(
@@ -128,6 +142,7 @@ async function pullRefs({ since = null } = {}) {
         r.referent_id ?? null,
         r.label ?? null
       );
+
     for (const r of produits)
       upProd.run(
         r.id,
@@ -141,10 +156,19 @@ async function pullRefs({ since = null } = {}) {
         r.categorie_id ?? null,
         r.updated_at || null
       );
+
+    for (const m of modes_paiement) {
+      upMode.run(
+        m.id,
+        m.nom,
+        Number(m.taux_percent ?? 0),
+        Number(m.frais_fixe ?? 0),
+        b2i(!!m.actif)
+      );
+    }
   });
   tx();
 
-  // rafraîchit l’UI
   notifyRenderer('data:refreshed', { from: 'pull_refs' });
   return {
     ok: true,
@@ -155,9 +179,14 @@ async function pullRefs({ since = null } = {}) {
       adherents: adherents.length,
       fournisseurs: fournisseurs.length,
       produits: produits.length,
+      modes_paiement: modes_paiement.length,
     },
   };
 }
+
+/* -------------------------------------------------
+   OPS queue → push vers Neon
+--------------------------------------------------*/
 
 function takePendingOps(limit = 200) {
   return db
@@ -225,19 +254,97 @@ async function pushOpsNow(deviceId) {
   return { ok: true, sent: ids.length, pending: countPendingOps() };
 }
 
-// —————————————————————————————————————————————
-// Démarrage + utilitaires
-// —————————————————————————————————————————————
+/* -------------------------------------------------
+   BOOTSTRAP → Upload des référentiels (incl. adhérents & modes)
+--------------------------------------------------*/
+
+function collectLocalRefs() {
+  const all = (sql) => db.prepare(sql).all();
+
+  const unites = all(`SELECT id, nom FROM unites ORDER BY id`);
+  const familles = all(`SELECT id, nom FROM familles ORDER BY id`);
+  const categories = all(`SELECT id, nom, famille_id FROM categories ORDER BY id`);
+  const adherents = all(`
+    SELECT id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
+           nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation
+    FROM adherents ORDER BY id
+  `);
+  const fournisseurs = all(`
+    SELECT id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label
+    FROM fournisseurs ORDER BY id
+  `);
+  const produits = all(`
+    SELECT id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at
+    FROM produits ORDER BY id
+  `);
+  const modes_paiement = all(`
+    SELECT id, nom, taux_percent, frais_fixe, actif
+    FROM modes_paiement ORDER BY id
+  `);
+
+  return { unites, familles, categories, adherents, fournisseurs, produits, modes_paiement };
+}
+
+async function bootstrapIfNeeded() {
+  // 1) vérifier si Neon a besoin d’un bootstrap
+  let needed = false;
+  try {
+    const r = await fetch(`${API_URL}/sync/bootstrap_needed`);
+    if (r.ok) {
+      const j = await r.json();
+      needed = !!j?.needed;
+    }
+  } catch (e) {
+    console.warn('[sync] bootstrap_needed probe failed:', e?.message || e);
+  }
+
+  if (!needed) return { ok: true, bootstrapped: false };
+
+  // 2) pousser tous les référentiels locaux
+  const refs = collectLocalRefs();
+  let resp;
+  try {
+    resp = await fetch(`${API_URL}/sync/bootstrap`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(refs),
+    });
+  } catch (e) {
+    console.error('[sync] bootstrap network error:', e?.message || e);
+    return { ok: false, error: String(e) };
+  }
+
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    console.error('[sync] bootstrap HTTP', resp.status, txt);
+    return { ok: false, error: `HTTP ${resp.status} ${txt}` };
+  }
+
+  const json = await resp.json().catch(() => ({}));
+  notifyRenderer('data:bootstrapped', { counts: json?.counts || {} });
+
+  // 3) pull pour s’aligner (notamment ids/dernières modifs depuis Neon)
+  try { await pullRefs(); } catch (e) { /* non bloquant */ }
+
+  return { ok: true, bootstrapped: true, counts: json?.counts || {} };
+}
+
+/* -------------------------------------------------
+   Démarrage + utilitaires
+--------------------------------------------------*/
+
 async function hydrateOnStartup() {
+  // D’abord, si Neon est vierge (produits vides) → upload complet local (incl. adhérents & modes)
+  await bootstrapIfNeeded();
+  // Puis pull pour aligner
   return pullRefs();
 }
 
-// Alias lisible pour bouton “Pull tout”
 async function pullAll() {
   return pullRefs();
 }
 
-// (Optionnel) Retry doux pour réseau instable — à appeler depuis main si tu veux
+// Retry doux pour réseau instable — à appeler depuis main si tu veux
 let _autoTimer = null;
 let _intervalMs = 30000; // 30s
 function startAutoSync(deviceId) {
@@ -245,9 +352,8 @@ function startAutoSync(deviceId) {
   _autoTimer = setInterval(async () => {
     try {
       await pushOpsNow(deviceId);
-      _intervalMs = 30000; // reset sur succès
+      _intervalMs = 30000;
     } catch {
-      // backoff simple jusqu'à 2 min
       _intervalMs = Math.min(_intervalMs + 15000, 120000);
       clearInterval(_autoTimer);
       _autoTimer = null;
@@ -256,6 +362,80 @@ function startAutoSync(deviceId) {
   }, _intervalMs);
 }
 
+/* -------------------------------------------------
+   Export public
+--------------------------------------------------*/
+
+async function pushBootstrapRefs() {
+  // export utilitaire si tu veux forcer un upload manuel des référentiels
+  const refs = collectLocalRefs();
+  const resp = await fetch(`${API_URL}/sync/bootstrap`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(refs),
+  });
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    throw new Error(`bootstrap HTTP ${resp.status} ${txt}`);
+  }
+  const json = await resp.json().catch(() => ({}));
+  notifyRenderer('data:bootstrapped', { counts: json?.counts || {} });
+  await pullRefs();
+  return { ok: true, counts: json?.counts || {} };
+}
+
+async function syncPushAll() {
+  // 1) Lire toutes les refs depuis SQLite
+  const fetchAll = (sql) => db.prepare(sql).all();
+
+  const unites = fetchAll(`SELECT id, nom FROM unites ORDER BY id`);
+  const familles = fetchAll(`SELECT id, nom FROM familles ORDER BY id`);
+  const categories = fetchAll(`SELECT id, nom, famille_id FROM categories ORDER BY id`);
+  const adherents = fetchAll(`
+    SELECT id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
+           nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation
+    FROM adherents ORDER BY id
+  `);
+  const fournisseurs = fetchAll(`
+    SELECT id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label
+    FROM fournisseurs ORDER BY id
+  `);
+  const produits = fetchAll(`
+    SELECT id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at
+    FROM produits ORDER BY id
+  `);
+  const modes_paiement = fetchAll(`
+    SELECT id, nom, taux_percent, frais_fixe, actif FROM modes_paiement ORDER BY id
+  `);
+
+  // 2) Envoyer au serveur
+  let res;
+  try {
+    res = await fetch(`${API_URL}/sync/bootstrap`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        unites, familles, categories, adherents, fournisseurs, produits, modes_paiement
+      }),
+    });
+  } catch (e) {
+    return { ok: false, error: `Network error: ${String(e)}` };
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    return { ok: false, error: `HTTP ${res.status} ${txt}` };
+  }
+
+  const js = await res.json().catch(() => ({}));
+  if (!js?.ok) return { ok: false, error: js?.error || 'Unknown bootstrap error' };
+
+  // notifie l’UI et retourne les compteurs
+  notifyRenderer('data:refreshed', { from: 'push_all' });
+  return { ok: true, counts: js.counts || {} };
+}
+
+
 module.exports = {
   hydrateOnStartup,
   pullRefs,
@@ -263,4 +443,6 @@ module.exports = {
   pushOpsNow,
   startAutoSync,
   countPendingOps,
+  pushBootstrapRefs,
+  syncPushAll,
 };
