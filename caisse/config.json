@@ -14,7 +14,9 @@
     "adherents": true,
     "ventes_exterieur": true,
     "prospects": true,
-    "modes_paiement": true
+    "modes_paiement": true,
+    "imports": true
+
   },
   "ventes_exterieur_margin_percent": 30,
   "ventes_ext_margin_percent": 30,

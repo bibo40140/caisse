@@ -1,11 +1,17 @@
-// src/main/db/db.js — Schéma local "from scratch"
+// src/main/db/db.js — Schéma local (avec mouvements de stock + inventaires)
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const dbPath = path.resolve(__dirname, '../../../coopaz.db');
-const db = new Database(dbPath);
+// 👉 Chemin de la base : si main.js fournit COOPAZ_DB_PATH on l'utilise, sinon fallback ancien chemin
+const dbPath =
+  process.env.COOPAZ_DB_PATH ||
+  path.resolve(__dirname, '../../../coopaz.db');
 
-db.pragma('foreign_keys = ON');
+const db = new Database(dbPath, { timeout: 5000 });
+
+// Petits réglages SQLite utiles
+try { db.pragma('journal_mode = WAL'); } catch {}
+try { db.pragma('foreign_keys = ON'); } catch {}
 
 // ─────────────────────────────────────────────────────────────
 // META
@@ -67,7 +73,6 @@ CREATE TABLE IF NOT EXISTS adherents (
   date_archivage       TEXT,
   date_reactivation    TEXT
 )
-
 `).run();
 
 db.prepare(`
@@ -131,7 +136,7 @@ db.prepare(`
     nom            TEXT NOT NULL,
     reference      TEXT UNIQUE NOT NULL,
     prix           REAL NOT NULL,
-    stock          INTEGER NOT NULL DEFAULT 0,
+    stock          REAL NOT NULL DEFAULT 0,   -- ⚠️ cache local actuel (on le migrera vers stock calculé)
     code_barre     TEXT,
     unite_id       INTEGER,
     fournisseur_id INTEGER,
@@ -142,9 +147,11 @@ db.prepare(`
     FOREIGN KEY (categorie_id)   REFERENCES categories(id)
   )
 `).run();
-db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_barcode ON produits(code_barre)`).run();
-
-
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_barcode    ON produits(code_barre)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_nom        ON produits(nom COLLATE NOCASE)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_categorie  ON produits(categorie_id)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_fournisseur ON produits(fournisseur_id)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_reference  ON produits(reference)`).run();
 
 // ─────────────────────────────────────────────────────────────
 // MODES DE PAIEMENT / VENTES
@@ -235,22 +242,95 @@ db.prepare(`
 `).run();
 
 // ─────────────────────────────────────────────────────────────
-// JOURNAL D’OPÉRATIONS
+// MOUVEMENTS DE STOCK (multi-poste béton)
+// ─────────────────────────────────────────────────────────────
+// 👉 C’est notre "journal". On y ajoute +/− à chaque vente, réception, inventaire, correction.
+//    Le serveur additionne les deltas pour obtenir le stock officiel.
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS stock_movements (
+    id         TEXT PRIMARY KEY,                      -- UUID d’opération (sert aussi à l'idempotence serveur)
+    produit_id INTEGER NOT NULL,
+    delta      REAL    NOT NULL,                      -- +qte (réception), -qte (vente), ajustement inventaire
+    reason     TEXT    NOT NULL,                      -- 'sale' | 'reception' | 'inventory' | 'correction'
+    ref_type   TEXT,                                  -- ex: 'vente' | 'reception' | 'inventaire'
+    ref_id     TEXT,                                  -- id local ou distant de la vente/réception/inventaire
+    note       TEXT,
+    device_id  TEXT,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
+  )
+`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_sm_produit    ON stock_movements(produit_id)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_sm_created    ON stock_movements(created_at)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_sm_ref        ON stock_movements(ref_type, ref_id)`).run();
+
+// (Option pratique) Vue de stock agrégé (somme des mouvements)
+db.prepare(`
+  CREATE VIEW IF NOT EXISTS stocks_agg AS
+  SELECT produit_id, IFNULL(SUM(delta), 0) AS qty
+  FROM stock_movements
+  GROUP BY produit_id
+`).run();
+
+// ─────────────────────────────────────────────────────────────
+// INVENTAIRES (sessions + snapshot + comptages)
+// ─────────────────────────────────────────────────────────────
+// 👉 Logique robuste : on prend une photo (snapshot) des stocks à l'ouverture,
+//    on saisit les comptages (multi-postes), et on applique un ajustement final à la clôture.
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS inventory_sessions (
+    id         TEXT PRIMARY KEY,                      -- UUID de session (créé côté serveur idéalement)
+    name       TEXT,
+    status     TEXT NOT NULL DEFAULT 'open',          -- 'open' | 'closed'
+    opened_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    opened_by  TEXT,
+    closed_at  TEXT
+  )
+`).run();
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS inventory_snapshots (
+    session_id TEXT    NOT NULL,
+    produit_id INTEGER NOT NULL,
+    qty_at_open REAL   NOT NULL,
+    PRIMARY KEY (session_id, produit_id),
+    FOREIGN KEY (session_id) REFERENCES inventory_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (produit_id) REFERENCES produits(id)           ON DELETE CASCADE
+  )
+`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_snap_prod ON inventory_snapshots(produit_id)`).run();
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS inventory_counts (
+    session_id   TEXT    NOT NULL,
+    produit_id   INTEGER NOT NULL,
+    counted_qty  REAL    NOT NULL,
+    counted_by   TEXT,
+    counted_at   TEXT    NOT NULL DEFAULT (datetime('now','localtime')),
+    PRIMARY KEY (session_id, produit_id),
+    FOREIGN KEY (session_id) REFERENCES inventory_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (produit_id) REFERENCES produits(id)           ON DELETE CASCADE
+  )
+`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_counts_prod ON inventory_counts(produit_id)`).run();
+
+// ─────────────────────────────────────────────────────────────
+// JOURNAL D’OPÉRATIONS (pour la synchro offline → online)
 // ─────────────────────────────────────────────────────────────
 db.prepare(`
   CREATE TABLE IF NOT EXISTS ops_queue (
-    id           TEXT PRIMARY KEY,
+    id           TEXT PRIMARY KEY,                    -- op_id unique (sert à l'idempotence serveur)
     device_id    TEXT NOT NULL,
     created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-    op_type      TEXT NOT NULL,
+    op_type      TEXT NOT NULL,                       -- 'sale.created' | 'stock_movement.add' | 'inventory.*' ...
     entity_type  TEXT,
     entity_id    TEXT,
-    payload_json TEXT NOT NULL,
+    payload_json TEXT NOT NULL,                       -- contenu JSON de l'opération
     sent_at      TEXT,
-    ack          INTEGER NOT NULL DEFAULT 0
+    ack          INTEGER NOT NULL DEFAULT 0           -- 0 = à envoyer, 1 = confirmé serveur
   )
 `).run();
-db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_ack ON ops_queue(ack)`).run();
+db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_ack     ON ops_queue(ack)`).run();
 db.prepare(`CREATE INDEX IF NOT EXISTS idx_ops_queue_created ON ops_queue(created_at)`).run();
 
 // ─────────────────────────────────────────────────────────────
@@ -300,9 +380,9 @@ const DEFAULT_TREE = [
   ins.run('Virement', 0, 0);
 })();
 
-// META version
+// META version (on incrémentera quand on modifiera les handlers)
 const cur = db.prepare('SELECT COUNT(*) AS n FROM app_meta').get().n;
-if (cur === 0) db.prepare('INSERT INTO app_meta (schema_version) VALUES (3)').run();
-else db.prepare('UPDATE app_meta SET schema_version = 3').run();
+if (cur === 0) db.prepare('INSERT INTO app_meta (schema_version) VALUES (4)').run();
+else db.prepare('UPDATE app_meta SET schema_version = 4').run();
 
 module.exports = db;

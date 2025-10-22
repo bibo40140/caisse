@@ -9,31 +9,21 @@ const { runBootstrap } = require('./src/main/bootstrap');
 const { hydrateOnStartup, pullAll, pushOpsNow, startAutoSync } = require('./src/main/sync');
 const sync = require('./src/main/sync');
 
-
-
+// === IPC sync utilitaires exposés à l’UI ===
 ipcMain.handle('sync:pushBootstrapRefs', async () => {
-  try {
-    return await sync.pushBootstrapRefs();   // renvoie { ok, counts }
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
+  try { return await sync.pushBootstrapRefs(); }
+  catch (e) { return { ok: false, error: String(e) }; }
 });
 
 ipcMain.handle('sync:push_all', async () => {
-  try {
-    return await sync.syncPushAll();
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  }
+  try { return await sync.syncPushAll(); }
+  catch (e) { return { ok: false, error: e?.message || String(e) }; }
 });
 
 // Pull ALL (Neon -> local)
 ipcMain.handle('sync:pull_all', async () => {
-  try {
-    return await sync.pullAll();
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  }
+  try { return await sync.pullAll(); }
+  catch (e) { return { ok: false, error: e?.message || String(e) }; }
 });
 
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
@@ -136,12 +126,19 @@ registerCategoryHandlers();
 if (config.modules.fournisseurs) require('./src/main/handlers/fournisseurs')();
 require('./src/main/handlers/adherents')(ipcMain);
 
-if (config.modules.cotisations)  require('./src/main/handlers/cotisations');
-if (config.modules.imports !== false) require('./src/main/handlers/imports');
+// === Stocks / Réceptions / Inventaires ===
+// Toujours enregistrer les réceptions (mouvements + ops), même si l’UI "stocks" est OFF
+require('./src/main/handlers/receptions').registerReceptionHandlers(ipcMain);
+
 if (config.modules.stocks) {
+  // Handler d’UI/gestion "stock" si tu en as un (rapports, écrans…)
   require('./src/main/handlers/stock')(ipcMain);
-  require('./src/main/handlers/receptions').registerReceptionHandlers(ipcMain);
 }
+
+// 👉 Nouveau : sessions d’inventaire (ouvrir, compter, clôturer)
+const { registerInventaireHandlers } = require('./src/main/handlers/inventaires');
+registerInventaireHandlers(ipcMain);
+
 if (config.modules.email || config.modules.emails) require('./src/main/handlers/email')(ipcMain);
 
 // ============================================================================
@@ -186,16 +183,9 @@ safeHandle('get-details-reception', async (_e, receptionId) => {
   }
 });
 
-// Enregistrer une réception + push ops immédiat
-safeHandle('enregistrer-reception', async (_e, reception) => {
-  try {
-    const id = receptionsDB.enregistrerReception(reception, reception?.lignes || []);
-    try { await pushOpsNow(DEVICE_ID); } catch (_) {}
-    return id;
-  } catch (err) {
-    throw new Error(err?.message || String(err));
-  }
-});
+// ⚠️ SUPPRIMÉ : l’ancien fallback 'enregistrer-reception' pour éviter le conflit
+// (le nouveau handlers/receptions.js enregistre déjà ce canal)
+// safeHandle('enregistrer-reception', async (_e, reception) => { ... });
 
 // Pousser manuellement les opérations en attente
 safeHandle('ops:push-now', async () => {

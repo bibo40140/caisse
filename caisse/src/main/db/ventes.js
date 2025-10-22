@@ -1,11 +1,12 @@
 // src/main/db/ventes.js
+// ⚠️ Version alignée avec la nouvelle logique “stock par mouvements”
+// - Ici : on écrit la vente + lignes en local, point.
+// - PAS de décrément direct de produits.stock (géré par handlers/ventes via stock_movements)
+// - PAS d’enqueue d’ops ici (géré par handlers/ventes pour éviter les doublons)
+
 const db = require('./db');
 const fs = require('fs');
 const path = require('path');
-const { enqueueOp } = require('./ops');
-const { getDeviceId } = require('../device');
-
-const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
 function isModuleActive(moduleName) {
   try {
@@ -20,43 +21,41 @@ function isModuleActive(moduleName) {
 /**
  * Crée une vente + lignes en local.
  * - Écrit l'en-tête et les lignes dans SQLite
- * - Décrémente le stock local si le module "stocks" est actif
- * - Enfile des opérations (sale.created / sale.line_added) pour la synchro Neon
+ * - NE TOUCHE PAS au stock (les mouvements sont gérés par src/main/handlers/ventes.js)
+ * - NE fait PAS d’enqueue d’opérations (géré par src/main/handlers/ventes.js)
  */
 function enregistrerVente(vente, lignes) {
   if (!vente) throw new Error('vente manquante');
   if (!Array.isArray(lignes) || lignes.length === 0) throw new Error('aucune ligne de vente');
-const useAdherents   = isModuleActive('adherents');
-const stocksOn       = isModuleActive('stocks');
-const modesOn        = isModuleActive('modes_paiement');
-const cotisationsOn  = isModuleActive('cotisations');
-const prospectsOn    = isModuleActive('prospects');
 
-let saleType = vente.sale_type || (useAdherents ? 'adherent' : 'exterieur');
-if (!useAdherents && saleType === 'adherent') saleType = 'exterieur';
-if (!prospectsOn  && saleType === 'prospect') saleType = useAdherents ? 'adherent' : 'exterieur';
+  const useAdherents   = isModuleActive('adherents');
+  const modesOn        = isModuleActive('modes_paiement');
+  const cotisationsOn  = isModuleActive('cotisations');
+  const prospectsOn    = isModuleActive('prospects');
 
-const adherentId =
-  (saleType === 'adherent' && useAdherents && Number.isFinite(Number(vente.adherent_id)))
-    ? Number(vente.adherent_id)
-    : null;
+  let saleType = vente.sale_type || (useAdherents ? 'adherent' : 'exterieur');
+  if (!useAdherents && saleType === 'adherent') saleType = 'exterieur';
+  if (!prospectsOn  && saleType === 'prospect') saleType = useAdherents ? 'adherent' : 'exterieur';
 
-const modePaiementId =
-  (modesOn && Number.isFinite(Number(vente.mode_paiement_id)))
-    ? Number(vente.mode_paiement_id)
-    : null;
+  const adherentId =
+    (saleType === 'adherent' && useAdherents && Number.isFinite(Number(vente.adherent_id)))
+      ? Number(vente.adherent_id)
+      : null;
 
-const fraisPaiement = modesOn ? Number(vente.frais_paiement || 0) : 0;
+  const modePaiementId =
+    (modesOn && Number.isFinite(Number(vente.mode_paiement_id)))
+      ? Number(vente.mode_paiement_id)
+      : null;
 
-const cotisation =
-  (saleType === 'adherent' && useAdherents && cotisationsOn)
-    ? Number(vente.cotisation || 0)
-    : 0;
+  const fraisPaiement = modesOn ? Number(vente.frais_paiement || 0) : 0;
 
-const total       = Number(vente.total || 0);
-const clientEmail = (vente.client_email || null);
+  const cotisation =
+    (saleType === 'adherent' && useAdherents && cotisationsOn)
+      ? Number(vente.cotisation || 0)
+      : 0;
 
-
+  const total       = Number(vente.total || 0);
+  const clientEmail = (vente.client_email || null);
 
   // INSERT header (laisse SQLite remplir date_vente & updated_at)
   const insertVente = db.prepare(`
@@ -74,11 +73,6 @@ const clientEmail = (vente.client_email || null);
       (?,        ?,          ?,        ?,    ?,             ?,              datetime('now','localtime'))
   `);
 
-  // Décrément du stock local (si stocks ON)
-  const decStock = stocksOn
-    ? db.prepare(`UPDATE produits SET stock = stock - ? WHERE id = ?`)
-    : null;
-
   const tx = db.transaction(() => {
     // En-tête de vente
     const rV = insertVente.run(
@@ -92,64 +86,19 @@ const clientEmail = (vente.client_email || null);
     );
     const venteId = rV.lastInsertRowid;
 
-    // Opération "header"
-    enqueueOp({
-      deviceId: DEVICE_ID,
-      opType: 'sale.created',
-      entityType: 'vente',
-      entityId: String(venteId),
-      payload: {
-        venteId,
-        total,
-        adherentId,
-        modePaiementId,
-        saleType,
-        clientEmail,
-        fraisPaiement,
-        cotisation,
-      },
-    });
-
-    // Lignes de vente
+    // Lignes de vente (écriture pure, sans stock, sans ops)
     for (const l of lignes) {
       const produitId = Number(l.produit_id);
       const qte       = Number(l.quantite);
-      const prix      = Number(l.prix); // total ligne (après remise/marge si déjà calculé)
+      const prix      = Number(l.prix); // total ligne
       const pu        = (l.prix_unitaire != null && l.prix_unitaire !== '') ? Number(l.prix_unitaire) : null;
       const remise    = (l.remise_percent != null && l.remise_percent !== '') ? Number(l.remise_percent) : 0;
 
       if (!Number.isFinite(produitId) || !Number.isFinite(qte) || qte <= 0) {
         throw new Error('ligne de vente invalide');
       }
-
       insertLigne.run(venteId, produitId, qte, prix, pu, remise);
-
-      // 🔻 Décrémente le stock local si activé
-      if (decStock) decStock.run(qte, produitId);
-
-      // Opération "ligne" (pour Neon)
-      enqueueOp({
-        deviceId: DEVICE_ID,
-        opType: 'sale.line_added',
-        entityType: 'ligne_vente',
-        entityId: String(`${venteId}:${produitId}`), // ou l'id auto si tu préfères
-        payload: {
-          ligneId: null,           // optionnel si tu n'utilises pas l'id ligne local côté serveur
-          venteId,
-          produitId,
-          quantite: qte,
-          prix,
-          prixUnitaire: pu,
-          remisePercent: remise,
-        },
-      });
     }
-
-    // Tentative de push immédiat (best-effort)
-    try {
-      const { pushOpsNow } = require('../sync');
-      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(() => {});
-    } catch {}
 
     return venteId;
   });

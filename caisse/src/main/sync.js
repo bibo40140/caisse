@@ -1,4 +1,9 @@
 // src/main/sync.js
+// 👉 Version "drop-in" compatible avec ton code existant
+//    - Conserve API_URL, deviceId (camelCase), payload_json (string), notifyRenderer
+//    - Ajoute un recalage de stock optionnel via /inventory/stocks (si dispo)
+//    - Garde pullRefs() comme source principale si /inventory/stocks n'existe pas
+
 const fetch = require('node-fetch');
 const { BrowserWindow } = require('electron');
 const fs = require('fs');
@@ -7,9 +12,8 @@ const db = require('./db/db');
 const b2i = (v) => (v ? 1 : 0);
 
 /* -------------------------------------------------
-   API base
+   API base (conserve ta logique)
 --------------------------------------------------*/
-
 function readApiBase() {
   try {
     if (process.env.CAISSE_API_URL) return process.env.CAISSE_API_URL;
@@ -23,16 +27,13 @@ const API_URL = readApiBase();
 
 function notifyRenderer(channel, payload) {
   BrowserWindow.getAllWindows().forEach((w) => {
-    try {
-      w.webContents.send(channel, payload);
-    } catch (_) {}
+    try { w.webContents.send(channel, payload); } catch (_) {}
   });
 }
 
 /* -------------------------------------------------
-   PULL refs depuis Neon -> Sauvegarde locale
+   PULL refs (Neon → local) — conserve ta version
 --------------------------------------------------*/
-
 async function pullRefs({ since = null } = {}) {
   const url = new URL(`${API_URL}/sync/pull_refs`);
   if (since) url.searchParams.set('since', since);
@@ -52,7 +53,7 @@ async function pullRefs({ since = null } = {}) {
     adherents = [],
     fournisseurs = [],
     produits = [],
-    modes_paiement = [], // <-- maintenant pris en charge
+    modes_paiement = [],
   } = d;
 
   const upUnite = db.prepare(
@@ -185,9 +186,40 @@ async function pullRefs({ since = null } = {}) {
 }
 
 /* -------------------------------------------------
-   OPS queue → push vers Neon
+   Recalage "serveur = vérité" (optionnel)
+   - Si /inventory/stocks existe : on l'utilise pour juste mettre à jour les stocks.
+   - Sinon, on retombe sur pullRefs() (complet).
 --------------------------------------------------*/
+async function pullServerStocksIfAvailable() {
+  let res;
+  try {
+    res = await fetch(`${API_URL}/inventory/stocks`);
+  } catch (_) {
+    return { ok: false, error: 'réseau stocks' };
+  }
+  if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
 
+  let list = [];
+  try { list = await res.json(); } catch (_) {}
+  if (!Array.isArray(list)) return { ok: false, error: 'format' };
+
+  const tx = db.transaction(() => {
+    const upd = db.prepare(`UPDATE produits SET stock = ? WHERE id = ?`);
+    for (const row of list) {
+      const pid = Number(row.produit_id);
+      const qty = Number(row.qty);
+      if (Number.isFinite(pid)) upd.run(Number.isFinite(qty) ? qty : 0, pid);
+    }
+  });
+  tx();
+
+  notifyRenderer('data:refreshed', { from: 'pull_stocks' });
+  return { ok: true, updated: list.length };
+}
+
+/* -------------------------------------------------
+   OPS queue → push (conserve deviceId + payload_json)
+--------------------------------------------------*/
 function takePendingOps(limit = 1000) {
   return db
     .prepare(
@@ -209,13 +241,13 @@ async function pushOpsNow(deviceId) {
   if (ops.length === 0) return { ok: true, sent: 0, pending: 0 };
 
   const payload = {
-    deviceId,
+    deviceId, // 👈 conserve le camelCase de ta version
     ops: ops.map((o) => ({
       id: o.id,
       op_type: o.op_type,
       entity_type: o.entity_type,
       entity_id: o.entity_id,
-      payload_json: o.payload_json,
+      payload_json: o.payload_json, // 👈 on envoie du JSON string, comme avant
     })),
   };
 
@@ -237,6 +269,7 @@ async function pushOpsNow(deviceId) {
     return { ok: false, error: `HTTP ${res.status} ${txt}`, pending: countPendingOps() };
   }
 
+  // Idéalement l’API devrait renvoyer les opIds ackés; si non, on ack tout le batch
   const ids = ops.map((o) => o.id);
   db.prepare(
     `UPDATE ops_queue SET ack = 1, sent_at = datetime('now','localtime') WHERE id IN (${ids
@@ -246,18 +279,20 @@ async function pushOpsNow(deviceId) {
 
   notifyRenderer('ops:pushed', { count: ids.length });
 
-  try {
-    await pullRefs();
-  } catch (e) {
-    console.warn('[sync] pull after push failed:', e?.message || e);
+  // Recalage "serveur = vérité"
+  // 1) Si /inventory/stocks existe → rapide
+  const stocks = await pullServerStocksIfAvailable();
+  if (!stocks.ok) {
+    // 2) Sinon, on retombe sur ton pullRefs() (complet)
+    try { await pullRefs(); } catch (e) { console.warn('[sync] pull after push failed:', e?.message || e); }
   }
+
   return { ok: true, sent: ids.length, pending: countPendingOps() };
 }
 
 /* -------------------------------------------------
-   BOOTSTRAP → Upload des référentiels (incl. adhérents & modes)
+   BOOTSTRAP (conserve ta version)
 --------------------------------------------------*/
-
 function collectLocalRefs() {
   const all = (sql) => db.prepare(sql).all();
 
@@ -286,7 +321,6 @@ function collectLocalRefs() {
 }
 
 async function bootstrapIfNeeded() {
-  // 1) vérifier si Neon a besoin d’un bootstrap
   let needed = false;
   try {
     const r = await fetch(`${API_URL}/sync/bootstrap_needed`);
@@ -300,7 +334,6 @@ async function bootstrapIfNeeded() {
 
   if (!needed) return { ok: true, bootstrapped: false };
 
-  // 2) pousser tous les référentiels locaux
   const refs = collectLocalRefs();
   let resp;
   try {
@@ -323,20 +356,15 @@ async function bootstrapIfNeeded() {
   const json = await resp.json().catch(() => ({}));
   notifyRenderer('data:bootstrapped', { counts: json?.counts || {} });
 
-  // 3) pull pour s’aligner (notamment ids/dernières modifs depuis Neon)
-  try { await pullRefs(); } catch (e) { /* non bloquant */ }
-
+  try { await pullRefs(); } catch (_) {}
   return { ok: true, bootstrapped: true, counts: json?.counts || {} };
 }
 
 /* -------------------------------------------------
-   Démarrage + utilitaires
+   Démarrage + utilitaires (mêmes exports)
 --------------------------------------------------*/
-
 async function hydrateOnStartup() {
-  // D’abord, si Neon est vierge (produits vides) → upload complet local (incl. adhérents & modes)
   await bootstrapIfNeeded();
-  // Puis pull pour aligner
   return pullRefs();
 }
 
@@ -344,7 +372,6 @@ async function pullAll() {
   return pullRefs();
 }
 
-// Retry doux pour réseau instable — à appeler depuis main si tu veux
 let _autoTimer = null;
 let _intervalMs = 30000; // 30s
 function startAutoSync(deviceId) {
@@ -362,12 +389,7 @@ function startAutoSync(deviceId) {
   }, _intervalMs);
 }
 
-/* -------------------------------------------------
-   Export public
---------------------------------------------------*/
-
 async function pushBootstrapRefs() {
-  // export utilitaire si tu veux forcer un upload manuel des référentiels
   const refs = collectLocalRefs();
   const resp = await fetch(`${API_URL}/sync/bootstrap`, {
     method: 'POST',
@@ -385,7 +407,6 @@ async function pushBootstrapRefs() {
 }
 
 async function syncPushAll() {
-  // 1) Lire toutes les refs depuis SQLite
   const fetchAll = (sql) => db.prepare(sql).all();
 
   const unites = fetchAll(`SELECT id, nom FROM unites ORDER BY id`);
@@ -408,7 +429,6 @@ async function syncPushAll() {
     SELECT id, nom, taux_percent, frais_fixe, actif FROM modes_paiement ORDER BY id
   `);
 
-  // 2) Envoyer au serveur
   let res;
   try {
     res = await fetch(`${API_URL}/sync/bootstrap`, {
@@ -430,11 +450,9 @@ async function syncPushAll() {
   const js = await res.json().catch(() => ({}));
   if (!js?.ok) return { ok: false, error: js?.error || 'Unknown bootstrap error' };
 
-  // notifie l’UI et retourne les compteurs
   notifyRenderer('data:refreshed', { from: 'push_all' });
   return { ok: true, counts: js.counts || {} };
 }
-
 
 module.exports = {
   hydrateOnStartup,

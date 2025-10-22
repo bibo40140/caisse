@@ -1,27 +1,28 @@
 // src/main/db/receptions.js
+// ⚠️ Version alignée “stock par mouvements”
+// - Ici : on écrit la réception + lignes en SQLite, point.
+// - PAS de mise à jour directe de produits.stock (géré par handlers/receptions via stock_movements)
+// - PAS d’enqueue d’opérations (géré par handlers/receptions pour éviter les doublons)
+
 const db = require('./db');
-const fs = require('fs');
-const path = require('path');
-const { enqueueOp } = require('./ops');
-const { getDeviceId } = require('../device');
 
-const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
-
-function stocksModuleOn() {
-  try {
-    const cfgPath = path.join(__dirname, '..', '..', '..', 'config.json');
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    return !!(cfg.modules && cfg.modules.stocks);
-  } catch { return false; }
+/** Petit helper pour avoir un timestamp SQLite local */
+function nowLocal() {
+  return `datetime('now','localtime')`;
 }
 
-function nowLocal() { return `datetime('now','localtime')`; }
-
+/**
+ * Enregistre une réception + lignes.
+ * @param {Object} reception - { fournisseur_id, reference? , lignes? }
+ * @param {Array}  lignes    - [{ produit_id, quantite, prix_unitaire? }, ...]
+ * @returns {number} receptionId
+ */
 function enregistrerReception(reception, lignes) {
   // compat : certaines UIs envoient tout dans reception.lignes
   if (!Array.isArray(lignes) || lignes.length === 0) {
     lignes = Array.isArray(reception?.lignes) ? reception.lignes : [];
   }
+
   if (!reception || !Number.isFinite(Number(reception.fournisseur_id || reception.fournisseurId))) {
     throw new Error('fournisseur invalide');
   }
@@ -42,77 +43,29 @@ function enregistrerReception(reception, lignes) {
     VALUES (?, ?, ?, ?, ${nowLocal()})
   `);
 
-  const selStock = db.prepare(`SELECT stock, prix FROM produits WHERE id = ?`);
-  const updProd  = db.prepare(`
-    UPDATE produits
-       SET stock = ?,
-           prix  = COALESCE(?, prix),
-           updated_at = ${nowLocal()}
-     WHERE id = ?
-  `);
-
   const tx = db.transaction(() => {
+    // Référence auto si absente (ex: BL-YYYYMMDD-HHMMSS)
     const ref = referenceIn || (() => {
-      const d = new Date(); const pad = n => String(n).padStart(2,'0');
-      return `BL-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      return `BL-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
     })();
 
     const r = insertReception.run(fournisseurId, ref);
     const receptionId = r.lastInsertRowid;
 
-    const doStocks = stocksModuleOn();
-
     for (const l of lignes) {
-      const produitId    = Number(l.produit_id);
-      const qte          = Number(l.quantite || 0);
-      const prixU        = (l.prix_unitaire != null && l.prix_unitaire !== '') ? Number(l.prix_unitaire) : null;
-      const stockCorrige = (l.stock_corrige !== undefined && l.stock_corrige !== null && l.stock_corrige !== '')
-        ? Number(l.stock_corrige) : null;
+      const produitId = Number(l.produit_id ?? l.id);
+      const qte       = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
+      const prixU     = (l.prix_unitaire != null && l.prix_unitaire !== '') ? Number(l.prix_unitaire) : null;
 
-      if (!Number.isFinite(produitId)) throw new Error('ligne reception: produit invalide');
-
-      // 1) Enregistrer la ligne de BL
-      insertLigne.run(receptionId, produitId, qte, prixU);
-
-      // 2) MAJ stock local selon TA règle
-      if (doStocks) {
-        const row = selStock.get(produitId);
-        const current = Number(row?.stock || 0);
-
-        let newStock;
-        if (stockCorrige !== null && Number.isFinite(stockCorrige)) {
-          // règle demandée : stock_corrigé + quantité
-          newStock = stockCorrige + (Number.isFinite(qte) ? qte : 0);
-        } else {
-          // sinon : stock actuel + quantité
-          newStock = current + (Number.isFinite(qte) ? qte : 0);
-        }
-
-        const newPrix = (prixU !== null && Number.isFinite(prixU)) ? prixU : null;
-        updProd.run(newStock, newPrix, produitId);
+      if (!Number.isFinite(produitId) || !Number.isFinite(qte) || qte <= 0) {
+        throw new Error('ligne de réception invalide');
       }
 
-      // 3) Enqueue op (utile si tu rebrancheras Neon plus tard)
-      enqueueOp({
-        deviceId: DEVICE_ID,
-        opType: 'reception.line_added',
-        entityType: 'ligne_reception',
-        entityId: `${receptionId}:${produitId}`,
-        payload: {
-          ligneRecId: null,
-          receptionId,
-          fournisseurId,
-          reference: ref,
-          produitId,
-          quantite: qte,
-          prixUnitaire: prixU,
-          stockCorrige: stockCorrige,
-        },
-      });
+      insertLigne.run(receptionId, produitId, qte, prixU);
     }
 
-    // push immédiat si sync dispo (ne casse rien en local)
-    try { require('../sync').pushOpsNow?.(DEVICE_ID)?.catch(()=>{}); } catch {}
     return receptionId;
   });
 
@@ -139,6 +92,7 @@ function getDetailsReception(receptionId) {
 
   const lignes = db.prepare(`
     SELECT
+      lr.produit_id,
       lr.quantite,
       lr.prix_unitaire,
       p.nom AS produit,

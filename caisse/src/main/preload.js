@@ -20,175 +20,179 @@ contextBridge.exposeInMainWorld('electronEvents', {
   }
 });
 
+// Petit helper: invoke sûr (remonte proprement les erreurs)
+async function safeInvoke(channel, ...args) {
+  try {
+    return await ipcRenderer.invoke(channel, ...args);
+  } catch (e) {
+    throw new Error(e?.message || String(e) || 'IPC invoke failed');
+  }
+}
+
 // —————————————————————————————————————————————
 // API principale
 // —————————————————————————————————————————————
 contextBridge.exposeInMainWorld('electronAPI', {
   // --- Produits
-  ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
-  getProduits:    () => ipcRenderer.invoke('get-produits'),
-  modifierProduit:(produit) => ipcRenderer.invoke('modifier-produit', produit),
-  supprimerProduit:(id) => ipcRenderer.invoke('supprimer-produit', id),
-  supprimerEtRemplacerProduit: (n, id) => ipcRenderer.invoke('supprimer-et-remplacer-produit', n, id),
+  ajouterProduit: (produit) => safeInvoke('ajouter-produit', produit),
+  getProduits:    () => safeInvoke('get-produits'),
+  modifierProduit:(produit) => safeInvoke('modifier-produit', produit),
+  supprimerProduit:(id) => safeInvoke('supprimer-produit', id),
+  supprimerEtRemplacerProduit: (n, id) => safeInvoke('supprimer-et-remplacer-produit', n, id),
   rechercherProduitParNomEtFournisseur: (nom, fournisseurId) =>
-    ipcRenderer.invoke('rechercher-produit-par-nom-et-fournisseur', nom, fournisseurId),
+    safeInvoke('rechercher-produit-par-nom-et-fournisseur', nom, fournisseurId),
   resoudreConflitProduit: (action, nouveau, existantId) =>
-    ipcRenderer.invoke('resoudre-conflit-produit', action, nouveau, existantId),
+    safeInvoke('resoudre-conflit-produit', action, nouveau, existantId),
 
   // === Sync complet ===
-  syncPushAll: () => ipcRenderer.invoke('sync:push_all'),
-syncPullAll: () => ipcRenderer.invoke('sync:pull_all'),
-
-  syncPushBootstrapRefs: () => ipcRenderer.invoke('sync:pushBootstrapRefs'), // <-- add
-
+  syncPushAll: () => safeInvoke('sync:push_all'),
+  syncPullAll: () => safeInvoke('sync:pull_all'),
+  syncPushBootstrapRefs: () => safeInvoke('sync:pushBootstrapRefs'),
 
   // Compat ancien code (redirigé vers full sync)
-  syncPushProduits: () => ipcRenderer.invoke('sync:push-all'),
-  syncPullProduits: () => ipcRenderer.invoke('sync:pull-all'),
+  syncPushProduits: () => safeInvoke('sync:push-all'),
+  syncPullProduits: () => safeInvoke('sync:pull-all'),
 
   // ——— Ajouts utiles sync (push manuel + compteur d’ops) ———
-  opsPushNow: () => ipcRenderer.invoke('ops:push-now'),
-  opsPendingCount: () => ipcRenderer.invoke('ops:pending-count'),
+  opsPushNow: () => safeInvoke('ops:push-now'),
+  opsPendingCount: () => safeInvoke('ops:pending-count'),
 
   // --- Fournisseurs
-  getFournisseurs: () => ipcRenderer.invoke('get-fournisseurs'),
-  modifierFournisseur: (f) => ipcRenderer.invoke('modifier-fournisseur', f),
-  analyserImportFournisseurs: (filepath) => ipcRenderer.invoke('analyser-import-fournisseurs', filepath),
-  validerImportFournisseurs: (liste) => ipcRenderer.invoke('valider-import-fournisseurs', liste),
+  getFournisseurs: () => safeInvoke('get-fournisseurs'),
+  modifierFournisseur: (f) => safeInvoke('modifier-fournisseur', f),
+  analyserImportFournisseurs: (filepath) => safeInvoke('analyser-import-fournisseurs', filepath),
+  validerImportFournisseurs: (liste) => safeInvoke('valider-import-fournisseurs', liste),
   resoudreConflitFournisseur: (action, nouveau, existantId) =>
-    ipcRenderer.invoke('resoudre-conflit-fournisseur', action, nouveau, existantId),
-  rechercherFournisseurParNom: (nom) => ipcRenderer.invoke('rechercher-fournisseur-par-nom', nom),
-  ajouterFournisseur: (f) => ipcRenderer.invoke('ajouter-fournisseur', f),
+    safeInvoke('resoudre-conflit-fournisseur', action, nouveau, existantId),
+  rechercherFournisseurParNom: (nom) => safeInvoke('rechercher-fournisseur-par-nom', nom),
+  ajouterFournisseur: (f) => safeInvoke('ajouter-fournisseur', f),
 
   // --- Catégories & Familles
-  // Familles
-  getFamilies:  () => ipcRenderer.invoke('families:list'),
+  getFamilies:  () => safeInvoke('families:list'),
   createFamily: (arg) => {
     const nom = (typeof arg === 'string') ? arg : (arg?.nom || '');
-    return ipcRenderer.invoke('families:create', nom);
+    return safeInvoke('families:create', nom);
   },
-  renameFamily: ({ id, nom }) => ipcRenderer.invoke('families:rename', { id: Number(id), nom }),
-  deleteFamily: (arg) => ipcRenderer.invoke('families:delete', Number(arg?.id ?? arg)),
+  renameFamily: ({ id, nom }) => safeInvoke('families:rename', { id: Number(id), nom }),
+  deleteFamily: (arg) => safeInvoke('families:delete', Number(arg?.id ?? arg)),
 
   // Catégories (API unifiée compatible avec parametres.js)
-  getCategoryTree: () => ipcRenderer.invoke('categories:tree'),
-  getAllCategoriesDetailed: () => ipcRenderer.invoke('categories:all'),
-  getCategories: () => ipcRenderer.invoke('categories:all'), // {id, nom, famille_id}
-  getCategoriesByFamily: (familleId) => ipcRenderer.invoke('categories:by-family', Number(familleId)),
+  getCategoryTree: () => safeInvoke('categories:tree'),
+  getAllCategoriesDetailed: () => safeInvoke('categories:all'),
+  getCategories: () => safeInvoke('categories:all'),
+  getCategoriesByFamily: (familleId) => safeInvoke('categories:by-family', Number(familleId)),
   createCategory: ({ nom, famille_id, familleId }) =>
-    ipcRenderer.invoke('categories:create', { nom, familleId: Number(famille_id ?? familleId) }),
+    safeInvoke('categories:create', { nom, familleId: Number(famille_id ?? familleId) }),
   updateCategory: ({ id, nom }) =>
-    ipcRenderer.invoke('categories:rename', { id: Number(id), nom }),
+    safeInvoke('categories:rename', { id: Number(id), nom }),
   moveCategory: ({ id, famille_id, familleId }) =>
-    ipcRenderer.invoke('categories:set-family', { id: Number(id), familleId: Number(famille_id ?? familleId) }),
-  deleteCategory: (arg) => ipcRenderer.invoke('categories:delete', Number(arg?.id ?? arg)),
-  getCategoriesProduits: () => ipcRenderer.invoke('categories:all'),
+    safeInvoke('categories:set-family', { id: Number(id), familleId: Number(famille_id ?? familleId) }),
+  deleteCategory: (arg) => safeInvoke('categories:delete', Number(arg?.id ?? arg)),
+  getCategoriesProduits: () => safeInvoke('categories:all'),
 
   // Anciens alias (si encore utilisés)
-  ajouterCategorie: (nom) => ipcRenderer.invoke('ajouter-categorie', nom),
-  modifierCategorie: (id, nom) => ipcRenderer.invoke('modifier-categorie', id, nom),
-  supprimerCategorie: (id) => ipcRenderer.invoke('supprimer-categorie', id),
+  ajouterCategorie: (nom) => safeInvoke('ajouter-categorie', nom),
+  modifierCategorie: (id, nom) => safeInvoke('modifier-categorie', id, nom),
+  supprimerCategorie: (id) => safeInvoke('supprimer-categorie', id),
 
   // --- Unités
-  getUnites: () => ipcRenderer.invoke('get-unites'),
-  ajouterUnite: (nom) => ipcRenderer.invoke('ajouter-unite', nom),
-  modifierUnite: (id, nom) => ipcRenderer.invoke('modifier-unite', id, nom),
-  supprimerUnite: (id) => ipcRenderer.invoke('supprimer-unite', id),
+  getUnites: () => safeInvoke('get-unites'),
+  ajouterUnite: (nom) => safeInvoke('ajouter-unite', nom),
+  modifierUnite: (id, nom) => safeInvoke('modifier-unite', id, nom),
+  supprimerUnite: (id) => safeInvoke('supprimer-unite', id),
 
   // --- Imports
-  choisirFichier: () => ipcRenderer.invoke('choisir-fichier'),
-  importerExcel: (type) => ipcRenderer.invoke('importer-excel', type),
-  importerDepuisCSV: () => ipcRenderer.invoke('importer-csv'),
-  importerDepuisCSVInteractif: (type) => ipcRenderer.invoke('importer-csv-interactif', type),
-  analyserImportProduits: (filepath) => ipcRenderer.invoke('analyser-import-produits', filepath),
-  validerImportProduits: (produits) => ipcRenderer.invoke('valider-import-produits', produits),
+  choisirFichier: () => safeInvoke('choisir-fichier'),
+  importerExcel: (type) => safeInvoke('importer-excel', type),
+  importerDepuisCSV: () => safeInvoke('importer-csv'),
+  importerDepuisCSVInteractif: (type) => safeInvoke('importer-csv-interactif', type),
+  analyserImportProduits: (filepath) => safeInvoke('analyser-import-produits', filepath),
+  validerImportProduits: (produits) => safeInvoke('valider-import-produits', produits),
 
   // --- Ventes
-  enregistrerVente: (data) => ipcRenderer.invoke('enregistrer-vente', data),
-  envoyerFactureEmail: (facture) => ipcRenderer.invoke('envoyer-facture-email', facture),
-  decrementerStock: (produitId, quantite) => ipcRenderer.invoke('decrementer-stock', produitId, quantite),
-  getFactureDetails: (id) => ipcRenderer.invoke('get-facture-details', id),
-  getDetailVente: (id) => ipcRenderer.invoke('get-detail-vente', id),
-  getStock: (id) => ipcRenderer.invoke('get-stock', id),
-  getHistoriqueVentes: (filters) => ipcRenderer.invoke('get-historique-ventes', filters),
-  getDetailsVente: (id) => ipcRenderer.invoke('get-details-vente', id),
+  enregistrerVente: (data) => safeInvoke('enregistrer-vente', data),
+  envoyerFactureEmail: (facture) => safeInvoke('envoyer-facture-email', facture),
+  decrementerStock: (produitId, quantite) => safeInvoke('decrementer-stock', produitId, quantite),
+  getFactureDetails: (id) => safeInvoke('get-facture-details', id),
+  getDetailVente: (id) => safeInvoke('get-detail-vente', id),
+  getStock: (id) => safeInvoke('get-stock', id),
+  getHistoriqueVentes: (filters) => safeInvoke('get-historique-ventes', filters),
+  getDetailsVente: (id) => safeInvoke('get-details-vente', id),
 
   // --- Adhérents
-  getAdherents: (archive = 0) => ipcRenderer.invoke('get-adherents', archive),
-  ajouterAdherent: (data) => ipcRenderer.invoke('ajouter-adherent', data),
-  modifierAdherent: (data) => ipcRenderer.invoke('modifier-adherent', data),
-  archiverAdherent: (id) => ipcRenderer.invoke('archiver-adherent', id),
-  reactiverAdherent: (id) => ipcRenderer.invoke('reactiver-adherent', id),
-  analyserImportAdherents: (filePath) => ipcRenderer.invoke('analyser-import-adherents', filePath),
-  validerImportAdherents: (adherents) => ipcRenderer.invoke('valider-import-adherents', adherents),
+  getAdherents: (archive = 0) => safeInvoke('get-adherents', archive),
+  ajouterAdherent: (data) => safeInvoke('ajouter-adherent', data),
+  modifierAdherent: (data) => safeInvoke('modifier-adherent', data),
+  archiverAdherent: (id) => safeInvoke('archiver-adherent', id),
+  reactiverAdherent: (id) => safeInvoke('reactiver-adherent', id),
+  analyserImportAdherents: (filePath) => safeInvoke('analyser-import-adherents', filePath),
+  validerImportAdherents: (adherents) => safeInvoke('valider-import-adherents', adherents),
 
   // --- Cotisations
-  getCotisations: () => ipcRenderer.invoke('get-cotisations'),
-  getCotisationsParAdherent: (id) => ipcRenderer.invoke('get-cotisations-par-adherent', id),
+  getCotisations: () => safeInvoke('get-cotisations'),
+  getCotisationsParAdherent: (id) => safeInvoke('get-cotisations-par-adherent', id),
   ajouterCotisation: (adherentId, montant, date_paiement = null) =>
-    ipcRenderer.invoke('ajouter-cotisation', adherentId, montant, date_paiement),
-  modifierCotisation: (c) => ipcRenderer.invoke('modifier-cotisation', c),
-  supprimerCotisation: (id) => ipcRenderer.invoke('supprimer-cotisation', id),
-  verifierCotisation: (adherentId) => ipcRenderer.invoke('verifier-cotisation', adherentId),
+    safeInvoke('ajouter-cotisation', adherentId, montant, date_paiement),
+  modifierCotisation: (c) => safeInvoke('modifier-cotisation', c),
+  supprimerCotisation: (id) => safeInvoke('supprimer-cotisation', id),
+  verifierCotisation: (adherentId) => safeInvoke('verifier-cotisation', adherentId),
 
   // --- Réceptions
-  enregistrerReception: (reception) => ipcRenderer.invoke('enregistrer-reception', reception),
-  getReceptions: () => ipcRenderer.invoke('get-receptions'),
-  getReceptionDetails: (id) => ipcRenderer.invoke('get-details-reception', id),
-  voirDetailsReception: (id) => ipcRenderer.invoke('get-details-reception', id),
+  // IMPORTANT : renvoie un NOMBRE (id) attendu par le renderer
+  enregistrerReception: (payload) => safeInvoke('receptions:create', payload),
+  getReceptions: () => safeInvoke('get-receptions'),
+  getReceptionDetails: (id) => safeInvoke('get-details-reception', id),
+  voirDetailsReception: (id) => safeInvoke('get-details-reception', id),
 
   // --- Modes de paiement
-  getModesPaiement: () => ipcRenderer.invoke('mp:getAll'),
-  getModesPaiementAdmin: () => ipcRenderer.invoke('mp:getAllAdmin'),
-  creerModePaiement: (payload) => ipcRenderer.invoke('mp:create', payload),
-  majModePaiement: (payload) => ipcRenderer.invoke('mp:update', payload),
-  supprimerModePaiement: (id) => ipcRenderer.invoke('mp:remove', id),
+  getModesPaiement: () => safeInvoke('mp:getAll'),
+  getModesPaiementAdmin: () => safeInvoke('mp:getAllAdmin'),
+  creerModePaiement: (payload) => safeInvoke('mp:create', payload),
+  majModePaiement: (payload) => safeInvoke('mp:update', payload),
+  supprimerModePaiement: (id) => safeInvoke('mp:remove', id),
 
   // --- Config (modules + marge ventes extérieures)
-  getConfig: () => ipcRenderer.invoke('config:get'),
-  updateModules: (modules) => ipcRenderer.invoke('config:update-modules', modules),
+  getConfig: () => safeInvoke('config:get'),
+  updateModules: (modules) => safeInvoke('config:update-modules', modules),
 
   // Handlers “legacy”
-  getModules: () => ipcRenderer.invoke('get-modules'),
-  setModules: (modules) => ipcRenderer.invoke('set-modules', modules),
+  getModules: () => safeInvoke('get-modules'),
+  setModules: (modules) => safeInvoke('set-modules', modules),
 
   // Marge ventes extérieures (%)
-  getVentesMargin: () => ipcRenderer.invoke('config:get-ventes-margin'),
-  setVentesMargin: (value) => ipcRenderer.invoke('config:set-ventes-margin', value),
+  getVentesMargin: () => safeInvoke('config:get-ventes-margin'),
+  setVentesMargin: (value) => safeInvoke('config:set-ventes-margin', value),
 
   // --- Stock (batch)
-  ajusterStockBulk: (payload) => ipcRenderer.invoke('stock:adjust-bulk', payload),
+  ajusterStockBulk: (payload) => safeInvoke('stock:adjust-bulk', payload),
 
   // --- Prospects
-  listProspects: (filters) => ipcRenderer.invoke('prospects:list', filters),
-  createProspect: (p) => ipcRenderer.invoke('prospects:create', p),
-  updateProspect: (p) => ipcRenderer.invoke('prospects:update', p),
-  deleteProspect: (id) => ipcRenderer.invoke('prospects:delete', id),
-  markProspectStatus: (id, status) => ipcRenderer.invoke('prospects:status', { id, status }),
+  listProspects: (filters) => safeInvoke('prospects:list', filters),
+  createProspect: (p) => safeInvoke('prospects:create', p),
+  updateProspect: (p) => safeInvoke('prospects:update', p),
+  deleteProspect: (id) => safeInvoke('prospects:delete', id),
+  markProspectStatus: (id, status) => safeInvoke('prospects:status', { id, status }),
   convertProspectToAdherent: (idOrObj, adherentId) => {
     const id = (idOrObj && typeof idOrObj === 'object') ? idOrObj.id : idOrObj;
-    return ipcRenderer.invoke('prospects:convert', { id, adherentId });
+    return safeInvoke('prospects:convert', { id, adherentId });
   },
-  listProspectEmailTargets: (statuses) => ipcRenderer.invoke('prospects:list-email-targets', { statuses }),
-  prospectsSendBulkEmail:  (payload) => ipcRenderer.invoke('prospects:email-bulk', payload),
-  listProspectInvitations: (filters) => ipcRenderer.invoke('prospects:invitations', filters),
-  prospectsListInvitations: (args) => ipcRenderer.invoke('prospects:invitations', args),
+  listProspectEmailTargets: (statuses) => safeInvoke('prospects:list-email-targets', { statuses }),
+  prospectsSendBulkEmail:  (payload) => safeInvoke('prospects:email-bulk', payload),
+  listProspectInvitations: (filters) => safeInvoke('prospects:invitations', filters),
+  prospectsListInvitations: (args) => safeInvoke('prospects:invitations', args),
 
   // --- Inventaire / produits (espace de noms)
   produits: {
-    list: () => ipcRenderer.invoke('produits:list'),
+    list: () => safeInvoke('produits:list'),
   },
 });
 
-
-  // --- Paniers / Carts ---
-
-
+// --- Paniers / Carts ---
 contextBridge.exposeInMainWorld('carts', {
-  save:   (payload)       => ipcRenderer.invoke('cart-save', payload),
-  list:   (filter = {})   => ipcRenderer.invoke('cart-list', filter),
-  load:   (id)            => ipcRenderer.invoke('cart-load', id),
-  close:  (id)            => ipcRenderer.invoke('cart-close', id),
-  delete: (id)                   => ipcRenderer.invoke('cart-delete', id),
-  remove: (id)            => ipcRenderer.invoke('cart-delete', id),
+  save:   (payload)       => safeInvoke('cart-save', payload),
+  list:   (filter = {})   => safeInvoke('cart-list', filter),
+  load:   (id)            => safeInvoke('cart-load', id),
+  close:  (id)            => safeInvoke('cart-close', id),
+  delete: (id)            => safeInvoke('cart-delete', id),
+  remove: (id)            => safeInvoke('cart-delete', id),
 });
