@@ -2,6 +2,8 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { ensureSchema } = require('./src/main/db/schema');
+
 
 const db = require('./src/main/db/db');
 const { getDeviceId } = require('./src/main/device');
@@ -53,6 +55,12 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
+
+  try {
+    ensureSchema(); // ← crée/normalise tout le schéma local
+  } catch (e) {
+    console.error('[schema] init error:', e?.message || e);
+  }
 
   // Bootstrap complet (optionnel) au démarrage
   if (process.env.SKIP_BOOTSTRAP !== '1') {
@@ -114,8 +122,12 @@ require('./src/main/handlers/unites')(ipcMain);
 require('./src/main/handlers/modules');
 require('./src/main/handlers/carts');
 
+const registerCotisationHandlers = require('./src/main/handlers/cotisations');
+registerCotisationHandlers(ipcMain);   // 👈 on APPELLE la fonction
+
 const registerVentesHandlers = require('./src/main/handlers/ventes');
 registerVentesHandlers(ipcMain);
+
 
 const registerProspectsHandlers = require('./src/main/handlers/prospects');
 registerProspectsHandlers(ipcMain);
