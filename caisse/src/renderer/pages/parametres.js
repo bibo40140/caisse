@@ -96,8 +96,22 @@
     // Boutons → sous-pages
     document.getElementById('btn-param-import')         .addEventListener('click', () => window.PageImports.renderImportExcel());
     document.getElementById('btn-param-historique')     .addEventListener('click', () => window.PageParams.renderHistoriqueFactures());
-    document.getElementById('btn-param-cotisations')    .addEventListener('click', () => window.renderCotisations?.());
-    document.getElementById('btn-param-historiquerecetpion')  .addEventListener('click', () => window.PageReceptions?.renderReceptions?.());
+document.getElementById('btn-param-cotisations')  .addEventListener('click', async () => {
+    try {
+      if (!window.renderCotisations) {
+        // adapte le chemin si nécessaire
+        await loadScriptOnce('src/renderer/pages/params-cotisations.js');
+      }
+      if (typeof window.renderCotisations === 'function') {
+        window.renderCotisations();
+      } else {
+        alert("Page Cotisations introuvable (renderCotisations).");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Impossible d'ouvrir la page Cotisations.");
+    }
+  });    document.getElementById('btn-param-historiquerecetpion')  .addEventListener('click', () => window.PageReceptions?.renderReceptions?.());
     document.getElementById('btn-param-inv-histo')?.addEventListener('click', () => renderHistoriqueInventaires());
     document.getElementById('btn-param-categories')     .addEventListener('click', () => renderGestionCategories());
     document.getElementById('btn-param-unites')         .addEventListener('click', () => renderGestionUnites());

@@ -19,6 +19,18 @@ function registerCotisationHandlers(ipcMain) {
   ipcMain.handle('verifier-cotisation', (_e, adherentId) =>
     cotisationsDb.verifierCotisationAdherent(adherentId)
   );
+  ipcMain.handle('cotisations:list', (_e, filters) => {
+  return cotisationsDb.getCotisations(filters || {});
+});
+
+ipcMain.handle('cotisations:list-mois', () => {
+  return cotisationsDb.listMoisDistincts();
+});
+
+ipcMain.handle('cotisations:list-adherents', () => {
+  return cotisationsDb.listAdherentsCotisants();
+});
+
 }
 
 module.exports = registerCotisationHandlers;

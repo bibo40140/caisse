@@ -115,6 +115,7 @@ ipcMain.handle('sync:pull-all', async () => {
   }
 });
 
+
 // === Handlers existants ===
 require('./src/main/handlers/config')(ipcMain);
 require('./src/main/handlers/produits');
@@ -122,12 +123,13 @@ require('./src/main/handlers/unites')(ipcMain);
 require('./src/main/handlers/modules');
 require('./src/main/handlers/carts');
 
+// ✅ COTISATIONS — IMPORTANT : on importe ET on APPELLE
 const registerCotisationHandlers = require('./src/main/handlers/cotisations');
-registerCotisationHandlers(ipcMain);   // 👈 on APPELLE la fonction
+registerCotisationHandlers(ipcMain);
 
+// Ventes / Prospects / Catégories (inchangé)
 const registerVentesHandlers = require('./src/main/handlers/ventes');
 registerVentesHandlers(ipcMain);
-
 
 const registerProspectsHandlers = require('./src/main/handlers/prospects');
 registerProspectsHandlers(ipcMain);
@@ -137,6 +139,9 @@ registerCategoryHandlers();
 
 if (config.modules.fournisseurs) require('./src/main/handlers/fournisseurs')();
 require('./src/main/handlers/adherents')(ipcMain);
+
+console.log('[main] cotisations handlers registered');
+
 
 // === Stocks / Réceptions / Inventaires ===
 // Toujours enregistrer les réceptions (mouvements + ops), même si l’UI "stocks" est OFF

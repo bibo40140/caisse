@@ -5,19 +5,118 @@
   let currentCartId = null; // ticket actuellement chargé
   try { currentCartId = localStorage.getItem('currentCartId') || null; } catch { }
 
+  // ───────────────────────────────────────────────────────────
+  // Helpers UI génériques
+  // ───────────────────────────────────────────────────────────
 
+  // Ouvre/ferme la "datalist" d’un input via un chevron à côté.
+  function wireDatalistChevron(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    // Essaie de trouver le chevron voisin dans .ui-wrap
+    const wrap = input.closest('.ui-wrap');
+    const chevron = wrap?.querySelector('.ui-chevron');
+    if (!chevron) return;
+
+    chevron.style.cursor = 'pointer';
+    chevron.addEventListener('click', () => {
+      // Petite astuce : on simule un focus + une frappe pour forcer l’ouverture
+      input.focus();
+      const val = input.value;
+      input.value = '';
+      setTimeout(() => {
+        input.value = val;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }, 0);
+    });
+  }
+
+  async function showTextPromptModal(message, placeholder = '') {
+    return new Promise((resolve) => {
+      // Fabrique une mini-modale réutilisable
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.display = 'flex';
+
+      const modal = document.createElement('div');
+      modal.className = 'modal';
+      modal.innerHTML = `
+        <h3>${message}</h3>
+        <input type="text" id="__textprompt_input" placeholder="${placeholder}" />
+        <div class="modal-actions">
+          <button id="__textprompt_ok">Valider</button>
+          <button id="__textprompt_cancel">Annuler</button>
+        </div>
+      `;
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      const input = modal.querySelector('#__textprompt_input');
+      const okBtn = modal.querySelector('#__textprompt_ok');
+      const cancelBtn = modal.querySelector('#__textprompt_cancel');
+
+      const cleanup = (val) => {
+        try { document.body.removeChild(overlay); } catch {}
+        resolve(val);
+      };
+
+      okBtn.addEventListener('click', () => cleanup(input.value));
+      cancelBtn.addEventListener('click', () => cleanup(null));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') okBtn.click();
+        if (e.key === 'Escape') cancelBtn.click();
+      });
+      setTimeout(() => input.focus(), 0);
+    });
+  }
+
+  async function showTextModal(label = 'Nom', def = '') {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position:fixed; inset:0; background:rgba(0,0,0,.35);
+        display:flex; align-items:center; justify-content:center; z-index:99999;
+      `;
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        background:#fff; border:1px solid #e6e6e6; border-radius:12px; width:min(420px, 92vw);
+        box-shadow:0 10px 30px rgba(0,0,0,.2); padding:14px; display:flex; flex-direction:column; gap:10px;
+      `;
+      modal.innerHTML = `
+        <label style="font-weight:600;">${label}</label>
+        <input id="txt-name" type="text" class="ui-field" placeholder="(optionnel)" value="${(def || '').replace(/"/g, '&quot;')}">
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button id="txt-cancel" type="button">Annuler</button>
+          <button id="txt-ok" type="button">OK</button>
+        </div>
+      `;
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      const input = modal.querySelector('#txt-name');
+      const close = (val) => { try { document.body.removeChild(overlay); } catch { }; resolve(val); };
+      modal.querySelector('#txt-cancel').addEventListener('click', () => close(null));
+      modal.querySelector('#txt-ok').addEventListener('click', () => close(String(input.value || '').trim() || null));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') modal.querySelector('#txt-ok').click();
+        if (e.key === 'Escape') close(null);
+      });
+      setTimeout(() => input.focus(), 20);
+    });
+  }
+
+  // ───────────────────────────────────────────────────────────
   // 👉 DÉFINIS ici la VRAIE fonction renderCaisse
+  // ───────────────────────────────────────────────────────────
   async function renderCaisse() {
     // 🔧 Lire la config modules d'abord
     const modules = await (window.getMods?.() || window.electronAPI.getModules());
-    const adherentsOn = !!modules.adherents;
-    const cotisationsOn = !!(modules.adherents && modules.cotisations);
-    const extOn = !!modules.ventes_exterieur;
-    const prospectsOn = !!modules.prospects;
-    const modesOn = !!modules.modes_paiement;
-
-
-
+    const adherentsOn    = !!modules.adherents;
+    const cotisationsOn  = !!(modules.adherents && modules.cotisations);
+    const extOn          = !!modules.ventes_exterieur;
+    const prospectsOn    = !!modules.prospects;
+    const modesOn        = !!modules.modes_paiement;
 
     // saleMode : on respecte le dernier choix tant que l'utilisateur n'a pas vidé/validé.
     // S'il n'existe pas encore, défaut = 'adherent' si dispo, sinon 'exterieur'.
@@ -52,13 +151,11 @@
       localStorage.setItem('saleMode', 'exterieur');
     }
 
-    const content = document.getElementById('page-content');
-    const produits = await window.electronAPI.getProduits();
+    const content    = document.getElementById('page-content');
+    const produits   = await window.electronAPI.getProduits();
     await window.electronAPI.getCategoriesProduits();
-    // 👥 On ne charge les adhérents que si le module est ON
-    const adherents = adherentsOn ? (await window.electronAPI.getAdherents()) : [];
-    const modes = modesOn ? (await window.electronAPI.getModesPaiement()) : [];
-
+    const adherents  = adherentsOn ? (await window.electronAPI.getAdherents()) : [];
+    const modes      = modesOn ? (await window.electronAPI.getModesPaiement()) : [];
     let modeSelectionneId = ''; // pas de présélection
 
     function sommeAcompte(list) {
@@ -97,7 +194,51 @@
       }
     };
 
-    // — Helpers tickets en attente —
+    // ───────────────────────────────────────────────────────────
+    // Cotisation (mensuelle) : vérifie et propose d’ajouter une ligne
+    // ───────────────────────────────────────────────────────────
+    async function verifierCotisationAdherent(adherentId, nomComplet, panierRef, refreshUI) {
+      try {
+        const r = await window.electronAPI.verifierCotisation(Number(adherentId));
+        if (!r?.ok) return;
+
+        if (r.a_jour) {
+          // rien à faire
+          return;
+        }
+
+        // propose d’ajouter la cotisation
+        const defMontant = 10; // par défaut
+        const saisie = await showTextPromptModal(
+          `💳 ${nomComplet} n'est pas à jour de sa cotisation mensuelle.\nMontant à ajouter (en €) :`,
+          String(defMontant)
+        );
+        if (saisie == null) return; // annulé
+        const montant = Math.abs(parseFloat(String(saisie).replace(',', '.')));
+        if (!montant || Number.isNaN(montant) || montant <= 0) {
+          alert('Montant invalide.');
+          return;
+        }
+
+        // éviter les doublons si une cotisation traîne déjà
+        const existe = panierRef.some(p => p.type === 'cotisation');
+        if (!existe) {
+          panierRef.push({
+            id: `cotisation-${Date.now()}`,
+            type: 'cotisation',
+            nom: 'Cotisation (mois en cours)',
+            prix: montant,
+            quantite: 1
+          });
+          try { localStorage.setItem('panier', JSON.stringify(panierRef)); } catch {}
+          if (typeof refreshUI === 'function') refreshUI();
+        }
+      } catch (e) {
+        console.warn('[cotisation] vérification non bloquante:', e?.message || e);
+      }
+    }
+
+    // ─ Helpers tickets en attente ─
     function currentSaleContext(modules, saleMode, adherentSelectionneId, selectedProspect) {
       const sale_type = (saleMode === 'exterieur') ? 'exterieur' : (selectedProspect ? 'prospect' : 'adherent');
 
@@ -123,82 +264,6 @@
         mode_paiement_id,
       };
     }
-    async function showTextPromptModal(message, placeholder = '') {
-      return new Promise((resolve) => {
-        // Fabrique une mini-modale réutilisable
-        const overlay = document.createElement('div');
-        overlay.className = 'modal-overlay';
-        overlay.style.display = 'flex';
-
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-        modal.innerHTML = `
-      <h3>${message}</h3>
-      <input type="text" id="__textprompt_input" placeholder="${placeholder}" />
-      <div class="modal-actions">
-        <button id="__textprompt_ok">Valider</button>
-        <button id="__textprompt_cancel">Annuler</button>
-      </div>
-    `;
-        overlay.appendChild(modal);
-        document.body.appendChild(overlay);
-
-        const input = modal.querySelector('#__textprompt_input');
-        const okBtn = modal.querySelector('#__textprompt_ok');
-        const cancelBtn = modal.querySelector('#__textprompt_cancel');
-
-        const cleanup = (val) => {
-          document.body.removeChild(overlay);
-          resolve(val);
-        };
-
-        okBtn.addEventListener('click', () => cleanup(input.value));
-        cancelBtn.addEventListener('click', () => cleanup(null));
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') okBtn.click();
-          if (e.key === 'Escape') cancelBtn.click();
-        });
-        setTimeout(() => input.focus(), 0);
-      });
-    }
-
-
-    async function showTextModal(label = 'Nom', def = '') {
-      return new Promise((resolve) => {
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-      position:fixed; inset:0; background:rgba(0,0,0,.35);
-      display:flex; align-items:center; justify-content:center; z-index:99999;
-    `;
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-      background:#fff; border:1px solid #e6e6e6; border-radius:12px; width:min(420px, 92vw);
-      box-shadow:0 10px 30px rgba(0,0,0,.2); padding:14px; display:flex; flex-direction:column; gap:10px;
-    `;
-        modal.innerHTML = `
-      <label style="font-weight:600;">${label}</label>
-      <input id="txt-name" type="text" class="ui-field" placeholder="(optionnel)" value="${(def || '').replace(/"/g, '&quot;')}">
-      <div style="display:flex; justify-content:flex-end; gap:8px;">
-        <button id="txt-cancel" type="button">Annuler</button>
-        <button id="txt-ok" type="button">OK</button>
-      </div>
-    `;
-        overlay.appendChild(modal);
-        document.body.appendChild(overlay);
-
-        const input = modal.querySelector('#txt-name');
-        const close = (val) => { try { document.body.removeChild(overlay); } catch { }; resolve(val); };
-        modal.querySelector('#txt-cancel').addEventListener('click', () => close(null));
-        modal.querySelector('#txt-ok').addEventListener('click', () => close(String(input.value || '').trim() || null));
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') modal.querySelector('#txt-ok').click();
-          if (e.key === 'Escape') close(null);
-        });
-        setTimeout(() => input.focus(), 20);
-      });
-    }
-
-
 
     async function holdCurrentCart(modules, saleMode, adherentSelectionneId, selectedProspect, panier) {
       const ctx = currentSaleContext(modules, saleMode, adherentSelectionneId, selectedProspect);
@@ -206,7 +271,6 @@
       // 🏷️ Nom du ticket: si adhérent présent → "Nom Prénom", sinon on demande
       let name = null;
       if (ctx.sale_type === 'adherent' && ctx.adherent_id) {
-        // on a la liste "adherents" dans le scope de renderCaisse
         const a = (Array.isArray(adherents) ? adherents : []).find(x => String(x.id) === String(ctx.adherent_id));
         if (a) name = `${(a.nom || '').trim()} ${(a.prenom || '').trim()}`.trim() || null;
       }
@@ -218,14 +282,14 @@
       const items = (panier || []).map(p => {
         const prodIdNum = Number(p.id);
         return {
-          produit_id: Number.isFinite(prodIdNum) ? prodIdNum : null, // <- plus de dépendance à p.type
+          produit_id: Number.isFinite(prodIdNum) ? prodIdNum : null,
           nom: p.nom,
           fournisseur_nom: p.fournisseur_nom || null,
           unite: p.unite || null,
           prix: Number(p.prix || 0),
           quantite: Number(p.quantite || 0),
           remise_percent: Number(p.remise || 0),
-          type: p.type || 'produit' // on marque quand même le type à l’enregistrement
+          type: p.type || 'produit'
         };
       });
 
@@ -245,9 +309,7 @@
       } else {
         alert('Échec mise en attente');
       }
-
     }
-
 
     async function showLoadCartDialog() {
       const rows = await window.carts.list({ status: 'open', limit: 100 });
@@ -265,33 +327,33 @@
       // --- UI de la popup ---
       const overlay = document.createElement('div');
       overlay.style.cssText = `
-    position:fixed; inset:0; background:rgba(0,0,0,.35);
-    display:flex; align-items:center; justify-content:center; z-index:99999;
-  `;
+        position:fixed; inset:0; background:rgba(0,0,0,.35);
+        display:flex; align-items:center; justify-content:center; z-index:99999;
+      `;
       const modal = document.createElement('div');
       modal.style.cssText = `
-    background:#fff; border:1px solid #e6e6e6; border-radius:12px; width:min(720px, 92vw);
-    box-shadow:0 10px 30px rgba(0,0,0,.2); padding:14px;
-    max-height:80vh; display:flex; flex-direction:column; gap:10px;
-  `;
+        background:#fff; border:1px solid #e6e6e6; border-radius:12px; width:min(720px, 92vw);
+        box-shadow:0 10px 30px rgba(0,0,0,.2); padding:14px;
+        max-height:80vh; display:flex; flex-direction:column; gap:10px;
+      `;
       modal.innerHTML = `
-    <h3 style="margin:0 0 4px 0;">Récupérer un ticket</h3>
-    <div class="list" style="overflow:auto; border:1px solid #eee; border-radius:10px;">
-      <table style="width:100%; border-collapse:collapse;">
-        <thead>
-          <tr style="background:#fafafa;">
-            <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">Nom</th>
-            <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">Dernière maj</th>
-            <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Actions</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div style="display:flex; justify-content:flex-end; gap:8px;">
-      <button id="dlg-cancel" type="button">Fermer</button>
-    </div>
-  `;
+        <h3 style="margin:0 0 4px 0;">Récupérer un ticket</h3>
+        <div class="list" style="overflow:auto; border:1px solid #eee; border-radius:10px;">
+          <table style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr style="background:#fafafa;">
+                <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">Nom</th>
+                <th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">Dernière maj</th>
+                <th style="padding:8px; border-bottom:1px solid #eee; text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button id="dlg-cancel" type="button">Fermer</button>
+        </div>
+      `;
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
 
@@ -302,16 +364,16 @@
         const tr = document.createElement('tr');
         tr.dataset.id = r.id;
         tr.innerHTML = `
-      <td style="padding:8px; border-bottom:1px solid #f2f2f2;">
-        ${r.name || '(sans nom)'}<br>
-        <small style="color:#666">${r.id}</small>
-      </td>
-      <td style="padding:8px; border-bottom:1px solid #f2f2f2;">${fmtDateTime(r.updated_at)}</td>
-      <td style="padding:8px; border-bottom:1px solid #f2f2f2; text-align:right;">
-        <button class="btn-open" data-id="${r.id}" type="button">Ouvrir</button>
-        <button class="btn-del"  data-id="${r.id}" type="button" style="margin-left:6px;">🗑️ Supprimer</button>
-      </td>
-    `;
+          <td style="padding:8px; border-bottom:1px solid #f2f2f2;">
+            ${r.name || '(sans nom)'}<br>
+            <small style="color:#666">${r.id}</small>
+          </td>
+          <td style="padding:8px; border-bottom:1px solid #f2f2f2;">${fmtDateTime(r.updated_at)}</td>
+          <td style="padding:8px; border-bottom:1px solid #f2f2f2; text-align:right;">
+            <button class="btn-open" data-id="${r.id}" type="button">Ouvrir</button>
+            <button class="btn-del"  data-id="${r.id}" type="button" style="margin-left:6px;">🗑️ Supprimer</button>
+          </td>
+        `;
         tbody.appendChild(tr);
       };
 
@@ -321,10 +383,10 @@
       modal.querySelector('#dlg-cancel')?.addEventListener('click', close);
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
 
-      // Délégation de clics sur les boutons du tableau
+      // Délégation de clics
       tbody.addEventListener('click', async (e) => {
         const openBtn = e.target.closest('.btn-open');
-        const delBtn = e.target.closest('.btn-del');
+        const delBtn  = e.target.closest('.btn-del');
 
         // — Ouvrir un ticket —
         if (openBtn) {
@@ -334,30 +396,25 @@
             if (!data?.ok) { alert('Chargement impossible.'); return; }
             const chosen = data.cart;
 
-            // 1) Convertir les lignes stockées -> format panier (uniquement vrais produits)
+            // 1) Convertir les lignes stockées -> format panier (uniquement vrais produits si id numérique)
             const loaded = (chosen.items || []).map(it => {
               let prodIdNum = Number(it.produit_id);
 
-              // 🔧 Si l'ID n'est pas utilisable (null/NaN/0), on tente de le retrouver par le nom (+ fournisseur)
               if (!Number.isFinite(prodIdNum) || prodIdNum <= 0) {
                 try {
                   const cat = Array.isArray(window.__catalogProduits)
                     ? window.__catalogProduits
                     : (Array.isArray(produits) ? produits : []);
 
-                  // 1) match strict nom + fournisseur
                   let found = cat.find(p =>
                     (p.nom || '').trim().toLowerCase() === (it.nom || '').trim().toLowerCase() &&
                     (p.fournisseur_nom || '').trim().toLowerCase() === (it.fournisseur_nom || '').trim().toLowerCase()
                   );
-
-                  // 2) sinon match strict sur le nom seul
                   if (!found) {
                     found = cat.find(p =>
                       (p.nom || '').trim().toLowerCase() === (it.nom || '').trim().toLowerCase()
                     );
                   }
-
                   if (found && Number.isFinite(Number(found.id))) {
                     prodIdNum = Number(found.id);
                   }
@@ -367,7 +424,7 @@
               const isProd = Number.isFinite(prodIdNum) && prodIdNum > 0;
 
               return {
-                id: isProd ? prodIdNum : `virtual-${it.id}`,         // si on n’a pas trouvé, on garde une ligne "virtuel" (non vendable)
+                id: isProd ? prodIdNum : `virtual-${it.id}`,
                 type: isProd ? 'produit' : (it.type || 'autre'),
                 nom: it.nom,
                 fournisseur_nom: it.fournisseur_nom || null,
@@ -376,36 +433,18 @@
                 quantite: Number(it.quantite || 0),
                 remise: Number(it.remise_percent || 0)
               };
-            })
-            // On garde toutes les lignes pour l'UI, mais seules celles avec id numérique seront vendables.
+            });
 
-
-            // 2) ⚠️ Important : on CONSERVE la même référence de tableau
-            //    pour que renderCaisse/validerVente/ajouterAuPanier voient la même instance.
+            // 2) Conserver la même référence de tableau
             panier.splice(0, panier.length, ...loaded);
             window.panier = panier;
 
-            // 3) Persister + rafraîchir l'UI
+            // 3) Persister + rafraîchir
             try { localStorage.setItem('panier', JSON.stringify(panier)); } catch { }
             try { afficherPanier(); } catch { }
             try { afficherProduits(); } catch { }
 
-            // 🔎 DEBUG - contenu panier après "Ouvrir"
-            console.group('[DEBUG] Après récupération du ticket');
-            console.log('Ticket ID:', id);
-            console.log('chosen.items (brut):', chosen.items);
-            console.log('loaded (nettoyé -> panier):', loaded);
-            console.log('panier (référence locale):', panier);
-            console.log('window.panier (globale):', window.panier);
-            try {
-              const ls = localStorage.getItem('panier');
-              console.log('localStorage.panier length:', ls ? ls.length : 0);
-              console.log('localStorage.panier (JSON):', ls && JSON.parse(ls));
-            } catch (e) { console.warn('LS read error', e); }
-            console.groupEnd();
-
-
-            // 4) Restaurer mode de vente (prospect => layout adhérent)
+            // 4) Restaurer mode
             const mode = (chosen.sale_type === 'exterieur') ? 'exterieur' : 'adherent';
             localStorage.setItem('saleMode', mode);
 
@@ -441,11 +480,11 @@
                   const email = (z.email1 || z.email2 || '').trim();
                   return `${z.nom} ${z.prenom}${email ? ' — ' + email : ''} (#${z.id})`;
                 };
-                const adherents = await window.electronAPI.getAdherents?.();
-                const a = (Array.isArray(adherents) ? adherents : [])
+                const adherentsAll = await window.electronAPI.getAdherents?.();
+                const a = (Array.isArray(adherentsAll) ? adherentsAll : [])
                   .find(x => String(x.id) === String(chosen.adherent_id));
                 const hiddenAdh = document.getElementById('adherent-select');
-                const inputAdh = document.getElementById('adherent-input');
+                const inputAdh  = document.getElementById('adherent-input');
                 if (a && hiddenAdh && inputAdh) {
                   hiddenAdh.value = String(a.id);
                   hiddenAdh.dataset.email = (a.email1 || a.email2 || '').trim();
@@ -454,9 +493,15 @@
               } catch { }
             }
 
-            // 8) Marquer le ticket courant (pour suppression auto après vente)
+            // 8) Marquer le ticket courant
             currentCartId = id;
             try { localStorage.setItem('currentCartId', id); } catch { }
+
+            // DEBUG light
+            console.group('[DEBUG] Après récupération du ticket');
+            console.log('Ticket ID:', id);
+            console.log('panier:', panier);
+            console.groupEnd();
 
             close();
           } catch (err) {
@@ -487,18 +532,14 @@
       }, { passive: true });
     }
 
-
-
-
-    // Helpers de recherche : minuscules, sans accents, et sans "s" final
+    // Helpers de recherche
     const _norm = (s) =>
       (s || '')
         .toString()
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '');
-
-    const _sing = (s) => s.replace(/s\b/g, '');
+    const _sing   = (s) => s.replace(/s\b/g, '');
     const _tokens = (s) => _norm(s).split(/\s+/).map(_sing).filter(Boolean);
 
     // ✅ en mode recherche, on N'applique PAS le filtre sur le stock
@@ -507,7 +548,7 @@
       const raw = (input?.value || '').trim().toLowerCase();
 
       const matchFamCat = (p) => {
-       const famEff = p.famille_effective_nom ?? null;
+        const famEff = p.famille_effective_nom ?? null;
         const catEff = p.categorie_effective_nom ?? null;
         const matchFam = !familleActive || famEff === familleActive;
         const matchCat = !categorieActive || catEff === categorieActive;
@@ -517,16 +558,14 @@
       if (raw.length > 0) {
         const toks = _tokens(raw);
         return produits.filter(p => {
-          // (facultatif, tu réinitialises déjà ces filtres à la saisie)
           if (!matchFamCat(p)) return false;
-
           const hay = [
             _norm(p.nom || ''),
             _norm(p.fournisseur_nom || ''),
             String(p.code_barre || '')
           ].join(' ');
           return toks.every(t => hay.includes(t));
-        }); // ← pas de filtre stock ici
+        });
       }
 
       // Quand il n'y a PAS de recherche : on filtre aussi par stock si module stocks actif
@@ -536,7 +575,6 @@
         return matchStock;
       });
     };
-
 
     const ajouterAuPanier = (produit, quantite = 1) => {
       const existant = panier.find(p => p.id === produit.id);
@@ -725,7 +763,6 @@
           : '<div class="synth-row" style="display:none;"><span>Frais de paiement :</span><strong id="synthese-frais">0.00 €</strong></div>'
       );
 
-
       if (!document.getElementById('tooltip-global')) {
         const tip = document.createElement('div');
         tip.id = 'tooltip-global';
@@ -753,10 +790,10 @@
           </div>
           <datalist id="adherents-list">
             ${adherents.map(a => {
-        const email = (a.email1 || a.email2 || '').trim();
-        const label = `${a.nom} ${a.prenom}${email ? ' — ' + email : ''} (#${a.id})`;
-        return `<option value="${label}">`;
-      }).join('')}
+              const email = (a.email1 || a.email2 || '').trim();
+              const label = `${a.nom} ${a.prenom}${email ? ' — ' + email : ''} (#${a.id})`;
+              return `<option value="${label}">`;
+            }).join('')}
           </datalist>
           <input type="hidden" id="adherent-select" value="" data-email="">
         </div>
@@ -786,8 +823,6 @@
               ${saleMode === 'exterieur' ? 'checked' : ''}> Extérieur ${extPctLabel}</label>
           </div>
         `;
-      } else {
-        modeHtml = '';
       }
 
       const extHtml = `
@@ -869,15 +904,17 @@
             </thead>
             <tbody>
               ${panier.map((p, i) => {
-        const nomProduit = (p.nom || '').replace(/"/g, '&quot;');
-        const remise = Number(p.remise || 0);
-        const puApplique = p.type === 'cotisation'
-          ? Number(p.prix)
-          : Number(p.prix) * factor * (1 - remise / 100);
-        const ligneTotal = totalLigne(p);
+                const nomProduit = (p.nom || '').replace(/"/g, '&quot;');
+                const remise = Number(p.remise || 0);
+                const puApplique = p.type === 'cotisation'
+                  ? Number(p.prix)
+                  : Number(p.prix) * factor * (1 - remise / 100);
+                const ligneTotal = (p.type === 'acompte')
+                  ? (Number(p.prix) * Number(p.quantite || 1))
+                  : (puApplique * Number(p.quantite || 0));
 
-        if (p.type === 'acompte') {
-          return `
+                if (p.type === 'acompte') {
+                  return `
                     <tr data-index="${i}">
                       <td class="cell-produit" data-tooltip="${nomProduit}">${p.nom}</td>
                       <td>—</td>
@@ -889,9 +926,9 @@
                       <td><button type="button" class="btn-supprimer-produit" data-index="${i}">🗑️</button></td>
                     </tr>
                   `;
-        }
+                }
 
-        return `
+                return `
                   <tr data-index="${i}">
                     <td class="cell-produit" data-tooltip="${nomProduit}">${p.nom}</td>
                     <td>${p.fournisseur_nom || '—'}</td>
@@ -899,8 +936,8 @@
                     <td>
                       ${Number(p.prix).toFixed(2)} €
                       ${remise > 0 && p.type !== 'cotisation'
-            ? `<div style="font-size:.8em;opacity:.75;">→ ${puApplique.toFixed(2)} €/u après remise</div>`
-            : ''}
+                        ? `<div style="font-size:.8em;opacity:.75;">→ ${puApplique.toFixed(2)} €/u après remise</div>`
+                        : ''}
                     </td>
                     <td>
                       ${p.type === 'cotisation' ? '—' : `
@@ -930,7 +967,7 @@
                     <td><button type="button" class="btn-supprimer-produit" data-index="${i}">🗑️</button></td>
                   </tr>
                 `;
-      }).join('')}
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -939,9 +976,9 @@
         <div id="panier-footer">
           <div class="panier-synthese">
             <div class="synth-row"><span>Sous-total produits :</span><strong id="synthese-sous-total">${sousTotalProduits.toFixed(2)} €</strong></div>
-            ${cotisationsOn && totalCotisation > 0
-          ? `<div class="synth-row"><span>Cotisation :</span><strong id="synthese-cotisation">${totalCotisation.toFixed(2)} €</strong></div>`
-          : ''}
+            ${(cotisationsOn && totalCotisation > 0)
+              ? `<div class="synth-row"><span>Cotisation :</span><strong id="synthese-cotisation">${totalCotisation.toFixed(2)} €</strong></div>`
+              : ''}
             ${afficherFraisCB}
             ${totalAcompte > 0 ? `<div class="synth-row"><span>Acompte utilisé :</span><strong id="synthese-acompte">−${totalAcompte.toFixed(2)} €</strong></div>` : ''}
             <div class="synth-row synth-total"><span>Total :</span><strong id="synthese-total">${totalGlobal.toFixed(2)} €</strong></div>
@@ -951,31 +988,30 @@
             ${modeHtml}${adherentsOn ? adhHtml : ''}${prospectMiniHtml}${extHtml}
 
             ${modesOn ? `
-  <label for="mode-paiement-select" style="font-weight:600;">💳 Mode de paiement</label>
-  <div class="ui-wrap">
-    <select id="mode-paiement-select" class="ui-field ui-select">
-      <option value="">-- Choisir un mode --</option>
-      ${modes.map(m => `
-        <option
-          value="${m.id}"
-          data-taux="${m.taux_percent}"
-          data-fixe="${m.frais_fixe}"
-          ${String(m.id) === String(modeSelectionneId) ? 'selected' : ''}
-        >${m.nom}</option>
-      `).join('')}
-    </select>
-  </div>
-` : ''}
+              <label for="mode-paiement-select" style="font-weight:600;">💳 Mode de paiement</label>
+              <div class="ui-wrap">
+                <select id="mode-paiement-select" class="ui-field ui-select">
+                  <option value="">-- Choisir un mode --</option>
+                  ${modes.map(m => `
+                    <option
+                      value="${m.id}"
+                      data-taux="${m.taux_percent}"
+                      data-fixe="${m.frais_fixe}"
+                      ${String(m.id) === String(modeSelectionneId) ? 'selected' : ''}
+                    >${m.nom}</option>
+                  `).join('')}
+                </select>
+              </div>
+            ` : ''}
 
-<div style="display: flex; justify-content: space-between; gap: 10px; margin-top:8px;">
-  <button type="button" id="btn-acompte" class="btn-acompte" style="padding: 10px;">➕ Acompte</button>
-  <button class="btn-valider" onclick="validerVente()" style="padding: 10px; font-weight: bold; flex: 1;">✅ Valider la vente</button>
-  <button class="btn-reset-panier" onclick="viderPanier()" style="padding: 10px; background: #eee; color: #444;">🧹 Vider</button>
-</div>
-<div style="display:flex; gap:10px; margin-top:8px;">
-  <button type="button" id="btn-hold">🕓 Mettre en attente</button>
-  <button type="button" id="btn-load">📂 Récupérer</button>
-</div>
+            <div style="display: flex; justify-content: space-between; gap: 10px; margin-top:8px;">
+              <button type="button" id="btn-acompte" class="btn-acompte" style="padding: 10px;">➕ Acompte</button>
+              <button class="btn-valider" onclick="validerVente()" style="padding: 10px; font-weight: bold; flex: 1;">✅ Valider la vente</button>
+              <button class="btn-reset-panier" onclick="viderPanier()" style="padding: 10px; background: #eee; color: #444;">🧹 Vider</button>
+            </div>
+            <div style="display:flex; gap:10px; margin-top:8px;">
+              <button type="button" id="btn-hold">🕓 Mettre en attente</button>
+              <button type="button" id="btn-load">📂 Récupérer</button>
             </div>
           </div>
         </div>
@@ -983,25 +1019,24 @@
         ${prospectPopupHtml}
       `;
 
-      // ---- Prospects (popup + wiring type 'datalist') — UNIQUEMENT si module ON ----
+      // Prospects wiring si module ON (inchangé)
       if (prospectsOn) {
         const btnPickProspect = document.getElementById('pick-prospect');
-        const popProspect = document.getElementById('popup-prospect');
-        const listZone = document.getElementById('prospect-list-zone');
-        const formZone = document.getElementById('prospect-new-form');
-        const inputProspect = document.getElementById('prospect-combo');
+        const popProspect    = document.getElementById('popup-prospect');
+        const listZone       = document.getElementById('prospect-list-zone');
+        const formZone       = document.getElementById('prospect-new-form');
+        const inputProspect  = document.getElementById('prospect-combo');
         const datalistProspects = document.getElementById('prospects-list');
-        const hintProspect = document.getElementById('prospect-hint');
+        const hintProspect   = document.getElementById('prospect-hint');
 
-        const btnNew = document.getElementById('prospect-new');
+        const btnNew     = document.getElementById('prospect-new');
         const btnNewBack = document.getElementById('prospect-new-cancel');
-        const btnCreate = document.getElementById('prospect-create');
-        const btnClose = document.getElementById('prospect-cancel');
+        const btnCreate  = document.getElementById('prospect-create');
+        const btnClose   = document.getElementById('prospect-cancel');
 
-        const badgeProspect = document.getElementById('prospect-selected');
+        const badgeProspect  = document.getElementById('prospect-selected');
         const hiddenProspect = document.getElementById('prospect-select');
 
-        // Index label -> prospect (comme pour adhérents)
         const prospectIndex = new Map();
         const prospectLabel = (p) => {
           const email = (p.email || '').trim();
@@ -1035,7 +1070,6 @@
           hintProspect.textContent = `${rows?.length || 0} prospect(s) — tape pour filtrer…`;
         }
 
-        // Ouverture/fermeture
         btnPickProspect?.addEventListener('click', async (e) => {
           e.preventDefault();
           toggleProspectCreateMode(false);
@@ -1045,21 +1079,16 @@
         });
         btnClose?.addEventListener('click', () => { popProspect.style.display = 'none'; });
 
-        // Saisie → recharge options
         inputProspect?.addEventListener('input', (e) => {
           const q = (e.target.value || '').trim();
           refreshProspectsOptions(q);
         });
 
-        // Validation d’un choix
         inputProspect?.addEventListener('change', () => {
           const v = inputProspect.value.trim();
           const p = prospectIndex.get(v);
           if (!p) return;
 
-          // maj hidden + badge
-          const badgeProspect = document.getElementById('prospect-selected');
-          const hiddenProspect = document.getElementById('prospect-select');
           hiddenProspect.value = String(p.id);
           hiddenProspect.dataset.email = p.email || '';
           const label =
@@ -1070,15 +1099,14 @@
             badgeProspect.style.display = '';
           }
 
-          // 👉 persiste le prospect sélectionné
           selectedProspect = { id: p.id, email: p.email || '', nom: p.nom || '', prenom: p.prenom || '' };
           localStorage.setItem('selectedProspect', JSON.stringify(selectedProspect));
 
-          // ❌ efface la sélection adhérent
+          // effacer adhérent si présent
           const hiddenAdh = document.getElementById('adherent-select');
-          const inputAdh = document.getElementById('adherent-input');
+          const inputAdh  = document.getElementById('adherent-input');
           if (hiddenAdh) { hiddenAdh.value = ''; hiddenAdh.dataset.email = ''; }
-          if (inputAdh) { inputAdh.value = ''; }
+          if (inputAdh)   { inputAdh.value = ''; }
           adherentSelectionneId = '';
           localStorage.removeItem('adherentId');
 
@@ -1086,21 +1114,19 @@
           document.getElementById('search-produit')?.focus();
         });
 
-        // Basculer en mode création / retour
         btnNew?.addEventListener('click', () => toggleProspectCreateMode(true));
         btnNewBack?.addEventListener('click', () => toggleProspectCreateMode(false));
 
-        // Création d’un prospect
         btnCreate?.addEventListener('click', async () => {
           const payload = {
-            nom: document.getElementById('pnew-nom')?.value.trim() || '',
-            prenom: document.getElementById('pnew-prenom')?.value.trim() || '',
-            email: document.getElementById('pnew-email')?.value.trim() || '',
+            nom:       document.getElementById('pnew-nom')?.value.trim() || '',
+            prenom:    document.getElementById('pnew-prenom')?.value.trim() || '',
+            email:     document.getElementById('pnew-email')?.value.trim() || '',
             telephone: document.getElementById('pnew-tel')?.value.trim() || '',
-            ville: document.getElementById('pnew-ville')?.value.trim() || '',
+            ville:     document.getElementById('pnew-ville')?.value.trim() || '',
             code_postal: document.getElementById('pnew-cp')?.value.trim() || '',
-            adresse: document.getElementById('pnew-adresse')?.value.trim() || '',
-            note: document.getElementById('pnew-note')?.value.trim() || '',
+            adresse:   document.getElementById('pnew-adresse')?.value.trim() || '',
+            note:      document.getElementById('pnew-note')?.value.trim() || '',
             status: 'actif'
           };
           if (!(payload.nom || payload.prenom || payload.email)) {
@@ -1111,7 +1137,6 @@
             const created = await window.electronAPI.createProspect(payload);
             if (!created?.id) throw new Error('Création impossible');
 
-            // Pré-sélectionner le nouveau prospect
             hiddenProspect.value = String(created.id);
             hiddenProspect.dataset.email = created.email || '';
             const badgeText =
@@ -1123,7 +1148,6 @@
               badgePros.style.display = '';
             }
 
-            // Nettoyer une sélection adhérent
             const hiddenAdh = document.getElementById('adherent-select');
             if (hiddenAdh) { hiddenAdh.value = ''; hiddenAdh.dataset.email = ''; }
 
@@ -1136,11 +1160,11 @@
         });
       }
 
-      // ——— Bouton "➕ Acompte" ———
+      // Bouton Acompte (utiliser showTextPromptModal)
       const btnAcompte = document.getElementById('btn-acompte');
       if (btnAcompte) {
         btnAcompte.addEventListener('click', async () => {
-          const saisie = await showPromptModal("Montant de l'acompte à déduire (en €)", '5');
+          const saisie = await showTextPromptModal("Montant de l'acompte à déduire (en €)", '5');
           if (saisie == null) return;
           const montant = Math.abs(parseFloat(String(saisie).replace(',', '.')));
           if (!montant || isNaN(montant) || montant <= 0) {
@@ -1160,7 +1184,7 @@
         });
       }
 
-      // ——— Abonnement au clic sur "🗑️" (délégation au tbody) ———
+      // 🗑️ suppression ligne (délégation)
       const tbody = document.querySelector('#panier-liste tbody');
       if (tbody) {
         tbody.addEventListener('click', (e) => {
@@ -1176,26 +1200,10 @@
         });
       }
 
-      // 👉 Chevron de la datalist uniquement si module ON
+      // Chevron datalist adhérents
       if (adherentsOn) {
         wireDatalistChevron('adherent-input');
       }
-
-      // 🎯 TOOLTIP tableau
-      const tooltip = document.getElementById('tooltip-global');
-      document.querySelectorAll('.cell-produit').forEach(cell => {
-        cell.addEventListener('mouseenter', () => {
-          tooltip.innerText = cell.dataset.tooltip;
-          tooltip.style.display = 'block';
-        });
-        cell.addEventListener('mousemove', (e) => {
-          tooltip.style.top = `${e.pageY - 35}px`;
-          tooltip.style.left = `${e.pageX + 10}px`;
-        });
-        cell.addEventListener('mouseleave', () => {
-          tooltip.style.display = 'none';
-        });
-      });
 
       // 🔁 Quantité
       document.querySelectorAll('.input-quantite').forEach(input => {
@@ -1211,7 +1219,7 @@
         });
       });
 
-      // ⛔ Saisie décimale interdite pour "pièce"
+      // ⛔ décimales interdites pour "pièce"
       document.querySelectorAll('.input-quantite').forEach(input => {
         const i = parseInt(input.dataset.index, 10);
         const unite = panier[i]?.unite?.toLowerCase();
@@ -1245,6 +1253,7 @@
           document.getElementById('search-produit')?.focus();
         });
       });
+
       document.getElementById('btn-hold')?.addEventListener('click', async () => {
         const modulesNow = await (window.getMods?.() || window.electronAPI.getModules());
         let selectedProspectNow = null; try { selectedProspectNow = JSON.parse(localStorage.getItem('selectedProspect') || 'null'); } catch { }
@@ -1258,8 +1267,7 @@
         afficherProduits();
       });
 
-
-      // ——— Sélecteur de mode de vente ———
+      // Sélecteur de mode de vente
       document.querySelectorAll('input[name="vente-mode"]').forEach(r => {
         r.addEventListener('change', () => {
           saleMode = r.value;
@@ -1270,36 +1278,33 @@
           const miniPros = document.getElementById('prospect-mini');
 
           if (saleMode === 'adherent' && adherentsOn) {
-            // Afficher la zone adhérent (+ mini-prospect), masquer Extérieur
             adhCont && (adhCont.style.display = '');
             miniPros && (miniPros.style.display = '');
             extCont && (extCont.style.display = 'none');
           } else {
-            // Afficher Extérieur, masquer Adhérent + Prospect mini
             adhCont && (adhCont.style.display = 'none');
             miniPros && (miniPros.style.display = 'none');
             extCont && (extCont.style.display = '');
 
-            // ❌ On efface TOUTE sélection d’adhérent
+            // Effacer adhérent + prospect
             const hiddenAdh = document.getElementById('adherent-select');
             if (hiddenAdh) { hiddenAdh.value = ''; hiddenAdh.dataset.email = ''; }
             adherentSelectionneId = '';
             localStorage.removeItem('adherentId');
 
-            // ❌ Et TOUTE sélection de prospect
             try { selectedProspect = null; } catch { }
             localStorage.removeItem('selectedProspect');
-            const hp = document.getElementById('prospect-select');     // hidden
+            const hp = document.getElementById('prospect-select');
             if (hp) { hp.value = ''; hp.dataset.email = ''; }
-            const bp = document.getElementById('prospect-selected');   // badge
+            const bp = document.getElementById('prospect-selected');
             if (bp) { bp.style.display = 'none'; bp.textContent = ''; }
           }
 
-          afficherPanier(); // recalcul avec le bon facteur (ext/adherent)
+          afficherPanier(); // recalcul prix ext/adherent
         });
       });
 
-      // Sauver l'email “ext” quand il change
+      // Sauver l'email “ext”
       const extEmailInput = document.getElementById('ext-email');
       if (extEmailInput) {
         extEmailInput.addEventListener('input', () => {
@@ -1307,7 +1312,7 @@
         });
       }
 
-      // 👤 Adhérent (datalist → hidden) → UNIQUEMENT si module ON
+      // 👤 Adhérent : datalist → hidden (si module ON)
       if (adherentsOn) {
         const labelAdh = (a) => {
           const email = (a.email1 || a.email2 || '').trim();
@@ -1346,43 +1351,42 @@
             adherentSelectionneId = a.id;
             localStorage.setItem('adherentId', String(a.id));
 
-            // ❌ Exclusivité : on efface le prospect s’il y en avait un
-            try { selectedProspect = null; } catch { }                 // au cas où la variable globale n’existe pas encore
+            // ❌ exclusif : on efface prospect
+            try { selectedProspect = null; } catch { }
             localStorage.removeItem('selectedProspect');
-            const hp = document.getElementById('prospect-select');    // hidden
+            const hp = document.getElementById('prospect-select');
             if (hp) { hp.value = ''; hp.dataset.email = ''; }
-            const bp = document.getElementById('prospect-selected');  // badge
+            const bp = document.getElementById('prospect-selected');
             if (bp) { bp.style.display = 'none'; bp.textContent = ''; }
 
             // Cotisation auto si module ON et mode "adherent" — SAUF statut partenaire/exempté
-const statut = String(a.statut || 'actif').toLowerCase();
-const skipCotisation = (statut === 'partenaire' || statut === 'exempté' || statut === 'exempte' || statut === 'exempte'); // tolère accents/variantes
+            const statut = String(a.statut || 'actif').toLowerCase();
+            const skipCotisation = (statut === 'partenaire' || statut === 'exempté' || statut === 'exempte');
 
-if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
-  const dejaCotisation = panier.some(p => p.type === 'cotisation');
-  if (!dejaCotisation) {
-    const nomComplet = `${a.nom} ${a.prenom}`;
-    await verifierCotisationAdherent(a.id, nomComplet, panier, afficherPanier);
-  }
-} else {
-  // On s'assure qu'aucune ligne de cotisation ne traîne si statut dispensé
-  if (skipCotisation) {
-    const idx = panier.findIndex(p => p.type === 'cotisation');
-    if (idx >= 0) {
-      panier.splice(idx, 1);
-      try { localStorage.setItem('panier', JSON.stringify(panier)); } catch {}
-      afficherPanier();
-    }
-  }
-}
-
+            if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
+              const dejaCotisation = panier.some(p => p.type === 'cotisation');
+              if (!dejaCotisation) {
+                const nomComplet = `${a.nom} ${a.prenom}`;
+                await verifierCotisationAdherent(a.id, nomComplet, panier, afficherPanier);
+              }
+            } else {
+              // on retire toute cotisation si statut dispensé
+              if (skipCotisation) {
+                const idx = panier.findIndex(p => p.type === 'cotisation');
+                if (idx >= 0) {
+                  panier.splice(idx, 1);
+                  try { localStorage.setItem('panier', JSON.stringify(panier)); } catch {}
+                  afficherPanier();
+                }
+              }
+            }
 
             document.getElementById('search-produit')?.focus();
           });
         }
       }
 
-      // 🔄 Recalcul frais CB si mode de paiement change
+      // Recalcul frais CB si MP change
       const modeSelect = document.getElementById('mode-paiement-select');
       if (modesOn && modeSelect) {
         modeSelect.addEventListener('change', () => {
@@ -1391,7 +1395,6 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
           sauvegarderPanier();
         });
       }
-
     };
 
     // ====== VUE PRINCIPALE (search + filtres + colonnes) ======
@@ -1400,14 +1403,12 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
         <input type="text" id="search-produit" placeholder="🔍 Rechercher un produit..." style="flex: 1; padding: 8px; font-size: 1em;">
       </div>
 
-<div class="filters">
-  <div class="filters-card">
-    <div class="familles-bar pill-bar"></div>
-    <div class="categories-bar chip-bar"></div>
-  </div>
-</div>
-
-
+      <div class="filters">
+        <div class="filters-card">
+          <div class="familles-bar pill-bar"></div>
+          <div class="categories-bar chip-bar"></div>
+        </div>
+      </div>
 
       <div class="caisse-zone">
         <div id="produits-zone" class="produits-cards"></div>
@@ -1426,76 +1427,71 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
         </div>
       </div>
     `;
+
+    // styles filtres (inchangé)
     (function applyFiltersCSS() {
       const css = `
-  .filters{margin:12px 0}
-  .filters-card{
-    background:#fff;border:1px solid #e7ebf3;border-radius:14px;padding:12px 14px;
-    box-shadow:0 4px 14px rgba(0,0,0,.04)
-  }
-  .pill-bar,.chip-bar{display:flex;gap:10px;flex:1;flex-wrap:wrap}
+        .filters{margin:12px 0}
+        .filters-card{
+          background:#fff;border:1px solid #e7ebf3;border-radius:14px;padding:12px 14px;
+          box-shadow:0 4px 14px rgba(0,0,0,.04)
+        }
+        .pill-bar,.chip-bar{display:flex;gap:10px;flex:1;flex-wrap:wrap}
+        .familles-bar{ padding-bottom:8px; }
 
-  /* petit offset sous les familles */
-  .familles-bar{ padding-bottom:8px; } /* ⬅️ ajouté */
+        .familles-bar .btn-fam{
+          appearance:none;cursor:pointer;
+          border:2px solid #d9e2f3;background:#f5f7fc;color:#253449;
+          padding:10px 18px;border-radius:16px;font-weight:700;font-size:1rem;
+          transition:transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
+        }
+        .familles-bar .btn-fam:hover{
+          transform:translateY(-0.5px);
+          box-shadow:0 6px 12px rgba(60,90,150,.10)
+        }
+        .familles-bar .btn-fam.active{
+          background:#5b72b2;
+          color:#fff;
+          border-color:#4b639f;
+          box-shadow:0 8px 16px rgba(75,99,159,.18)
+        }
+        .familles-bar .btn-fam:focus-visible{outline:3px solid rgba(91,114,178,.28);outline-offset:2px}
+        .familles-bar .btn-fam[data-fam=""]::before{content:"☰";margin-right:8px}
 
-  /* — Familles : bleu ardoise doux — */
-  .familles-bar .btn-fam{
-    appearance:none;cursor:pointer;
-    border:2px solid #d9e2f3;background:#f5f7fc;color:#253449;
-    padding:10px 18px;border-radius:16px;font-weight:700;font-size:1rem;
-    transition:transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
-  }
-  .familles-bar .btn-fam:hover{
-    transform:translateY(-0.5px);
-    box-shadow:0 6px 12px rgba(60,90,150,.10)
-  }
-  .familles-bar .btn-fam.active{
-    background:#5b72b2;
-    color:#fff;
-    border-color:#4b639f;
-    box-shadow:0 8px 16px rgba(75,99,159,.18)
-  }
-  .familles-bar .btn-fam:focus-visible{outline:3px solid rgba(91,114,178,.28);outline-offset:2px}
-  .familles-bar .btn-fam[data-fam=""]::before{content:"☰";margin-right:8px}
+        .categories-bar .btn-cat-square{
+          appearance:none;cursor:pointer;
+          border:2px solid #d9eee7;background:#f6fbf9;color:#1f4a44;
+          padding:8px 14px;border-radius:12px;font-weight:700;font-size:.95rem;
+          transition:transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
+        }
+        .categories-bar .btn-cat-square:hover{
+          transform:translateY(-0.5px);
+          box-shadow:0 6px 12px rgba(46,138,120,.10)
+        }
+        .categories-bar .btn-cat-square.active{
+          background:#3a9f8c;
+          color:#fff;
+          border-color:#2f8a78;
+          box-shadow:0 8px 16px rgba(47,138,120,.16)
+        }
+        .categories-bar .btn-cat-square:focus-visible{outline:3px solid rgba(58,159,140,.26);outline-offset:2px}
 
-  /* — Catégories : vert sauge — */
-  .categories-bar .btn-cat-square{
-    appearance:none;cursor:pointer;
-    border:2px solid #d9eee7;background:#f6fbf9;color:#1f4a44;
-    padding:8px 14px;border-radius:12px;font-weight:700;font-size:.95rem;
-    transition:transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
-  }
-  .categories-bar .btn-cat-square:hover{
-    transform:translateY(-0.5px);
-    box-shadow:0 6px 12px rgba(46,138,120,.10)
-  }
-  .categories-bar .btn-cat-square.active{
-    background:#3a9f8c;
-    color:#fff;
-    border-color:#2f8a78;
-    box-shadow:0 8px 16px rgba(47,138,120,.16)
-  }
-  .categories-bar .btn-cat-square:focus-visible{outline:3px solid rgba(58,159,140,.26);outline-offset:2px}
-
-  @media (max-width: 900px){
-    .filters-card{border-radius:12px;padding:10px}
-    .familles-bar .btn-fam{padding:9px 14px;font-size:.95rem}
-    .categories-bar .btn-cat-square{padding:7px 12px;font-size:.9rem}
-  }`;
+        @media (max-width: 900px){
+          .filters-card{border-radius:12px;padding:10px}
+          .familles-bar .btn-fam{padding:9px 14px;font-size:.95rem}
+          .categories-bar .btn-cat-square{padding:7px 12px;font-size:.9rem}
+        }`;
       let st = document.getElementById('caisse-filters-style');
       if (!st) { st = document.createElement('style'); st.id = 'caisse-filters-style'; document.head.appendChild(st); }
       st.textContent = css;
     })();
 
-
-
-
-    // ====== NOUVELLES BARRES DE FILTRES (familles + catégories) ======
+    // Barres de filtres
     function renderFamillesBar() {
       const wrap = document.querySelector('.familles-bar');
       if (!wrap) return;
 
-     const familles = Array.from(new Set((produits || [])
+      const familles = Array.from(new Set((produits || [])
         .map(p => p.famille_effective_nom)
         .filter(Boolean)))
         .sort((a, b) => a.localeCompare(b, 'fr'));
@@ -1503,8 +1499,8 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
       wrap.innerHTML = [
         `<button class="btn-fam ${!familleActive ? 'active' : ''}" data-fam="">Toutes les familles</button>`,
         ...familles.map(f => `
-      <button class="btn-fam ${familleActive === f ? 'active' : ''}" data-fam="${f}">${f}</button>
-    `)
+          <button class="btn-fam ${familleActive === f ? 'active' : ''}" data-fam="${f}">${f}</button>
+        `)
       ].join('');
 
       wrap.querySelectorAll('.btn-fam').forEach(btn => {
@@ -1512,16 +1508,13 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
           const f = btn.dataset.fam || '';
 
           if (f === '') {
-            // "Toutes les familles" → pas de famille active + on veut voir TOUTES les sous-cats
             familleActive = null;
             showCatsAllFamilies = true;
           } else {
             if (familleActive === f) {
-              // re-clic sur la même famille → on désélectionne et on replie les sous-cats
               familleActive = null;
               showCatsAllFamilies = false;
             } else {
-              // famille choisie → on affiche SES sous-cats
               familleActive = f;
               showCatsAllFamilies = false;
             }
@@ -1533,22 +1526,8 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
           afficherProduits();
         });
       });
-
     }
 
-(async () => {
-  const produits = await window.electronAPI.getProduits();
-  console.log('Nb produits:', produits?.length);
-  const sample = (produits||[]).slice(0,5).map(p => ({
-    id: p.id,
-    nom: p.nom,
-    fam_nom: p.famille_effective_nom,
-    cat_nom: p.categorie_effective_nom,
-    fam_id: p.famille_id ?? p.familleId,
-    cat_id: p.categorie_id ?? p.categorieId,
-  }));
-  console.table(sample);
-})();
     function renderCategoriesBar() {
       const wrap = document.querySelector('.categories-bar');
       if (!wrap) return;
@@ -1556,20 +1535,17 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
       let cats = [];
 
       if (familleActive) {
-        // Famille sélectionnée → sous-cats de CETTE famille
         cats = Array.from(new Set((produits || [])
           .filter(p => p.famille_effective_nom === familleActive)
           .map(p => p.categorie_effective_nom)
           .filter(Boolean)))
           .sort((a, b) => a.localeCompare(b, 'fr'));
       } else if (showCatsAllFamilies) {
-        // "Toutes les familles" cliqué → sous-cats de TOUTES les familles
         cats = Array.from(new Set((produits || [])
           .map(p => p.categorie_effective_nom)
           .filter(Boolean)))
           .sort((a, b) => a.localeCompare(b, 'fr'));
       } else {
-        // Pas de famille et on n’a pas cliqué "Toutes les familles" → on replie
         wrap.innerHTML = '';
         wrap.style.display = 'none';
         return;
@@ -1577,8 +1553,8 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
 
       wrap.style.display = cats.length ? '' : 'none';
       wrap.innerHTML = cats.map(c => `
-    <button class="btn-cat-square ${categorieActive === c ? 'active' : ''}" data-cat="${c}">${c}</button>
-  `).join('');
+        <button class="btn-cat-square ${categorieActive === c ? 'active' : ''}" data-cat="${c}">${c}</button>
+      `).join('');
 
       wrap.querySelectorAll('.btn-cat-square').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1590,13 +1566,9 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
       });
     }
 
-
     // premier rendu des barres
     renderFamillesBar();
     renderCategoriesBar();
-
-    // (🔥 SUPPRIMÉ) Anciennes fonctions renderFilters()/wireFilters()
-    // et leurs appels => évite l'erreur innerHTML sur #families-bar / #categories-bar
 
     window.fermerPopup = fermerPopup;
 
@@ -1605,7 +1577,6 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
       const rawLC = raw.toLowerCase();
 
       if (raw.length > 0) {
-        // reset filtres quand on saisit
         familleActive = null;
         categorieActive = null;
         showCatsAllFamilies = false;
@@ -1676,10 +1647,10 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
       if (hiddenAdh) { hiddenAdh.value = ''; hiddenAdh.dataset.email = ''; }
       const inputAdh = document.getElementById('adherent-input');
       if (inputAdh) inputAdh.value = '';
-      // Ticket actif : on l’oublie si on vide le panier
+      // Ticket actif
       currentCartId = null;
       try { localStorage.removeItem('currentCartId'); } catch { }
-      // 🧲 Réinitialise la sélection de prospect (exclusivité stricte)
+      // 🧲 Réinitialise prospect
       try { selectedProspect = null; } catch { }
       localStorage.removeItem('selectedProspect');
       const hiddenPros = document.getElementById('prospect-select');
@@ -1687,7 +1658,7 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
       const badgePros = document.getElementById('prospect-selected');
       if (badgePros) { badgePros.textContent = ''; badgePros.style.display = 'none'; }
 
-      // 💳 Réinitialise le mode de paiement
+      // 💳 Réinitialise mode de paiement
       const sel = document.getElementById('mode-paiement-select');
       if (sel) {
         sel.selectedIndex = 0;
@@ -1697,23 +1668,21 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
       modeSelectionneId = '';
       localStorage.removeItem('modePaiementId');
 
-      // 🔄 Remettre le mode par défaut après vidage/validation
+      // Mode par défaut après vidage
       if (adherentsOn) {
         saleMode = 'adherent';
       } else if (extOn) {
         saleMode = 'exterieur';
       } else {
-        saleMode = 'adherent'; // fallback
+        saleMode = 'adherent';
       }
       localStorage.setItem('saleMode', saleMode);
 
-      // ⭕ Met à jour les radios si elles existent
       const radioAdh = document.querySelector('input[name="vente-mode"][value="adherent"]');
       const radioExt = document.querySelector('input[name="vente-mode"][value="exterieur"]');
       if (radioAdh) radioAdh.checked = (saleMode === 'adherent');
       if (radioExt) radioExt.checked = (saleMode === 'exterieur');
 
-      // 🧱 Affiche/masque les blocs correspondants
       const adhCont = document.getElementById('adherent-container');
       const miniPros = document.getElementById('prospect-mini');
       const extCont = document.getElementById('ext-container');
@@ -1728,29 +1697,28 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
         if (extCont) extCont.style.display = '';
       }
 
-      // (Optionnel) on repart aussi d’un email extérieur vide
       const extEmail = document.getElementById('ext-email');
       if (extEmail) extEmail.value = '';
       localStorage.removeItem('extEmail');
 
-      // UI
       afficherPanier();
       document.getElementById('search-produit')?.focus();
-
     };
 
-  }
+  } // fin renderCaisse
 
+  // ───────────────────────────────────────────────────────────
+  // Validation de la vente (inchangée sauf petit nettoyage minime)
+  // ───────────────────────────────────────────────────────────
   async function validerVente() {
     try {
       const modules = await (window.getMods?.() || window.electronAPI.getModules());
-      const adherentsOn = !!modules.adherents;
-      const prospectsOn = !!modules.prospects;
+      const adherentsOn   = !!modules.adherents;
+      const prospectsOn   = !!modules.prospects;
       const cotisationsOn = !!(modules.adherents && modules.cotisations);
-      const extOn = !!modules.ventes_exterieur;
-      const modesOn = !!modules.modes_paiement;
+      const extOn         = !!modules.ventes_exterieur;
+      const modesOn       = !!modules.modes_paiement;
 
-      // 1) Contexte de vente (mode + marge ext.)
       const saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : 'exterieur');
       const isExt = extOn && (saleMode === 'exterieur');
 
@@ -1768,14 +1736,13 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
       } catch { }
       const factor = isExt ? (1 + extMargin / 100) : 1;
 
-      // 2) Panier
       const panier = Array.isArray(window.panier) ? window.panier : [];
       if (panier.length === 0) {
         alert('Panier vide !');
         return;
       }
 
-      // 3) Mode de paiement (obligatoire si module actif)
+      // 3) Mode de paiement
       const selectMP = document.getElementById('mode-paiement-select');
       const mode_paiement_id = modesOn ? (Number(selectMP?.value || 0) || null) : null;
       const mode_paiement_label = modesOn ? (selectMP?.selectedOptions?.[0]?.textContent?.trim() || '') : '';
@@ -1812,7 +1779,7 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
             return;
           }
           sale_type = 'prospect';
-          adherentId = null; // jamais l’ID du prospect ici
+          adherentId = null;
           _prospectSelectedForSale = { id: Number(prospectId), email: (prospectEmail || null) };
         } else {
           alert('Merci de sélectionner un adhérent (ou active le module prospects / passe en Extérieur).');
@@ -1823,7 +1790,7 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
         clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
       }
 
-      // 5) Construire les lignes vendables (produits uniquement, id numérique)
+      // Lignes vendables
       const lignesProduits = panier
         .filter(p =>
           p &&
@@ -1832,14 +1799,12 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
           Number.isFinite(Number(p.id))
         );
 
-      // garde-fou : pas de lignes produits
       if (!lignesProduits.length) {
         console.error('[validerVente] Aucune ligne produit après filtrage, window.panier =', window.panier);
         alert('Aucune ligne de vente (ticket vide ou lignes invalides). Rouvre le ticket ou ajoute un produit.');
         return;
       }
 
-      // 6) Totaux
       const sousTotalProduits = lignesProduits.reduce((s, p) => {
         const remise = Number(p.remise || 0);
         const puApplique = Number(p.prix) * factor * (1 - remise / 100);
@@ -1864,7 +1829,7 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
 
       const total = Math.round((sousTotalProduits + totalCotisation - totalAcompte + frais_paiement) * 100) / 100;
 
-      // 7) Lignes DB (PU appliqué = remise + éventuel +30%)
+      // Lignes DB
       const lignes = lignesProduits.map(p => {
         const remise = Number(p.remise || 0);
         const puOrig = Number(p.prix);
@@ -1883,7 +1848,7 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
         alert('Aucune ligne de vente valide.');
         return;
       }
-      // 🔎 DEBUG - payload envoyé au main
+
       const _payloadVente = {
         total: Number(total || 0),
         adherent_id: (sale_type === 'adherent' && Number.isFinite(Number(adherentId))) ? Number(adherentId) : null,
@@ -1900,32 +1865,27 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
 
       console.group('[DEBUG] validerVente() - payload');
       console.log('window.panier (au moment du clic):', window.panier);
-      console.log('lignesProduits (avant map):', lignesProduits);
-      console.log('payload.lignes (après map):', lignes);
-      console.log('payload total/cotisation/frais:', { total, totalCotisation, frais_paiement });
+      console.log('payload.lignes:', lignes);
+      console.log('total/cotisation/frais:', { total, totalCotisation, frais_paiement });
       console.groupEnd();
 
-
-
-      // 8) Loader
-      showLoader('Enregistrement de la vente…');
+      // Loader
+      if (typeof showLoader === 'function') showLoader('Enregistrement de la vente…');
       const started = Date.now();
 
-      // 9) Enregistrer la vente
+      // Enregistrer la vente
       await window.electronAPI.enregistrerVente(_payloadVente);
 
-
-      // 10) Cotisation auto (si présente)
+      // Cotisation auto (si présente)
       try {
         if (adherentId && Number(totalCotisation) > 0) {
           await window.electronAPI.ajouterCotisation(Number(adherentId), Number(totalCotisation));
         }
       } catch (e) {
         console.error('[cotisation] ajout KO :', e);
-        // non bloquant
       }
 
-      // 11) Envoi facture (si email + module emails)
+      // Envoi facture (si emails activés)
       const emailsOn = !!(modules.email || modules.emails);
       const prospectEmail = _prospectSelectedForSale?.email || null;
       const emailToSend = isExt
@@ -1961,7 +1921,7 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
         }
       }
 
-      // 12) Si la vente provenait d’un ticket → le supprimer
+      // Suppression ticket si existant
       try {
         const id = window.currentCartId || localStorage.getItem('currentCartId');
         if (id && window.carts?.delete) {
@@ -1970,13 +1930,12 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
         window.currentCartId = null;
         try { localStorage.removeItem('currentCartId'); } catch { }
       } catch (e) {
-        console.warn('[carts] suppression du ticket après vente — échec non bloquant:', e);
+        console.warn('[carts] suppression ticket post-vente — non bloquant:', e);
       }
 
-      // 13) UX : garder le loader visible au moins 1s, reset UI
       const elapsed = Date.now() - started;
       if (elapsed < 1000) await new Promise(res => setTimeout(res, 1000 - elapsed));
-      hideLoader();
+      if (typeof hideLoader === 'function') hideLoader();
 
       alert('Vente enregistrée ✅');
       viderPanier({ skipConfirm: true });
@@ -1984,15 +1943,13 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
 
     } catch (err) {
       console.error('Erreur validerVente:', err);
-      try { hideLoader(); } catch { }
+      try { if (typeof hideLoader === 'function') hideLoader(); } catch { }
       alert('Erreur pendant la validation de la vente. Consulte la console.');
     }
   }
 
-
-  // ❗ Export : on expose aussi window.renderCaisse car le routeur l'appelle
+  // ❗ Export
   window.PageCaisse = { renderCaisse, validerVente };
   window.validerVente = validerVente;
-  window.renderCaisse = renderCaisse; // 👈 bridge pour renderer.js
+  window.renderCaisse = renderCaisse;
 })();
-
