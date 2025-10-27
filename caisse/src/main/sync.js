@@ -4,6 +4,9 @@ const { BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db/db');
+const { getDeviceId } = require('./device');
+
+const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 const b2i = (v) => (v ? 1 : 0);
 
 /* -------------------------------------------------
@@ -29,6 +32,11 @@ function notifyRenderer(channel, payload) {
   });
 }
 
+function setChip(status) {
+  // status: { online:boolean, pushing?:boolean, pending?:number, lastError?:string }
+  notifyRenderer('sync:status', status);
+}
+
 /* -------------------------------------------------
    PULL refs depuis Neon -> Sauvegarde locale
 --------------------------------------------------*/
@@ -37,9 +45,18 @@ async function pullRefs({ since = null } = {}) {
   const url = new URL(`${API_URL}/sync/pull_refs`);
   if (since) url.searchParams.set('since', since);
 
-  const res = await fetch(url.toString());
+  let res;
+  try {
+    res = await fetch(url.toString());
+  } catch (e) {
+    console.error('[sync] pull_refs network error:', e?.message || e);
+    setChip({ online: false, lastError: String(e) });
+    throw e;
+  }
   if (!res.ok) {
     const t = await res.text().catch(() => '');
+    console.error('[sync] pull_refs HTTP', res.status, t);
+    setChip({ online: false, lastError: `HTTP ${res.status}` });
     throw new Error(`pull_refs ${res.status} ${t}`);
   }
 
@@ -52,7 +69,7 @@ async function pullRefs({ since = null } = {}) {
     adherents = [],
     fournisseurs = [],
     produits = [],
-    modes_paiement = [], // <-- maintenant pris en charge
+    modes_paiement = [],
   } = d;
 
   const upUnite = db.prepare(
@@ -170,6 +187,7 @@ async function pullRefs({ since = null } = {}) {
   tx();
 
   notifyRenderer('data:refreshed', { from: 'pull_refs' });
+  setChip({ online: true, pending: countPendingOps() });
   return {
     ok: true,
     counts: {
@@ -191,10 +209,11 @@ async function pullRefs({ since = null } = {}) {
 function takePendingOps(limit = 1000) {
   return db
     .prepare(
-      `
-    SELECT id, device_id, op_type, entity_type, entity_id, payload_json
-    FROM ops_queue WHERE ack = 0 ORDER BY created_at ASC LIMIT ?
-  `
+      `SELECT id, device_id, op_type, entity_type, entity_id, payload_json
+       FROM ops_queue
+       WHERE ack = 0
+       ORDER BY created_at ASC
+       LIMIT ?`
     )
     .all(limit);
 }
@@ -206,7 +225,10 @@ function countPendingOps() {
 
 async function pushOpsNow(deviceId) {
   const ops = takePendingOps(200);
-  if (ops.length === 0) return { ok: true, sent: 0, pending: 0 };
+  if (ops.length === 0) {
+    setChip({ online: true, pending: 0 });
+    return { ok: true, sent: 0, pending: 0 };
+  }
 
   const payload = {
     deviceId,
@@ -219,6 +241,9 @@ async function pushOpsNow(deviceId) {
     })),
   };
 
+  console.log('[sync] push_ops →', ops.length, 'op(s)…');
+  setChip({ online: true, pushing: true, pending: ops.length });
+
   let res;
   try {
     res = await fetch(`${API_URL}/sync/push_ops`, {
@@ -228,34 +253,40 @@ async function pushOpsNow(deviceId) {
     });
   } catch (e) {
     console.error('[sync] push_ops network error:', e?.message || e);
+    setChip({ online: false, pushing: false, pending: countPendingOps(), lastError: String(e) });
     return { ok: false, error: String(e), pending: countPendingOps() };
   }
 
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
     console.error('[sync] push_ops HTTP', res.status, txt);
+    setChip({ online: false, pushing: false, pending: countPendingOps(), lastError: `HTTP ${res.status}` });
     return { ok: false, error: `HTTP ${res.status} ${txt}`, pending: countPendingOps() };
   }
 
   const ids = ops.map((o) => o.id);
   db.prepare(
-    `UPDATE ops_queue SET ack = 1, sent_at = datetime('now','localtime') WHERE id IN (${ids
-      .map(() => '?')
-      .join(',')})`
+    `UPDATE ops_queue
+       SET ack = 1, sent_at = datetime('now','localtime')
+     WHERE id IN (${ids.map(() => '?').join(',')})`
   ).run(...ids);
 
   notifyRenderer('ops:pushed', { count: ids.length });
 
   try {
-    await pullRefs();
+    const pull = await pullRefs();
+    console.log('[sync] pull_refs after push → OK', pull?.counts);
   } catch (e) {
     console.warn('[sync] pull after push failed:', e?.message || e);
   }
-  return { ok: true, sent: ids.length, pending: countPendingOps() };
+
+  const pending = countPendingOps();
+  setChip({ online: true, pushing: false, pending });
+  return { ok: true, sent: ids.length, pending };
 }
 
 /* -------------------------------------------------
-   BOOTSTRAP → Upload des référentiels (incl. adhérents & modes)
+   Bootstrap (upload des référentiels si Neon est vide)
 --------------------------------------------------*/
 
 function collectLocalRefs() {
@@ -286,7 +317,6 @@ function collectLocalRefs() {
 }
 
 async function bootstrapIfNeeded() {
-  // 1) vérifier si Neon a besoin d’un bootstrap
   let needed = false;
   try {
     const r = await fetch(`${API_URL}/sync/bootstrap_needed`);
@@ -300,7 +330,6 @@ async function bootstrapIfNeeded() {
 
   if (!needed) return { ok: true, bootstrapped: false };
 
-  // 2) pousser tous les référentiels locaux
   const refs = collectLocalRefs();
   let resp;
   try {
@@ -323,7 +352,6 @@ async function bootstrapIfNeeded() {
   const json = await resp.json().catch(() => ({}));
   notifyRenderer('data:bootstrapped', { counts: json?.counts || {} });
 
-  // 3) pull pour s’aligner (notamment ids/dernières modifs depuis Neon)
   try { await pullRefs(); } catch (e) { /* non bloquant */ }
 
   return { ok: true, bootstrapped: true, counts: json?.counts || {} };
@@ -334,9 +362,7 @@ async function bootstrapIfNeeded() {
 --------------------------------------------------*/
 
 async function hydrateOnStartup() {
-  // D’abord, si Neon est vierge (produits vides) → upload complet local (incl. adhérents & modes)
   await bootstrapIfNeeded();
-  // Puis pull pour aligner
   return pullRefs();
 }
 
@@ -344,7 +370,7 @@ async function pullAll() {
   return pullRefs();
 }
 
-// Retry doux pour réseau instable — à appeler depuis main si tu veux
+// Petit scheduler optionnel (non indispensable)
 let _autoTimer = null;
 let _intervalMs = 30000; // 30s
 function startAutoSync(deviceId) {
@@ -363,11 +389,28 @@ function startAutoSync(deviceId) {
 }
 
 /* -------------------------------------------------
+   **NOUVEAU**: déclenchement explicite depuis handlers
+--------------------------------------------------*/
+
+async function triggerBackgroundSync() {
+  try {
+    console.log('[sync] triggerBackgroundSync()');
+    setChip({ online: true, pushing: true, pending: countPendingOps() });
+    const res = await pushOpsNow(DEVICE_ID);
+    console.log('[sync] triggerBackgroundSync →', res);
+    return res;
+  } catch (e) {
+    console.error('[sync] triggerBackgroundSync error:', e?.message || e);
+    setChip({ online: false, pushing: false, pending: countPendingOps(), lastError: String(e) });
+    return { ok: false, error: String(e) };
+  }
+}
+
+/* -------------------------------------------------
    Export public
 --------------------------------------------------*/
 
 async function pushBootstrapRefs() {
-  // export utilitaire si tu veux forcer un upload manuel des référentiels
   const refs = collectLocalRefs();
   const resp = await fetch(`${API_URL}/sync/bootstrap`, {
     method: 'POST',
@@ -385,7 +428,6 @@ async function pushBootstrapRefs() {
 }
 
 async function syncPushAll() {
-  // 1) Lire toutes les refs depuis SQLite
   const fetchAll = (sql) => db.prepare(sql).all();
 
   const unites = fetchAll(`SELECT id, nom FROM unites ORDER BY id`);
@@ -408,7 +450,6 @@ async function syncPushAll() {
     SELECT id, nom, taux_percent, frais_fixe, actif FROM modes_paiement ORDER BY id
   `);
 
-  // 2) Envoyer au serveur
   let res;
   try {
     res = await fetch(`${API_URL}/sync/bootstrap`, {
@@ -430,11 +471,9 @@ async function syncPushAll() {
   const js = await res.json().catch(() => ({}));
   if (!js?.ok) return { ok: false, error: js?.error || 'Unknown bootstrap error' };
 
-  // notifie l’UI et retourne les compteurs
   notifyRenderer('data:refreshed', { from: 'push_all' });
   return { ok: true, counts: js.counts || {} };
 }
-
 
 module.exports = {
   hydrateOnStartup,
@@ -445,4 +484,5 @@ module.exports = {
   countPendingOps,
   pushBootstrapRefs,
   syncPushAll,
+  triggerBackgroundSync, // ← IMPORTANT pour l’appel depuis ventes.js / réceptions.js
 };

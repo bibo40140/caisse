@@ -113,10 +113,19 @@ function enregistrerReception(reception, lignes) {
 
     // push immédiat si sync dispo (ne casse rien en local)
     try { require('../sync').pushOpsNow?.(DEVICE_ID)?.catch(()=>{}); } catch {}
-    return receptionId;
+   return receptionId;
   });
 
-  return tx();
+  const receptionId = tx();
+
+  try {
+    const { pushOpsNow } = require('../sync');
+    if (typeof pushOpsNow === 'function') {
+      setTimeout(() => { pushOpsNow(DEVICE_ID).catch(() => {}); }, 0);
+    }
+  } catch {}
+
+  return receptionId;
 }
 
 function getReceptions({ limit = 50, offset = 0 } = {}) {

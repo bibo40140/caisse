@@ -13,6 +13,16 @@ try {
   ventesDb = null;
 }
 
+// (optionnel) module de synchro main
+let syncMod = null;
+try {
+  // On essaie de charger un module de synchro du main process s'il existe.
+  // Idéalement il exporte triggerBackgroundSync() qui fait: push_ops -> pull_refs en arrière-plan.
+  syncMod = require('../sync');
+} catch (_) {
+  // pas bloquant
+}
+
 // Utilitaires
 function getPrixProduit(id) {
   try {
@@ -23,7 +33,12 @@ function getPrixProduit(id) {
   }
 }
 
-// Normalise un tableau de lignes vers le format attendu par la DB
+/**
+ * Normalise un tableau de lignes vers le format attendu par la DB.
+ * IMPORTANT : `prix` DOIT être le **PU appliqué** (après remise/marge), PAS le total de ligne.
+ * `quantite` est la quantité vendue.
+ * `prix_unitaire` peut contenir le PU d'origine (avant remise/marge) si tu l'as.
+ */
 function normalizeLignes(lignesRaw) {
   const arr = Array.isArray(lignesRaw) ? lignesRaw : [];
   return arr
@@ -31,7 +46,8 @@ function normalizeLignes(lignesRaw) {
       const produitId = Number(l.produit_id ?? l.produitId ?? l.id);
       const quantite = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
 
-      const prixUnitaire =
+      // PU d'origine si fourni, sinon on essaie de retomber sur le prix produit
+      const prixUnitaireRef =
         l.prix_unitaire != null &&
         l.prix_unitaire !== '' &&
         Number.isFinite(Number(l.prix_unitaire))
@@ -40,18 +56,20 @@ function normalizeLignes(lignesRaw) {
           ? Number(l.pu)
           : getPrixProduit(produitId);
 
-      let totalLigne =
-        l.prix != null && l.prix !== '' ? Number(l.prix) : quantite * prixUnitaire;
-
-      if (!Number.isFinite(totalLigne)) totalLigne = 0;
+      // ⚠️ Ici on considère l.prix comme PU appliqué (conforme à caisse.js)
+      // Si l.prix est absent, on retombe sur le prix "référence" (sans remise).
+      const puApplique =
+        l.prix != null && l.prix !== '' && Number.isFinite(Number(l.prix))
+          ? Number(l.prix)
+          : prixUnitaireRef;
 
       const remise = Number(l.remise_percent ?? l.remise ?? 0) || 0;
 
       return {
         produit_id: produitId,
         quantite,
-        prix: totalLigne, // total de la ligne
-        prix_unitaire: prixUnitaire, // PU de référence si fourni
+        prix: puApplique,          // <- PU appliqué (PAS total de ligne)
+        prix_unitaire: prixUnitaireRef, // <- PU d'origine (si dispo)
         remise_percent: remise,
       };
     })
@@ -73,28 +91,30 @@ module.exports = function registerVentesHandlers(ipcMain) {
   // Enregistrement d'une vente
   ipcMain.handle('enregistrer-vente', async (_e, payload = {}) => {
     console.group('[DEBUG main] enregistrer-vente - payload reçu');
-console.log('payload.lignes length:', Array.isArray(payload?.lignes) ? payload.lignes.length : 'n/a');
-console.log('payload.lignes:', payload?.lignes);
-console.log('payload.meta:', {
-  total: payload?.total,
-  adherent_id: payload?.adherent_id,
-  cotisation: payload?.cotisation,
-  mode_paiement_id: payload?.mode_paiement_id,
-  sale_type: payload?.sale_type,
-  client_email: payload?.client_email
-});
-console.groupEnd();
+    console.log('payload.lignes length:', Array.isArray(payload?.lignes) ? payload.lignes.length : 'n/a');
+    console.log('payload.lignes:', payload?.lignes);
+    console.log('payload.meta:', {
+      total: payload?.total,
+      adherent_id: payload?.adherent_id,
+      cotisation: payload?.cotisation,
+      mode_paiement_id: payload?.mode_paiement_id,
+      sale_type: payload?.sale_type,
+      client_email: payload?.client_email
+    });
+    console.groupEnd();
 
     try {
       const hasNested = payload && typeof payload.vente === 'object';
       const lignesIn = hasNested
-        ? payload.lignes ?? payload.vente?.lignes ?? payload.items ?? payload.panier ?? []
-        : payload.lignes ?? payload.items ?? payload.panier ?? [];
-
-        console.warn('[DEBUG main] Aucune ligne validée -> payload.lignes =', payload?.lignes);
+        ? (payload.lignes ?? payload.vente?.lignes ?? payload.items ?? payload.panier ?? [])
+        : (payload.lignes ?? payload.items ?? payload.panier ?? []);
 
       const lignes = normalizeLignes(lignesIn);
-      if (lignes.length === 0) throw new Error('aucune ligne de vente');
+
+      if (lignes.length === 0) {
+        console.warn('[DEBUG main] Aucune ligne validée -> payload.lignes =', payload?.lignes);
+        throw new Error('aucune ligne de vente');
+      }
 
       const venteIn = hasNested ? { ...(payload.vente || {}) } : { ...payload };
 
@@ -106,24 +126,36 @@ console.groupEnd();
           : null;
 
       const frais_paiement = Number(venteIn.frais_paiement || 0);
-      const cotisation = Number(venteIn.cotisation || 0); // ⬅️ important
+      const cotisation = Number(venteIn.cotisation || 0);
       const sale_type = venteIn.sale_type || (adherent_id ? 'adherent' : 'exterieur');
       const client_email = venteIn.client_email ?? null;
 
-      // total produits (les lignes contiennent déjà le total par ligne)
-      const totalProduits = lignes.reduce((s, l) => s + Number(l.prix || 0), 0);
+      // Total produits = somme(pu_applique * qte)
+      const totalProduits = lignes.reduce((s, l) => s + Number(l.prix || 0) * Number(l.quantite || 0), 0);
 
       const venteObj = {
-        total: totalProduits, // côté UI on affichera total + frais + cotisation
+        total: totalProduits, // côté UI tu affiches total + frais + cotisation si besoin
         adherent_id,
         mode_paiement_id,
         frais_paiement,
-        cotisation, // ⬅️ passe bien dans la DB
+        cotisation,
         sale_type,
         client_email,
       };
 
       const venteId = ventesDb.enregistrerVente(venteObj, lignes);
+
+      // 🔄 Déclenche une synchro en arrière-plan si dispo (non bloquant)
+      try {
+        if (syncMod && typeof syncMod.triggerBackgroundSync === 'function') {
+          setImmediate(() => {
+            syncMod.triggerBackgroundSync().catch(() => {});
+          });
+        }
+      } catch (_) {
+        // on ignore toute erreur de synchro pour ne pas impacter la vente
+      }
+
       return { ok: true, venteId };
     } catch (e) {
       console.error('[ipc] enregistrer-vente ERROR:', e?.message || e);

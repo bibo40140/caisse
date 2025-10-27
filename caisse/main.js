@@ -11,6 +11,7 @@ const sync = require('./src/main/sync');
 
 
 
+
 ipcMain.handle('sync:pushBootstrapRefs', async () => {
   try {
     return await sync.pushBootstrapRefs();   // renvoie { ok, counts }
@@ -61,8 +62,11 @@ function createWindow() {
   win.show();
 }
 
+
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
+  const deviceId = getDeviceId();
+  startAutoSync(deviceId);
 
   // Bootstrap complet (optionnel) au démarrage
   if (process.env.SKIP_BOOTSTRAP !== '1') {
