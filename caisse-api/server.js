@@ -1,9 +1,11 @@
 // server.js
+
+console.log('[API] build=no-mailer v1');
+
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { Pool } from 'pg';
-import nodemailer from 'nodemailer';
 
 dotenv.config();
 
@@ -20,17 +22,6 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
-
-/* ------------ Mailer (optionnel) ------------ */
-let mailer = null;
-if (process.env.SMTP_HOST) {
-  mailer = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: false,
-    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-  });
-}
 
 /* ------------ Health ------------ */
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -83,6 +74,7 @@ app.post('/inventory/start', async (req, res) => {
     );
     const sessionId = s.rows[0].id;
 
+    // Snapshot des stocks au démarrage (pour le reporting)
     const prods = await client.query(`SELECT id, prix FROM produits ORDER BY id`);
     for (const p of prods.rows) {
       const stockStart = await getCurrentStock(client, p.id);
@@ -106,15 +98,38 @@ app.post('/inventory/start', async (req, res) => {
 });
 
 app.post('/inventory/:id/count-add', async (req, res) => {
-  const sessionId = Number(req.params.id);
-  const { product_id, qty, device_id, user } = req.body || {};
-  if (!Number.isFinite(sessionId) || !Number.isFinite(product_id) || !Number.isFinite(qty) || !device_id) {
-    return res.status(400).json({ ok:false, error:'bad_payload' });
+  console.log('[API] count-add params:', req.params);
+  console.log('[API] count-add body:', req.body);
+
+  const sessionIdRaw = req.params.id;
+  const productIdRaw = req.body?.product_id;
+  const qtyRaw       = req.body?.qty;
+  const deviceId     = req.body?.device_id;
+  const user         = req.body?.user || null;
+
+  const sessionId = Number(sessionIdRaw);
+  const productId = Number(productIdRaw);
+  const qty       = Number(qtyRaw);
+
+  if (!Number.isFinite(sessionId)) {
+    return res.status(400).json({ ok:false, error:'bad_session_id', detail: { sessionIdRaw } });
+  }
+  if (!Number.isFinite(productId)) {
+    return res.status(400).json({ ok:false, error:'bad_product_id', detail: { productIdRaw } });
+  }
+  if (!Number.isFinite(qty)) {
+    return res.status(400).json({ ok:false, error:'bad_qty', detail: { qtyRaw } });
+  }
+  if (!deviceId || typeof deviceId !== 'string') {
+    return res.status(400).json({ ok:false, error:'device_id_required' });
   }
 
   const client = await pool.connect();
   try {
-    const st = await client.query(`SELECT status FROM inventory_sessions WHERE id=$1`, [sessionId]);
+    const st = await client.query(
+      `SELECT status FROM inventory_sessions WHERE id=$1`,
+      [sessionId]
+    );
     if (st.rowCount === 0) return res.status(404).json({ ok:false, error:'session_not_found' });
     if (st.rows[0].status !== 'open') return res.status(409).json({ ok:false, error:'session_locked' });
 
@@ -123,70 +138,99 @@ app.post('/inventory/:id/count-add', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5, now())
        ON CONFLICT (session_id, product_id, device_id)
        DO UPDATE SET qty = inventory_counts.qty + EXCLUDED.qty, updated_at=now()`,
-      [sessionId, product_id, device_id, user || null, qty]
+      [sessionId, productId, deviceId, user, qty]
     );
 
-    res.json({ ok:true });
+    return res.json({ ok:true });
   } catch (e) {
     console.error('POST /inventory/:id/count-add', e);
+    return res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Liste des sessions
+app.get('/inventory/sessions', async (_req, res) => {
+  const client = await pool.connect();
+  try {
+    const r = await client.query(`
+      WITH cnt AS (
+        SELECT session_id, product_id, SUM(qty)::numeric AS counted
+        FROM inventory_counts
+        GROUP BY session_id, product_id
+      )
+      SELECT
+        s.id, s.name, s.status, s.started_at, s.ended_at,
+        COUNT(sn.product_id)::int AS total_products,
+        SUM(CASE WHEN COALESCE(c.counted,0) <> 0 THEN 1 ELSE 0 END)::int AS counted_lines,
+        COALESCE(SUM(COALESCE(c.counted,0) * COALESCE(p.prix,0)),0)::numeric AS inventory_value
+      FROM inventory_sessions s
+      JOIN inventory_snapshot sn ON sn.session_id = s.id
+      JOIN produits p ON p.id = sn.product_id
+      LEFT JOIN cnt c ON c.session_id = s.id AND c.product_id = sn.product_id
+      GROUP BY s.id
+      ORDER BY s.started_at DESC
+    `);
+    res.json({ ok: true, sessions: r.rows });
+  } catch (e) {
+    console.error('GET /inventory/sessions', e);
     res.status(500).json({ ok:false, error:e.message });
   } finally {
     client.release();
   }
 });
 
+// Résumé d'une session : totaux comptés par produit
 app.get('/inventory/:id/summary', async (req, res) => {
   const sessionId = Number(req.params.id);
+  if (!Number.isFinite(sessionId)) {
+    return res.status(400).json({ ok:false, error:'bad_session_id' });
+  }
+
   const client = await pool.connect();
   try {
-    const st = await client.query(`SELECT id, name, status, started_at FROM inventory_sessions WHERE id=$1`, [sessionId]);
-    if (st.rowCount === 0) return res.status(404).json({ ok:false, error:'session_not_found' });
+    // Vérifie que la session existe
+    const s = await client.query(`SELECT id FROM inventory_sessions WHERE id=$1`, [sessionId]);
+    if (s.rowCount === 0) {
+      return res.status(404).json({ ok:false, error:'session_not_found' });
+    }
 
-    const agg = await client.query(
+    // Agrégat des comptages par produit + prix produit pour le calcul de valeur
+    const r = await client.query(
       `WITH summed AS (
-         SELECT product_id, SUM(qty)::numeric AS counted
+         SELECT product_id, SUM(qty)::numeric AS counted_total
          FROM inventory_counts
          WHERE session_id=$1
          GROUP BY product_id
        )
-       SELECT p.id AS product_id, p.nom, p.code_barre, p.prix,
-              s.stock_start,
-              COALESCE(sm.counted, 0) AS counted_total
-       FROM inventory_snapshot s
-       JOIN produits p ON p.id = s.product_id
-       LEFT JOIN summed sm ON sm.product_id = s.product_id
-       WHERE s.session_id=$1
+       SELECT
+         p.id   AS product_id,
+         p.nom,
+         p.prix,
+         COALESCE(s.counted_total, 0) AS counted_total
+       FROM inventory_snapshot snap
+       JOIN produits p ON p.id = snap.product_id
+       LEFT JOIN summed s ON s.product_id = snap.product_id
+       WHERE snap.session_id=$1
        ORDER BY p.id`,
       [sessionId]
     );
 
-    // KPIs
-    let countedLines = 0, zeroLines = 0, deltaPlus = 0, deltaMinus = 0, deltaValue = 0;
-    for (const r of agg.rows) {
-      const delta = Number(r.counted_total) - Number(r.stock_start);
-      if (r.counted_total !== 0) countedLines++; else zeroLines++;
-      if (delta > 0) deltaPlus += delta;
-      if (delta < 0) deltaMinus += Math.abs(delta);
-      deltaValue += delta * Number(r.prix || 0);
-    }
-
-    res.json({
-      ok:true,
-      session: st.rows[0],
-      lines: agg.rows,
-      kpis: { countedLines, zeroLines, deltaPlus, deltaMinus, deltaNet: deltaPlus - deltaMinus, deltaValue }
-    });
+    res.json({ ok:true, lines: r.rows });
   } catch (e) {
     console.error('GET /inventory/:id/summary', e);
-    res.status(500).json({ ok:false, error:e.message });
+    res.status(500).json({ ok:false, error: e.message });
   } finally {
     client.release();
   }
 });
 
+
+// Clôture
 app.post('/inventory/:id/finalize', async (req, res) => {
   const sessionId = Number(req.params.id);
-  const { user, email_to } = req.body || {};
+  const { user } = req.body || {};
   const client = await pool.connect();
 
   try {
@@ -224,8 +268,15 @@ app.post('/inventory/:id/finalize', async (req, res) => {
       const pid     = Number(r.product_id);
       const start   = Number(r.stock_start);
       const counted = Number(r.counted_total);
-      const delta   = counted - start;
       const prix    = Number(r.prix || 0);
+
+      const cur = await client.query(
+        `SELECT COALESCE((SELECT SUM(qty_change)::numeric FROM stock_movements WHERE product_id=$1), p.stock, 0)::numeric AS stock
+         FROM produits p WHERE p.id=$1`,
+        [pid]
+      );
+      const currentLive = Number(cur.rows[0]?.stock || 0);
+      const delta = counted - currentLive;
 
       await client.query(
         `INSERT INTO inventory_adjust(session_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value)
@@ -239,8 +290,8 @@ app.post('/inventory/:id/finalize', async (req, res) => {
 
       if (delta !== 0) {
         await client.query(
-          `INSERT INTO stock_movements(product_id, reason, source_type, source_id, qty_change)
-           VALUES ($1,'inventory','inventory_finalize',$2,$3)
+          `INSERT INTO stock_movements(product_id, source_type, source_id, qty_change)
+           VALUES ($1,'inventory_finalize',$2,$3)
            ON CONFLICT (source_type, source_id) DO NOTHING`,
           [pid, `inv:${sessionId}:${pid}`, delta]
         );
@@ -262,28 +313,6 @@ app.post('/inventory/:id/finalize', async (req, res) => {
       session: { id: sess.id, name: sess.name, started_at: sess.started_at, ended_at: sess.ended_at },
       stats: { linesInserted, countedProducts, inventoryValue }
     };
-
-    if (mailer && (email_to || process.env.INVENTORY_MAIL_TO)) {
-      try {
-        const to = email_to || process.env.INVENTORY_MAIL_TO;
-        const d  = new Date(sess.ended_at);
-        const dateStr = d.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
-        await mailer.sendMail({
-          from: process.env.INVENTORY_MAIL_FROM || 'no-reply@coopaz',
-          to,
-          subject: `Inventaire clôturé — ${sess.name}`,
-          text:
-`Inventaire "${sess.name}" clôturé le ${dateStr}.
-
-Produits inventoriés : ${countedProducts}
-Valeur du stock inventorié : ${inventoryValue.toFixed(2)} €.
-
-Session #${sessionId}`
-        });
-      } catch (err) {
-        console.warn('Email inventaire non envoyé:', err?.message);
-      }
-    }
 
     res.json({ ok:true, recap });
   } catch (e) {
@@ -346,13 +375,6 @@ app.get('/sync/pull_refs', async (_req, res) => {
   }
 });
 
-async function neonAdherentExists(client, id) {
-  if (!id) return false;
-  const r = await client.query('SELECT 1 FROM adherents WHERE id=$1', [id]);
-  return r.rowCount > 0;
-}
-
-// PUSH des opérations (event-driven)
 app.post('/sync/push_ops', async (req, res) => {
   const { deviceId, ops } = req.body || {};
   if (!deviceId || !Array.isArray(ops)) {
@@ -369,7 +391,6 @@ app.post('/sync/push_ops', async (req, res) => {
     await client.query('BEGIN');
 
     for (const op of ops) {
-      // Parse du payload (string -> objet)
       let payloadObj;
       try {
         payloadObj = typeof op.payload_json === 'string' ? JSON.parse(op.payload_json) : (op.payload_json || {});
@@ -379,7 +400,6 @@ app.post('/sync/push_ops', async (req, res) => {
 
       console.log('  → op:', op.op_type, 'entity:', op.entity_type, op.entity_id, 'payload:', payloadObj);
 
-      // Stockage (idempotent sur id)
       await client.query(
         `INSERT INTO ops (id, device_id, op_type, entity_type, entity_id, payload)
          VALUES ($1,$2,$3,$4,$5,$6::jsonb)
@@ -387,7 +407,6 @@ app.post('/sync/push_ops', async (req, res) => {
         [op.id, deviceId, op.op_type, op.entity_type || null, String(op.entity_id || ''), JSON.stringify(payloadObj)]
       );
 
-      // Lire l’op (si déjà appliquée -> skip)
       const r = await client.query(`SELECT applied_at, payload FROM ops WHERE id = $1`, [op.id]);
       if (r.rows[0]?.applied_at) { 
         console.log('    (déjà appliquée)'); 
@@ -436,7 +455,6 @@ app.post('/sync/push_ops', async (req, res) => {
               ? `lv:${p.ligneId}`
               : `sale:${p.venteId}:${p.produitId}:${Number(p.quantite)}:${Number(p.prix)}`;
 
-          // ligne de vente idempotente "pauvre"
           const chk = await client.query(
             `SELECT 1 FROM lignes_vente WHERE vente_id=$1 AND produit_id=$2 AND quantite=$3 AND prix=$4 LIMIT 1`,
             [p.venteId, p.produitId, p.quantite, p.prix]
@@ -452,7 +470,6 @@ app.post('/sync/push_ops', async (req, res) => {
             console.log('    [=] ligne_vente déjà présente');
           }
 
-          // mouvement stock (idempotent par (source_type, source_id))
           await client.query(
             `INSERT INTO stock_movements (product_id, source_type, source_id, qty_change)
              VALUES ($1,'sale_line',$2,$3)
@@ -487,7 +504,6 @@ app.post('/sync/push_ops', async (req, res) => {
             rid = ins.rows[0].id;
           }
 
-          // ligne réception
           if (p.ligneRecId != null && p.ligneRecId !== '') {
             await client.query(
               `INSERT INTO lignes_reception (id, reception_id, produit_id, quantite, prix_unitaire)
@@ -507,7 +523,6 @@ app.post('/sync/push_ops', async (req, res) => {
             );
           }
 
-          // delta selon correction éventuelle
           const cur = await client.query(
             `SELECT COALESCE((SELECT SUM(qty_change)::numeric FROM stock_movements WHERE product_id=$1), p.stock, 0)::numeric AS stock
              FROM produits p WHERE p.id=$1`,
@@ -717,8 +732,8 @@ app.post('/admin/backfill_stock', async (_req, res) => {
         WHERE NOT EXISTS (SELECT 1 FROM stock_movements sm WHERE sm.product_id = p.id)
           AND COALESCE(stock, 0) <> 0
       )
-      INSERT INTO stock_movements (product_id, reason, source_type, source_id, qty_change)
-      SELECT ts.product_id, 'bootstrap', 'bootstrap', 'bootstrap:'||ts.product_id::text, ts.qty
+      INSERT INTO stock_movements (product_id, source_type, source_id, qty_change)
+      SELECT ts.product_id, 'bootstrap', 'bootstrap:'||ts.product_id::text, ts.qty
       FROM to_seed ts
       ON CONFLICT (source_type, source_id) DO NOTHING
       RETURNING *;

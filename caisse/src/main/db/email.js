@@ -1,78 +1,128 @@
 // src/main/db/email.js
+const fs = require('fs');
+const path = require('path');
 const nodemailer = require('nodemailer');
 
-// 👉 Nouveau: on expose un helper pour créer le transporteur
+/** ─────────────────────────────────────────────────────────
+ *  Lecture (optionnelle) du config.json à la racine
+ *  ───────────────────────────────────────────────────────── */
+function readAppConfig() {
+  try {
+    const cfgPath = path.join(__dirname, '..', '..', 'config.json');
+    if (fs.existsSync(cfgPath)) {
+      return JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+    }
+  } catch (_) {}
+  return null;
+}
+
+/** ─────────────────────────────────────────────────────────
+ *  Transport Gmail — même logique que tes factures
+ *  (mot de passe d’application Gmail)
+ *  ───────────────────────────────────────────────────────── */
 function getMailTransport() {
+  // ⚠️ on garde tes identifiants tels quels puisque les factures fonctionnent déjà
   return nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: 'epiceriecoopaz@gmail.com',
-      pass: 'vhkn hzel hasd lkeg'
-    }
+      pass: 'vhkn hzel hasd lkeg',
+    },
   });
 }
 
-// 📧 Envoi de facture par email
-function envoyerFactureParEmail({ email, lignes, cotisation, acompte = 0, frais_paiement = 0, mode_paiement = '', total }) {
-  console.log("📧 Envoi email à :", email);
+/** Adresse FROM par défaut :
+ *  - si un jour tu la mets dans config.json (ex: email.from), on lira ici
+ *  - sinon on utilise l’adresse du compte Gmail (cohérent)
+ */
+function getDefaultFrom() {
+  const cfg = readAppConfig();
+  const fromCfg = cfg?.email?.from || cfg?.smtp?.from;
+  return fromCfg || 'epiceriecoopaz@gmail.com';
+}
+
+/** ─────────────────────────────────────────────────────────
+ *  📧 Envoi générique (inventaire, etc.)
+ *  ───────────────────────────────────────────────────────── */
+async function envoyerEmailGenerique({ to, subject, text, html }) {
+  const transporter = getMailTransport();
+  if (!to) throw new Error('Destinataire manquant');
+  await transporter.sendMail({
+    from: 'epiceriecoopaz@gmail.com',
+    to,
+    subject: subject || '(Sans sujet)',
+    text: text || undefined,
+    html: html || undefined,
+  });
+}
+
+
+
+/** ─────────────────────────────────────────────────────────
+ *  📧 Envoi de facture (inchangé, juste factorisé sur getMailTransport)
+ *  ───────────────────────────────────────────────────────── */
+function envoyerFactureParEmail({
+  email, lignes, cotisation, acompte = 0, frais_paiement = 0, mode_paiement = '', total
+}) {
+  console.log('📧 Envoi email à :', email);
   if (!email) {
-    console.error("❌ Adresse email manquante pour l'envoi de la facture.");
+    console.error('❌ Adresse email manquante pour l\'envoi de la facture.');
     return;
   }
 
-  // ⚙️ Utilise le même transporteur
   const transporter = getMailTransport();
 
-  const lignesHTML = (lignes || []).map(p => {
-    const prix   = Number(p.prix || 0);
-    const puOrig = Number(p.prix_unitaire ?? p.prix);
-    const remise = Number(p.remise_percent ?? 0);
-    const qte    = Number(p.quantite || 0);
-    const totalLigne = prix * qte;
+  const lignesHTML = (lignes || [])
+    .map((p) => {
+      const prix = Number(p.prix || 0);
+      const puOrig = Number(p.prix_unitaire ?? p.prix);
+      const remise = Number(p.remise_percent ?? 0);
+      const qte = Number(p.quantite || 0);
+      const totalLigne = prix * qte;
 
-    return `
+      return `
       <tr>
         <td>${p.nom || p.produit_nom || ''}</td>
         <td>${p.fournisseur_nom || ''}</td>
         <td>${p.unite || ''}</td>
         <td>${puOrig.toFixed(2)} €</td>
-        <td>${remise ? (remise.toFixed(2) + ' %') : '—'}</td>
+        <td>${remise ? remise.toFixed(2) + ' %' : '—'}</td>
         <td>${prix.toFixed(2)} €</td>
         <td>${qte}</td>
         <td>${totalLigne.toFixed(2)} €</td>
-      </tr>
-    `;
-  }).join('');
+      </tr>`;
+    })
+    .join('');
 
-  const cotisationHTML = (cotisation && cotisation.length > 0)
-    ? `
+  const cotisationHTML =
+    cotisation && cotisation.length > 0
+      ? `
       <tr>
         <td><em>Cotisation</em></td>
         <td colspan="6"></td>
         <td>${Number(cotisation[0].prix || 0).toFixed(2)} €</td>
-      </tr>
-    `
-    : '';
+      </tr>`
+      : '';
 
-  const acompteHTML = (Number(acompte) > 0)
-    ? `
+  const acompteHTML =
+    Number(acompte) > 0
+      ? `
       <tr>
         <td><strong>Acompte utilisé</strong></td>
         <td colspan="6"></td>
         <td>−${Number(acompte).toFixed(2)} €</td>
-      </tr>
-    `
-    : '';
+      </tr>`
+      : '';
 
-  const fraisHTML = (Number(frais_paiement) > 0)
-    ? `
+  const fraisHTML =
+    Number(frais_paiement) > 0
+      ? `
       <tr>
         <td>Frais de paiement ${mode_paiement ? '(' + mode_paiement + ')' : ''}</td>
         <td colspan="6"></td>
         <td>${Number(frais_paiement).toFixed(2)} €</td>
-      </tr>
-    `
-    : '';
+      </tr>`
+      : '';
 
   const html = `
     <h2>Merci pour votre achat à Coop'az !</h2>
@@ -105,11 +155,15 @@ function envoyerFactureParEmail({ email, lignes, cotisation, acompte = 0, frais_
   `;
 
   return transporter.sendMail({
-    from: 'epiceriecoopaz@gmail.com',
+    from: getDefaultFrom(),
     to: email,
     subject: "Votre facture Coop'az",
-    html
+    html,
   });
 }
 
-module.exports = { envoyerFactureParEmail, getMailTransport };
+module.exports = {
+  getMailTransport,
+  envoyerFactureParEmail,
+  envoyerEmailGenerique,
+};

@@ -148,6 +148,10 @@ if (config.modules.stocks) {
 }
 if (config.modules.email || config.modules.emails) require('./src/main/handlers/email')(ipcMain);
 
+const registerInventoryHandlers = require('./src/main/handlers/inventory');
+registerInventoryHandlers(ipcMain);
+
+
 // ============================================================================
 // Fallback / Normalisation IPC utilitaire
 // ============================================================================

@@ -14,6 +14,10 @@ const ALLOWED_EVENTS = new Set([
   // (optionnel si tu les utilises plus tard)
   'sync:error',
   'sync:pull_done',
+
+  // inventaire (multi-postes)
+  'inventory:count-updated',
+  'inventory:session-changed',
 ]);
 
 function on(channel, listener) {
@@ -170,7 +174,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   majModePaiement: (payload) => ipcRenderer.invoke('mp:update', payload),
   supprimerModePaiement: (id) => ipcRenderer.invoke('mp:remove', id),
 
-  /* -------------- Config / Modules ---------------- */
+  /* -------------- Config / Modules --------------- */
   getConfig: () => ipcRenderer.invoke('config:get'),
   updateModules: (modules) => ipcRenderer.invoke('config:update-modules', modules),
   getModules: () => ipcRenderer.invoke('get-modules'),
@@ -197,11 +201,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listProspectInvitations: (filters) => ipcRenderer.invoke('prospects:invitations', filters),
   prospectsListInvitations: (args) => ipcRenderer.invoke('prospects:invitations', args),
 
+  /* -------------- Inventaire (IPC -> API) -------- */
+  inventory: {
+    start:     (payload)                         => ipcRenderer.invoke('inventory:start', payload),
+    countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>
+      ipcRenderer.invoke('inventory:count-add', { sessionId, product_id, qty, user, device_id }),
+    summary:   ({ sessionId })                   => ipcRenderer.invoke('inventory:summary', { sessionId }),
+    finalize:  ({ sessionId, user, email_to })   =>
+      ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
+  },
+
   /* -------------- Inventaire / produits ---------- */
   produits: {
     list: () => ipcRenderer.invoke('produits:list'),
   },
+sendInventoryRecapEmail: (payload) => ipcRenderer.invoke('send-inventory-recap-email', payload),
+
+  
 });
+
+
 
 /* -------------- Paniers / Carts ------------------ */
 contextBridge.exposeInMainWorld('carts', {
@@ -211,4 +230,14 @@ contextBridge.exposeInMainWorld('carts', {
   close:  (id)          => ipcRenderer.invoke('cart-close', id),
   delete: (id)          => ipcRenderer.invoke('cart-delete', id),
   remove: (id)          => ipcRenderer.invoke('cart-delete', id),
+
+  // Alias optionnel pour l’inventaire (si ton code l’appelait via carts.inventory.*)
+  inventory: {
+    start:     (payload)                         => ipcRenderer.invoke('inventory:start', payload),
+    countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>
+      ipcRenderer.invoke('inventory:count-add', { sessionId, product_id, qty, user, device_id }),
+    summary:   ({ sessionId })                   => ipcRenderer.invoke('inventory:summary', { sessionId }),
+    finalize:  ({ sessionId, user, email_to })   =>
+      ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
+  },
 });
