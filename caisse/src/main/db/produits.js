@@ -232,11 +232,15 @@ function supprimerProduit(id) {
 
 function getCategoriesProduitsEffectives() {
   return db.prepare(`
-    SELECT c.id, c.nom, COUNT(p.id) AS nb
-    FROM categories c
-    LEFT JOIN produits p ON p.categorie_id = c.id
-    GROUP BY c.id, c.nom
-    ORDER BY c.nom
+    SELECT
+      c_eff.id,
+      c_eff.nom,
+      COUNT(p.id) AS nb
+    FROM produits p
+    LEFT JOIN fournisseurs f ON f.id = p.fournisseur_id
+    LEFT JOIN categories c_eff ON c_eff.id = COALESCE(p.categorie_id, f.categorie_id)
+    GROUP BY c_eff.id, c_eff.nom
+    ORDER BY c_eff.nom
   `).all();
 }
 

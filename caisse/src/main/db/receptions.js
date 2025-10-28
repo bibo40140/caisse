@@ -7,130 +7,140 @@ const { getDeviceId } = require('../device');
 
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
-function stocksModuleOn() {
+function isModuleActive(moduleName) {
   try {
-    const cfgPath = path.join(__dirname, '..', '..', '..', 'config.json');
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    return !!(cfg.modules && cfg.modules.stocks);
-  } catch { return false; }
+    const configPath = path.join(__dirname, '..', '..', '..', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return !!(cfg && cfg.modules && cfg.modules[moduleName] === true);
+  } catch {
+    return false;
+  }
 }
 
-function nowLocal() { return `datetime('now','localtime')`; }
+/**
+ * Normalise une ligne brute de réception
+ * attend au minimum: produit_id, quantite
+ * optionnels: prix_unitaire, stock_corrige
+ */
+function normalizeLine(l) {
+  const produit_id = Number(l.produit_id ?? l.produitId ?? l.product_id ?? l.id);
+  const quantite   = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
 
+  const puRaw = l.prix_unitaire ?? l.pu ?? l.price;
+  const prix_unitaire =
+    (puRaw === '' || puRaw == null || Number.isNaN(Number(puRaw))) ? null : Number(puRaw);
+
+  const scRaw = l.stock_corrige ?? l.stockCorrige;
+  const stock_corrige =
+    (scRaw === '' || scRaw == null || Number.isNaN(Number(scRaw))) ? null : Number(scRaw);
+
+  return { produit_id, quantite, prix_unitaire, stock_corrige };
+}
+
+/**
+ * Enregistre une réception (header + lignes), met à jour le stock local,
+ * et enfile des opérations de synchro pour Neon.
+ *
+ * @param {{fournisseur_id:number, reference?:string|null}} reception
+ * @param {Array} lignes
+ * @returns {number} receptionId (SQLite)
+ */
 function enregistrerReception(reception, lignes) {
-  // compat : certaines UIs envoient tout dans reception.lignes
-  if (!Array.isArray(lignes) || lignes.length === 0) {
-    lignes = Array.isArray(reception?.lignes) ? reception.lignes : [];
-  }
-  if (!reception || !Number.isFinite(Number(reception.fournisseur_id || reception.fournisseurId))) {
-    throw new Error('fournisseur invalide');
+  if (!reception || !Number.isFinite(Number(reception.fournisseur_id))) {
+    throw new Error('reception.fournisseur_id manquant/invalide');
   }
   if (!Array.isArray(lignes) || lignes.length === 0) {
     throw new Error('aucune ligne de réception');
   }
 
-  const fournisseurId = Number(reception.fournisseur_id || reception.fournisseurId);
-  const referenceIn   = (reception.reference || null);
+  const stocksOn = isModuleActive('stocks');
 
-  const insertReception = db.prepare(`
+  // Statements
+  const insReception = db.prepare(`
     INSERT INTO receptions (fournisseur_id, date, reference, updated_at)
-    VALUES (?, ${nowLocal()}, ?, ${nowLocal()})
+    VALUES (?, datetime('now','localtime'), ?, datetime('now','localtime'))
   `);
 
-  const insertLigne = db.prepare(`
+  const insLigne = db.prepare(`
     INSERT INTO lignes_reception (reception_id, produit_id, quantite, prix_unitaire, updated_at)
-    VALUES (?, ?, ?, ?, ${nowLocal()})
+    VALUES (?, ?, ?, ?, datetime('now','localtime'))
   `);
 
-  const selStock = db.prepare(`SELECT stock, prix FROM produits WHERE id = ?`);
-  const updProd  = db.prepare(`
-    UPDATE produits
-       SET stock = ?,
-           prix  = COALESCE(?, prix),
-           updated_at = ${nowLocal()}
-     WHERE id = ?
-  `);
+  // Deux modes pour le stock local :
+  // - si stock_corrige fourni : on SET = stock_corrige + quantite
+  // - sinon : on INCREMENTE += quantite
+  const setStock = stocksOn
+    ? db.prepare(`UPDATE produits SET stock = ? WHERE id = ?`)
+    : null;
+  const incStock = stocksOn
+    ? db.prepare(`UPDATE produits SET stock = stock + ? WHERE id = ?`)
+    : null;
 
   const tx = db.transaction(() => {
-    const ref = referenceIn || (() => {
-      const d = new Date(); const pad = n => String(n).padStart(2,'0');
-      return `BL-${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-    })();
+    // Header
+    const rHead = insReception.run(
+      Number(reception.fournisseur_id),
+      reception.reference ?? null
+    );
+    const receptionId = rHead.lastInsertRowid;
 
-    const r = insertReception.run(fournisseurId, ref);
-    const receptionId = r.lastInsertRowid;
-
-    const doStocks = stocksModuleOn();
-
-    for (const l of lignes) {
-      const produitId    = Number(l.produit_id);
-      const qte          = Number(l.quantite || 0);
-      const prixU        = (l.prix_unitaire != null && l.prix_unitaire !== '') ? Number(l.prix_unitaire) : null;
-      const stockCorrige = (l.stock_corrige !== undefined && l.stock_corrige !== null && l.stock_corrige !== '')
-        ? Number(l.stock_corrige) : null;
-
-      if (!Number.isFinite(produitId)) throw new Error('ligne reception: produit invalide');
-
-      // 1) Enregistrer la ligne de BL
-      insertLigne.run(receptionId, produitId, qte, prixU);
-
-      // 2) MAJ stock local selon TA règle
-      if (doStocks) {
-        const row = selStock.get(produitId);
-        const current = Number(row?.stock || 0);
-
-        let newStock;
-        if (stockCorrige !== null && Number.isFinite(stockCorrige)) {
-          // règle demandée : stock_corrigé + quantité
-          newStock = stockCorrige + (Number.isFinite(qte) ? qte : 0);
-        } else {
-          // sinon : stock actuel + quantité
-          newStock = current + (Number.isFinite(qte) ? qte : 0);
-        }
-
-        const newPrix = (prixU !== null && Number.isFinite(prixU)) ? prixU : null;
-        updProd.run(newStock, newPrix, produitId);
+    // Lignes
+    for (const raw of lignes) {
+      const { produit_id, quantite, prix_unitaire, stock_corrige } = normalizeLine(raw);
+      if (!Number.isFinite(produit_id) || produit_id <= 0 || !Number.isFinite(quantite) || quantite <= 0) {
+        throw new Error('ligne de réception invalide');
       }
 
-      // 3) Enqueue op (utile si tu rebrancheras Neon plus tard)
+      const rL = insLigne.run(receptionId, produit_id, quantite, prix_unitaire);
+      const ligneRecId = rL.lastInsertRowid;
+
+      // Stock local immédiat
+      if (stocksOn) {
+        if (stock_corrige != null) {
+          const desired = stock_corrige + quantite;
+          setStock.run(desired, produit_id);
+        } else {
+          incStock.run(quantite, produit_id);
+        }
+      }
+
+      // Enqueue op pour Neon (mouvement + ligne + header si besoin côté serveur)
       enqueueOp({
         deviceId: DEVICE_ID,
         opType: 'reception.line_added',
         entityType: 'ligne_reception',
-        entityId: `${receptionId}:${produitId}`,
+        entityId: String(`${receptionId}:${produit_id}`),
         payload: {
-          ligneRecId: null,
           receptionId,
-          fournisseurId,
-          reference: ref,
-          produitId,
-          quantite: qte,
-          prixUnitaire: prixU,
-          stockCorrige: stockCorrige,
+          fournisseurId: Number(reception.fournisseur_id),
+          reference: reception.reference ?? null,
+
+          ligneRecId,
+          produitId: produit_id,
+          quantite,
+
+          prixUnitaire: prix_unitaire != null ? Number(prix_unitaire) : null,
+          stockCorrige: stock_corrige != null ? Number(stock_corrige) : null,
         },
       });
     }
 
-    // push immédiat si sync dispo (ne casse rien en local)
-    try { require('../sync').pushOpsNow?.(DEVICE_ID)?.catch(()=>{}); } catch {}
-   return receptionId;
+    // Push best-effort tout de suite
+    try {
+      const { pushOpsNow } = require('../sync');
+      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(() => {});
+    } catch {}
+
+    return receptionId;
   });
 
-  const receptionId = tx();
-
-  try {
-    const { pushOpsNow } = require('../sync');
-    if (typeof pushOpsNow === 'function') {
-      setTimeout(() => { pushOpsNow(DEVICE_ID).catch(() => {}); }, 0);
-    }
-  } catch {}
-
-  return receptionId;
+  return tx();
 }
 
-function getReceptions({ limit = 50, offset = 0 } = {}) {
+function getReceptions(opts = {}) {
+  const { limit = 100, offset = 0 } = opts;
   return db.prepare(`
-    SELECT r.*, f.nom AS fournisseur
+    SELECT r.id, r.date, r.reference, r.fournisseur_id, f.nom AS fournisseur
     FROM receptions r
     LEFT JOIN fournisseurs f ON f.id = r.fournisseur_id
     ORDER BY r.date DESC, r.id DESC
@@ -147,14 +157,10 @@ function getDetailsReception(receptionId) {
   `).get(Number(receptionId));
 
   const lignes = db.prepare(`
-    SELECT
-      lr.quantite,
-      lr.prix_unitaire,
-      p.nom AS produit,
-      u.nom AS unite
+    SELECT lr.*, p.nom AS produit, p.unite_id, u.nom AS unite
     FROM lignes_reception lr
-    JOIN produits p ON lr.produit_id = p.id
-    LEFT JOIN unites u ON u.id = p.unite_id
+    LEFT JOIN produits p ON p.id = lr.produit_id
+    LEFT JOIN unites u   ON u.id = p.unite_id
     WHERE lr.reception_id = ?
     ORDER BY lr.id
   `).all(Number(receptionId));
@@ -162,4 +168,8 @@ function getDetailsReception(receptionId) {
   return { header, lignes };
 }
 
-module.exports = { enregistrerReception, getReceptions, getDetailsReception };
+module.exports = {
+  enregistrerReception,
+  getReceptions,
+  getDetailsReception,
+};

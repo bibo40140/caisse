@@ -359,7 +359,8 @@ app.post('/sync/push_ops', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Bad payload' });
   }
 
-  // ordre logique
+  console.log('[API] /sync/push_ops received:', { deviceId, count: ops.length });
+
   const order = { 'adherent.created': 1, 'adherent.updated': 2, 'sale.created': 10, 'sale.updated': 11 };
   ops.sort((a, b) => (order[a.op_type] || 100) - (order[b.op_type] || 100));
 
@@ -368,8 +369,7 @@ app.post('/sync/push_ops', async (req, res) => {
     await client.query('BEGIN');
 
     for (const op of ops) {
-      // 1) insérer l’op si absente
-      //    payload peut arriver en string → on le stocke bien en JSONB
+      // Parse du payload (string -> objet)
       let payloadObj;
       try {
         payloadObj = typeof op.payload_json === 'string' ? JSON.parse(op.payload_json) : (op.payload_json || {});
@@ -377,6 +377,9 @@ app.post('/sync/push_ops', async (req, res) => {
         payloadObj = {};
       }
 
+      console.log('  → op:', op.op_type, 'entity:', op.entity_type, op.entity_id, 'payload:', payloadObj);
+
+      // Stockage (idempotent sur id)
       await client.query(
         `INSERT INTO ops (id, device_id, op_type, entity_type, entity_id, payload)
          VALUES ($1,$2,$3,$4,$5,$6::jsonb)
@@ -384,21 +387,19 @@ app.post('/sync/push_ops', async (req, res) => {
         [op.id, deviceId, op.op_type, op.entity_type || null, String(op.entity_id || ''), JSON.stringify(payloadObj)]
       );
 
-      // 2) relire l’op (pour savoir si déjà appliquée) + payload
+      // Lire l’op (si déjà appliquée -> skip)
       const r = await client.query(`SELECT applied_at, payload FROM ops WHERE id = $1`, [op.id]);
-      if (r.rows[0]?.applied_at) continue;
-
-      // ⚠️ le payload peut ressortir soit en objet (driver PG), soit en string → garantir un objet
-      let p = r.rows[0]?.payload;
-      if (typeof p === 'string') {
-        try { p = JSON.parse(p); } catch { p = {}; }
+      if (r.rows[0]?.applied_at) { 
+        console.log('    (déjà appliquée)'); 
+        continue; 
       }
+
+      let p = r.rows[0]?.payload;
+      if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = {}; } }
       if (!p || typeof p !== 'object') p = {};
 
-      // 3) router
       switch (op.op_type) {
         case 'sale.created': {
-          // garde-fous
           let mpId = (p.modePaiementId ?? null);
           if (mpId != null) {
             const chk = await client.query(`SELECT 1 FROM modes_paiement WHERE id=$1`, [mpId]);
@@ -425,6 +426,7 @@ app.post('/sync/push_ops', async (req, res) => {
               p.cotisation ?? null,
             ]
           );
+          console.log('    [+] vente header enregistrée id=', p.venteId);
           break;
         }
 
@@ -434,7 +436,7 @@ app.post('/sync/push_ops', async (req, res) => {
               ? `lv:${p.ligneId}`
               : `sale:${p.venteId}:${p.produitId}:${Number(p.quantite)}:${Number(p.prix)}`;
 
-          // ligne de vente (idempotent “pauvre”)
+          // ligne de vente idempotente "pauvre"
           const chk = await client.query(
             `SELECT 1 FROM lignes_vente WHERE vente_id=$1 AND produit_id=$2 AND quantite=$3 AND prix=$4 LIMIT 1`,
             [p.venteId, p.produitId, p.quantite, p.prix]
@@ -445,15 +447,19 @@ app.post('/sync/push_ops', async (req, res) => {
                VALUES ($1,$2,$3,$4,$5,$6)`,
               [p.venteId, p.produitId, p.quantite, p.prix, p.prixUnitaire ?? null, p.remisePercent ?? 0]
             );
+            console.log('    [+] ligne_vente ajoutée vente=', p.venteId, 'prod=', p.produitId, 'qte=', p.quantite);
+          } else {
+            console.log('    [=] ligne_vente déjà présente');
           }
 
-          // mouvement de stock (idempotent via (source_type, source_id) unique)
+          // mouvement stock (idempotent par (source_type, source_id))
           await client.query(
             `INSERT INTO stock_movements (product_id, source_type, source_id, qty_change)
              VALUES ($1,'sale_line',$2,$3)
              ON CONFLICT (source_type, source_id) DO NOTHING`,
             [p.produitId, sourceKey, -Number(p.quantite || 0)]
           );
+          console.log('    [+] stock_movements sale_line', { product_id: p.produitId, qty: -Number(p.quantite || 0), sourceKey });
           break;
         }
 
@@ -501,7 +507,7 @@ app.post('/sync/push_ops', async (req, res) => {
             );
           }
 
-          // delta de stock (avec correction éventuelle)
+          // delta selon correction éventuelle
           const cur = await client.query(
             `SELECT COALESCE((SELECT SUM(qty_change)::numeric FROM stock_movements WHERE product_id=$1), p.stock, 0)::numeric AS stock
              FROM produits p WHERE p.id=$1`,
@@ -520,9 +526,11 @@ app.post('/sync/push_ops', async (req, res) => {
              ON CONFLICT (source_type, source_id) DO NOTHING`,
             [pid, String(p.ligneRecId || `${rid}:${pid}`), delta]
           );
+          console.log('    [+] stock_movements reception_line', { product_id: pid, delta });
 
           if (p.prixUnitaire != null) {
             await client.query(`UPDATE produits SET prix = $1, updated_at = now() WHERE id = $2`, [p.prixUnitaire, pid]);
+            console.log('    [~] prix produit mis à jour', { product_id: pid, prix: p.prixUnitaire });
           }
           break;
         }
@@ -534,6 +542,7 @@ app.post('/sync/push_ops', async (req, res) => {
              ON CONFLICT (source_type, source_id) DO NOTHING`,
             [p.produitId, String(op.id), Number(p.delta || 0)]
           );
+          console.log('    [+] stock_movements inventory_adjust', { product_id: p.produitId, delta: Number(p.delta || 0) });
           break;
         }
 
@@ -555,6 +564,7 @@ app.post('/sync/push_ops', async (req, res) => {
                ON CONFLICT (source_type, source_id) DO NOTHING`,
               [pid, String(op.id), delta]
             );
+            console.log('    [+] stock_movements stock_set', { product_id: pid, delta });
           }
           break;
         }
@@ -575,12 +585,13 @@ app.post('/sync/push_ops', async (req, res) => {
           if (fields.length > 0) {
             const sql = `UPDATE produits SET ${fields.join(', ')}, updated_at = now() WHERE id = $1`;
             await client.query(sql, [p.id, ...values]);
+            console.log('    [~] produit mis à jour', { id: p.id });
           }
           break;
         }
 
         default:
-          // inconnu -> ignorer
+          console.log('    [?] op ignorée', op.op_type);
           break;
       }
 
@@ -588,6 +599,7 @@ app.post('/sync/push_ops', async (req, res) => {
     }
 
     await client.query('COMMIT');
+    console.log('[API] /sync/push_ops done.');
     res.json({ ok: true });
   } catch (e) {
     await client.query('ROLLBACK');

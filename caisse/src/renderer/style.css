@@ -888,3 +888,36 @@ input[list]::-webkit-calendar-picker-indicator {
   pointer-events: none !important;
 }
 
+
+
+.sync-chip {
+  display:inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  background: #eee;
+  color: #333;
+  user-select: none;
+  margin-right: 8px;
+}
+.sync-chip.is-busy   { background: #fff3cd; color: #856404; } /* jaune pâle */
+.sync-chip.is-online { background: #d4edda; color: #155724; } /* vert pâle */
+.sync-chip.is-offline{ background: #f8d7da; color: #721c24; } /* rouge pâle */
+header .sync-chip { float:right; } /* optionnel, à droite du header */
+
+
+.sync-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .25rem .5rem;
+  border-radius: 12px;
+  font-size: .85rem;
+  background: #eee;
+  color: #333;
+  user-select: none;
+}
+.sync-chip.online { background: #e8fff0; color: #0a7a2a; }
+.sync-chip.offline { background: #ffecec; color: #9b1c1c; }
+.sync-chip.syncing { background: #fff7e6; color: #8a5a00; }

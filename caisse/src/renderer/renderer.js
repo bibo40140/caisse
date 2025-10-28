@@ -26,8 +26,8 @@
   window.renderReceptions = (...a) => window.PageReceptions.renderReceptions(...a);
 
   // --- Wrappers Inventaire ---
-    window.renderInventaire = (...a) => window.PageInventaire.renderInventaire(...a);
-  
+  window.renderInventaire = (...a) => window.PageInventaire.renderInventaire(...a);
+
   // --- Wrappers Paramètres ---
   window.renderParametresHome        = (...a) => window.PageParams.renderParametresHome?.(...a);
   window.renderImportExcel           = (...a) => window.PageParams.renderImportExcel(...a);
@@ -38,8 +38,86 @@
   window.renderGestionUnites         = (...a) => window.PageParams.renderGestionUnites(...a);
   window.renderGestionModesPaiement  = (...a) => window.PageParams.renderGestionModesPaiement(...a);
   window.renderActivationModules     = (...a) => window.PageParams.renderActivationModules(...a);
-  
+})();
 
+// --- Page refresh wiring (memorize current route & expose refreshCurrentPage) ---
+(function wirePageRefresh() {
+  if (typeof window.navigate === 'function' && !window.__NAV_WRAPPED__) {
+    const _origNavigate = window.navigate;
+    window.navigate = function(page, ...args) {
+      window.__CURRENT_PAGE__ = page;
+      return _origNavigate.call(this, page, ...args);
+    };
+    window.__NAV_WRAPPED__ = true;
+  }
 
+  // Public helper to re-render current page
+  window.refreshCurrentPage = function() {
+    const page = window.__CURRENT_PAGE__;
+    if (typeof window.navigate === 'function' && page) {
+      requestAnimationFrame(() => window.navigate(page));
+      return true;
+    }
+    // Fallbacks if needed
+    if (window.PageProduits?.render) { window.PageProduits.render(); return true; }
+    if (window.PageReceptions?.renderReceptions) { window.PageReceptions.renderReceptions(); return true; }
+    if (window.PageReceptions?.renderReception) { window.PageReceptions.renderReception(); return true; }
+    if (window.PageCaisse?.renderCaisse) { window.PageCaisse.renderCaisse(); return true; }
+    return false;
+  };
+})();
 
+// --- Sync chip (push/pull manuel depuis l'UI) ---
+(function wireSyncChip() {
+  function setChip(text, cls) {
+    const chip = document.getElementById('sync-indicator');
+    if (!chip) return;
+    chip.textContent = text;
+    chip.className = 'sync-chip ' + (cls || '');
+  }
+
+  async function doManualSync() {
+    const chip = document.getElementById('sync-indicator');
+    if (!chip || chip.dataset.busy === '1') return;
+    chip.dataset.busy = '1';
+    setChip('⟳', 'syncing'); // état en cours
+
+    try {
+      // 1) push des ops en attente
+      await window.electronAPI.opsPushNow();
+      // 2) pull complet
+      await window.electronAPI.syncPullAll();
+      setChip('OK', 'online');
+
+      // ✅ rafraîchir la page courante après un pull
+      setTimeout(() => window.refreshCurrentPage?.(), 100);
+    } catch (e) {
+      console.warn('[sync chip] manual sync failed:', e?.message || e);
+      setChip('OFF', 'offline');
+    } finally {
+      chip.dataset.busy = '0';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const chip = document.getElementById('sync-indicator');
+    if (!chip) return;
+
+    chip.title = 'Cliquer pour synchroniser (push/pull)';
+    chip.style.cursor = 'pointer';
+    chip.addEventListener('click', doManualSync);
+
+    // État initial
+    setChip('OK', 'online');
+
+    // Mises à jour poussées par le process main
+    if (window.electronEvents?.on) {
+      window.electronEvents.on('ops:pushed', () => setChip('⇧', 'online'));
+      window.electronEvents.on('data:refreshed', () => {
+        setChip('OK', 'online');
+        // ✅ rafraîchir aussi quand le main nous notifie d'un pull auto
+        setTimeout(() => window.refreshCurrentPage?.(), 100);
+      });
+    }
+  });
 })();
