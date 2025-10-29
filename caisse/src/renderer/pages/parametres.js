@@ -40,20 +40,7 @@
     content.innerHTML = `
       <h2>Paramètres</h2>
 
-      <!-- BLOC CONNEXION MULTI-TENANT (pas de HTML séparé) -->
-      <section id="mt-auth" style="margin:16px 0; padding:12px; border:1px solid #ddd; border-radius:8px;">
-        <h3 style="margin-top:0;">Connexion (multi-tenant)</h3>
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <input id="mt-email" type="email" placeholder="Email admin" style="padding:8px; min-width:260px;">
-          <input id="mt-pass" type="password" placeholder="Mot de passe" style="padding:8px; min-width:180px;">
-          <button id="mt-login">Se connecter</button>
-          <button id="mt-register">Créer tenant + admin</button>
-          <span id="mt-status" style="margin-left:8px; opacity:.8;"></span>
-        </div>
-        <div style="margin-top:6px; font-size:12px; color:#555;">
-          API: <code id="mt-api-url">—</code>
-        </div>
-      </section>
+
 
       <ul style="display: flex; gap: 20px; list-style: none; padding-left: 0; flex-wrap: wrap;">
         <li><button id="btn-param-import">📂 Import données</button></li>

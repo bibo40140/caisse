@@ -37,6 +37,10 @@ async function apiFetch(path, init = {}) {
   return fetch(url, { ...init, headers });
 }
 
+function logout() {
+  AUTH_TOKEN = null;
+}
+
 module.exports = {
   setApiBase,
   getApiBase,
@@ -44,4 +48,5 @@ module.exports = {
   getAuthToken,
   getAuthHeader,
   apiFetch,
+  logout
 };

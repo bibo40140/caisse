@@ -211,11 +211,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
   },
 
-  /* -------------- Inventaire / produits ---------- */
+  /* -------------- Inventaire / produits  -------- */
   produits: {
     list: () => ipcRenderer.invoke('produits:list'),
   },
 sendInventoryRecapEmail: (payload) => ipcRenderer.invoke('send-inventory-recap-email', payload),
+
+  /* -------------- login---------- */
+ authLogin: ({ email, password }) => ipcRenderer.invoke('auth:login', { email, password }),
+  afterLoginRoute: () => ipcRenderer.invoke('auth:after-login-route'),
+  /* -------------- onboarding---------- */
+  getOnboardingStatus: () => ipcRenderer.invoke('onboarding:status'),
+  submitOnboarding: (payload) => ipcRenderer.invoke('onboarding:submit', payload),
+  goMain: () => ipcRenderer.invoke('app:go-main'),
+   logout: () => ipcRenderer.invoke('auth:logout'),
+
+
+
 
   
 });
