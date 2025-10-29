@@ -1,110 +1,158 @@
 // main.js
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const fs = require('fs');
 
+// === Auth & API config (NOUVEAU) ===
+const { ensureAuth, getConfig } = require('./src/main/config');     // getConfig = SYNCHRONE
+const { setAuthToken, setApiBase } = require('./src/main/apiClient');
+
+// === App modules existants ===
 const db = require('./src/main/db/db');
 const { getDeviceId } = require('./src/main/device');
 const { runBootstrap } = require('./src/main/bootstrap');
-const { hydrateOnStartup, pullAll, pushOpsNow, startAutoSync } = require('./src/main/sync');
-const sync = require('./src/main/sync');
+const sync = require('./src/main/sync'); // expose: hydrateOnStartup, pullAll, pushOpsNow, startAutoSync
 
-
-
-
-ipcMain.handle('sync:pushBootstrapRefs', async () => {
-  try {
-    return await sync.pushBootstrapRefs();   // renvoie { ok, counts }
-  } catch (e) {
-    return { ok: false, error: String(e) };
-  }
-});
-
-ipcMain.handle('sync:push_all', async () => {
-  try {
-    return await sync.syncPushAll();
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  }
-});
-
-// Pull ALL (Neon -> local)
-ipcMain.handle('sync:pull_all', async () => {
-  try {
-    return await sync.pullAll();
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  }
-});
-
-const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
-
-function readConfig() {
-  try {
-    const p = path.join(app.getAppPath(), 'config.json');
-    return JSON.parse(fs.readFileSync(p, 'utf8'));
-  } catch (_) {
-    return { modules: {} };
-  }
-}
-const config = readConfig();
-
+// ============================================================================
+// Fenêtre
+// ============================================================================
 function createWindow() {
   const win = new BrowserWindow({
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'src', 'main', 'preload.js'),
-      contextIsolation: true
-    }
+      contextIsolation: true,
+    },
   });
   win.maximize();
   win.loadFile('index.html');
   win.show();
 }
 
+// ============================================================================
+// Démarrage appli
+// ============================================================================
+const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
-  const deviceId = getDeviceId();
-  startAutoSync(deviceId);
 
-  // Bootstrap complet (optionnel) au démarrage
+  // 1) Charger la config (SYNCHRONE) et initialiser l’API client
+  let cfg;
+  try {
+    cfg = getConfig(); // synchrone, lit config.json
+  } catch (e) {
+    console.warn('[config] lecture impossible:', e?.message || e);
+    cfg = { modules: {} };
+  }
+  const base = (cfg.api_base_url || '').replace(/\/+$/, '');
+  if (base) setApiBase(base);
+
+  // 2) Authentification : utiliser token existant OU login via api_email/api_password
+  let auth = { ok: false, error: 'no config' };
+  try {
+    auth = await ensureAuth(); // essaie d’utiliser auth_token, sinon tente /auth/login
+  } catch (e) {
+    console.error('[auth] ensureAuth error:', e?.message || e);
+  }
+  if (auth.ok && auth.token) {
+    setAuthToken(auth.token);
+    if (auth.tenant_id) process.env.TENANT_ID = auth.tenant_id;
+    process.env.API_AUTH_TOKEN = auth.token; // compat modules legacy lisant process.env
+    console.log('[auth] OK — tenant =', auth.tenant_id || '(inconnu)');
+  } else {
+    console.warn('[auth] Pas de token API — les appels protégés seront ignorés jusqu’à connexion.');
+  }
+
+  // 3) Lancer la sync auto (une seule fois)
+  try {
+    sync.startAutoSync(DEVICE_ID);
+  } catch (e) {
+    console.warn('[sync] startAutoSync warning:', e?.message || e);
+  }
+
+  // 4) Bootstrap (local -> Neon) au démarrage (optionnel)
   if (process.env.SKIP_BOOTSTRAP !== '1') {
-    try {
-      const r = await runBootstrap();
-      console.log('[bootstrap] OK:', r);
-    } catch (e) {
-      console.error('[bootstrap] ERROR:', e?.message || e);
+    if (auth.ok) {
+      try {
+        const r = await runBootstrap();
+        console.log('[bootstrap] OK:', r);
+      } catch (e) {
+        console.error('[bootstrap] ERROR:', e?.message || e);
+      }
+    } else {
+      console.log('[bootstrap] SKIPPED (pas de token)');
     }
   } else {
     console.log('[bootstrap] SKIPPED (env SKIP_BOOTSTRAP=1)');
   }
 
-  // Hydratation (pull) au démarrage
+  // 5) Hydratation (Neon -> local) au démarrage (optionnel)
   if (process.env.SKIP_HYDRATE !== '1') {
-    try {
-      const r = await hydrateOnStartup();
-      console.log('[hydrate] OK:', r);
-    } catch (e) {
-      console.error('[hydrate] ERROR:', e?.message || e);
+    if (auth.ok) {
+      try {
+        const r = await sync.hydrateOnStartup();
+        console.log('[hydrate] OK:', r);
+      } catch (e) {
+        console.error('[hydrate] ERROR:', e?.message || e);
+      }
+    } else {
+      console.log('[hydrate] SKIPPED (pas de token)');
     }
   } else {
     console.log('[hydrate] SKIPPED (env SKIP_HYDRATE=1)');
   }
 
-  // Auto-push périodique des opérations
-  try {
-    startAutoSync(DEVICE_ID);
-  } catch (e) {
-    console.warn('[sync] startAutoSync init warning:', e?.message || e);
-  }
-
   createWindow();
 });
 
-// === IPC : Push/Pull TOUT pour la page Paramètres ===
-ipcMain.handle('sync:push-all', async () => {
+// ============================================================================
+// IPC utilitaires (petite aide pour factoriser)
+// ============================================================================
+function safeHandle(channel, handler) {
+  try { ipcMain.removeHandler(channel); } catch (_) {}
+  ipcMain.handle(channel, handler);
+}
+
+// ============================================================================
+// IPC exposés au renderer : sync push/pull (avec garde auth)
+// ============================================================================
+safeHandle('sync:pushBootstrapRefs', async () => {
   try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+    return await sync.pushBootstrapRefs(); // { ok, counts }
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+safeHandle('sync:push_all', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+    return await sync.syncPushAll();
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('sync:pull_all', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+    return await sync.pullAll();
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// ============================================================================
+// IPC “boutons Paramètres” (compat) : push/pull TOUT
+// ============================================================================
+safeHandle('sync:push-all', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
     const r = await runBootstrap();
     return { ok: true, ...r };
   } catch (e) {
@@ -112,16 +160,20 @@ ipcMain.handle('sync:push-all', async () => {
   }
 });
 
-ipcMain.handle('sync:pull-all', async () => {
+safeHandle('sync:pull-all', async () => {
   try {
-    const r = await pullAll();
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+    const r = await sync.pullAll();
     return { ok: true, ...r };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
 
-// === Handlers existants ===
+// ============================================================================
+// Handlers existants (ne pas toucher)
+// ============================================================================
 require('./src/main/handlers/config')(ipcMain);
 require('./src/main/handlers/produits');
 require('./src/main/handlers/unites')(ipcMain);
@@ -137,100 +189,32 @@ registerProspectsHandlers(ipcMain);
 const { registerCategoryHandlers } = require('./src/main/handlers/categories');
 registerCategoryHandlers();
 
-if (config.modules.fournisseurs) require('./src/main/handlers/fournisseurs')();
+// === chargements conditionnels selon la config (SYNCHRONE)
+let cfgModules = {};
+try {
+  const c = getConfig(); // synchrone
+  cfgModules = (c && c.modules) || {};
+} catch { cfgModules = {}; }
+
+if (cfgModules.fournisseurs) require('./src/main/handlers/fournisseurs')();
 require('./src/main/handlers/adherents')(ipcMain);
 
-if (config.modules.cotisations)  require('./src/main/handlers/cotisations');
-if (config.modules.imports !== false) require('./src/main/handlers/imports');
-if (config.modules.stocks) {
+if (cfgModules.cotisations)  require('./src/main/handlers/cotisations');
+if (cfgModules.imports !== false) require('./src/main/handlers/imports');
+if (cfgModules.stocks) {
   require('./src/main/handlers/stock')(ipcMain);
   require('./src/main/handlers/receptions').registerReceptionHandlers(ipcMain);
 }
-if (config.modules.email || config.modules.emails) require('./src/main/handlers/email')(ipcMain);
+if (cfgModules.email || cfgModules.emails) require('./src/main/handlers/email')(ipcMain);
 
 const registerInventoryHandlers = require('./src/main/handlers/inventory');
 registerInventoryHandlers(ipcMain);
 
-
 // ============================================================================
-// Fallback / Normalisation IPC utilitaire
-// ============================================================================
-function safeHandle(channel, handler) {
-  try { ipcMain.removeHandler(channel); } catch (_) {}
-  ipcMain.handle(channel, handler);
-}
-
-// ============================================================================
-// Ventes & Réceptions (fallbacks attendus par le renderer)
-// ============================================================================
-const ventesDB = require('./src/main/db/ventes');
-const receptionsDB = require('./src/main/db/receptions');
-
-// Historique des ventes
-safeHandle('get-historique-ventes', async (_e, filters) => {
-  try { return ventesDB.getHistoriqueVentes(filters || {}); }
-  catch (err) { throw new Error(err?.message || String(err)); }
-});
-
-// Détail d’une vente
-safeHandle('get-details-vente', async (_e, venteId) => {
-  try { return ventesDB.getDetailsVente(venteId); }
-  catch (err) { throw new Error(err?.message || String(err)); }
-});
-
-// Historique des réceptions
-safeHandle('get-receptions', async (_e, paging) => {
-  try { return receptionsDB.getReceptions(paging || {}); }
-  catch (err) { throw new Error(err?.message || String(err)); }
-});
-
-// Détail d’une réception — renvoie uniquement le tableau des lignes (contrat renderer)
-safeHandle('get-details-reception', async (_e, receptionId) => {
-  try {
-    const r = receptionsDB.getDetailsReception(receptionId);
-    return r?.lignes || [];
-  } catch (err) {
-    throw new Error(err?.message || String(err));
-  }
-});
-
-// Enregistrer une réception + push ops immédiat
-safeHandle('enregistrer-reception', async (_e, reception) => {
-  try {
-    const id = receptionsDB.enregistrerReception(reception, reception?.lignes || []);
-    try { await pushOpsNow(DEVICE_ID); } catch (_) {}
-    return id;
-  } catch (err) {
-    throw new Error(err?.message || String(err));
-  }
-});
-
-// Pousser manuellement les opérations en attente
-safeHandle('ops:push-now', async () => {
-  try {
-    const r = await pushOpsNow(DEVICE_ID);
-    return { ok: true, ...r };
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  }
-});
-
-// Compter les opérations en attente
-safeHandle('ops:pending-count', async () => {
-  try {
-    const r = db.prepare(`SELECT COUNT(*) AS n FROM ops_queue WHERE ack = 0`).get();
-    return { pending: r?.n || 0 };
-  } catch {
-    return { pending: 0 };
-  }
-});
-
-// ============================================================================
-// Modes de paiement (mp:*) — fallback complet (utilisé par la caisse + admin)
+// Fallbacks “modes de paiement” (inchangés — utilisés par la caisse + admin)
 // ============================================================================
 function boolToInt(b) { return b ? 1 : 0; }
 
-// Assure l'existence de la table (au cas où)
 try {
   db.prepare(`
     CREATE TABLE IF NOT EXISTS modes_paiement (
@@ -245,7 +229,6 @@ try {
   console.error('[mp] create table error:', e?.message || e);
 }
 
-// Nettoyage d’anciens handlers s’ils existent
 try { ipcMain.removeHandler('mp:getAll'); } catch {}
 try { ipcMain.removeHandler('mp:getAllAdmin'); } catch {}
 try { ipcMain.removeHandler('mp:create'); } catch {}

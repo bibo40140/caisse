@@ -19,6 +19,7 @@
   "ventes_exterieur_margin_percent": 30,
   "ventes_ext_margin_percent": 30,
   "api_base_url": "http://localhost:3001",
-  "api_email": "fabien.hicauber@gmail.com",
-  "api_password": "demo1234"
+  "api_email": "admin@demo.fr",
+  "api_password": "secret",
+  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMzAwZThiNzAtYTNiZi00ZWE5LWIyYjItMWNhMjhiYzE3MmExIiwidGVuYW50X2lkIjoiZmZjZTczYWMtZThjNS00OTc5LTk0OTAtMjM3OTJkM2M2MWRhIiwicm9sZSI6ImFkbWluIiwiaWF0IjoxNzYxNzM0MTA5LCJleHAiOjE3NjIzMzg5MDl9.r2fBdRP946MvYW0oDxzAq1A6pArhhXk44GKPGEjJp14"
 }

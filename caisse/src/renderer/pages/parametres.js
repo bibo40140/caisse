@@ -1,4 +1,5 @@
 // src/renderer/pages/parametres.js
+
 (() => {
   function showBusy(message = 'Veuillez patienter…') {
     let overlay = document.getElementById('busy-overlay');
@@ -38,6 +39,22 @@
     const content = document.getElementById("page-content");
     content.innerHTML = `
       <h2>Paramètres</h2>
+
+      <!-- BLOC CONNEXION MULTI-TENANT (pas de HTML séparé) -->
+      <section id="mt-auth" style="margin:16px 0; padding:12px; border:1px solid #ddd; border-radius:8px;">
+        <h3 style="margin-top:0;">Connexion (multi-tenant)</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <input id="mt-email" type="email" placeholder="Email admin" style="padding:8px; min-width:260px;">
+          <input id="mt-pass" type="password" placeholder="Mot de passe" style="padding:8px; min-width:180px;">
+          <button id="mt-login">Se connecter</button>
+          <button id="mt-register">Créer tenant + admin</button>
+          <span id="mt-status" style="margin-left:8px; opacity:.8;"></span>
+        </div>
+        <div style="margin-top:6px; font-size:12px; color:#555;">
+          API: <code id="mt-api-url">—</code>
+        </div>
+      </section>
+
       <ul style="display: flex; gap: 20px; list-style: none; padding-left: 0; flex-wrap: wrap;">
         <li><button id="btn-param-import">📂 Import données</button></li>
         <li><button id="btn-param-historique">🔧 Historique des ventes</button></li>
@@ -91,6 +108,64 @@
       }
 
       window.__syncBadgeSet = setStatus;
+    })();
+
+    // === Initialisation du bloc Connexion ===
+    // On charge le client API dynamiquement puis on branche les boutons.
+    (async function setupMtAuthUI(){
+      try {
+        await loadScriptOnce('src/renderer/lib/apiClient.js');
+      } catch (e) {
+        console.error('apiClient.js introuvable', e);
+        const s = document.getElementById('mt-status');
+        if (s) s.textContent = 'Client API manquant';
+        return;
+      }
+
+      const emailEl  = document.getElementById('mt-email');
+      const passEl   = document.getElementById('mt-pass');
+      const statusEl = document.getElementById('mt-status');
+      const apiUrlEl = document.getElementById('mt-api-url');
+      const btnLogin    = document.getElementById('mt-login');
+      const btnRegister = document.getElementById('mt-register');
+
+      function setStatus(msg) { if (statusEl) statusEl.textContent = msg || ''; }
+
+      // Affiche l’URL API et l’état de connexion
+      try {
+        // Préférence: lire la config de l’app si dispo (api_base_url), sinon ApiClient.API_URL
+        const cfg = await (window.electronAPI?.getConfig?.() || {});
+        const apiBase = (cfg && cfg.api_base_url) ? cfg.api_base_url.replace(/\/+$/, '') : (window.ApiClient?.API_URL || '—');
+        if (apiUrlEl) apiUrlEl.textContent = apiBase || '—';
+      } catch {
+        if (apiUrlEl) apiUrlEl.textContent = window.ApiClient?.API_URL || '—';
+      }
+
+      setStatus(window.ApiClient?.getToken() ? 'Connecté ✅' : 'Non connecté');
+
+      btnLogin?.addEventListener('click', async () => {
+        try {
+          setStatus('Connexion...');
+          const r = await window.ApiClient.login(emailEl.value.trim(), passEl.value);
+          setStatus(r?.token ? 'Connecté ✅' : 'Échec');
+        } catch (e) {
+          console.error(e);
+          setStatus('Erreur: ' + (e?.data?.error || e.message));
+        }
+      });
+
+      btnRegister?.addEventListener('click', async () => {
+        const tenantName = prompt('Nom de la nouvelle épicerie (tenant) ?');
+        if (!tenantName) return;
+        try {
+          setStatus('Création tenant...');
+          const r = await window.ApiClient.registerTenant(tenantName.trim(), emailEl.value.trim(), passEl.value);
+          setStatus(r?.token ? `Tenant créé: ${tenantName} ✅` : 'Échec création');
+        } catch (e) {
+          console.error(e);
+          setStatus('Erreur: ' + (e?.data?.error || e.message));
+        }
+      });
     })();
 
     // Boutons → sous-pages
