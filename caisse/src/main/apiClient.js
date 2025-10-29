@@ -1,41 +1,47 @@
-// src/main/apiClient.js (CommonJS)
-let API_BASE = '';
-let AUTH_TOKEN = '';
+// src/main/apiClient.js
+'use strict';
+
+const fetch = require('node-fetch');
+
+let API_BASE = (process.env.CAISSE_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+let AUTH_TOKEN = process.env.API_AUTH_TOKEN || '';
 
 function setApiBase(url) {
-  API_BASE = (url || '').replace(/\/+$/, '');
+  if (!url) return;
+  API_BASE = String(url).replace(/\/+$/, '');
+}
+function getApiBase() {
+  return API_BASE;
 }
 
 function setAuthToken(token) {
   AUTH_TOKEN = token || '';
+  // garde une copie pour d’anciens modules qui lisent process.env
+  if (AUTH_TOKEN) process.env.API_AUTH_TOKEN = AUTH_TOKEN;
+}
+function getAuthToken() {
+  return AUTH_TOKEN || process.env.API_AUTH_TOKEN || '';
+}
+function getAuthHeader() {
+  const t = getAuthToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-function getHeaders(extra = {}) {
-  const h = { 'Content-Type': 'application/json', ...extra };
-  if (AUTH_TOKEN) h.Authorization = `Bearer ${AUTH_TOKEN}`;
-  return h;
-}
-
-// helpers si tu veux t’en servir ailleurs
-async function apiGet(pathname) {
-  const r = await fetch(`${API_BASE}${pathname}`, { headers: getHeaders() });
-  const js = await r.json().catch(() => null);
-  return { ok: r.ok, status: r.status, data: js };
-}
-
-async function apiPost(pathname, body) {
-  const r = await fetch(`${API_BASE}${pathname}`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(body || {}),
-  });
-  const js = await r.json().catch(() => null);
-  return { ok: r.ok, status: r.status, data: js };
+async function apiFetch(path, init = {}) {
+  const url = `${API_BASE}${path.startsWith('/') ? path : '/' + path}`;
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(init.headers || {}),
+    ...getAuthHeader(),
+  };
+  return fetch(url, { ...init, headers });
 }
 
 module.exports = {
   setApiBase,
+  getApiBase,
   setAuthToken,
-  apiGet,
-  apiPost,
+  getAuthToken,
+  getAuthHeader,
+  apiFetch,
 };

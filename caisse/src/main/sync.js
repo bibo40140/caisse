@@ -1,24 +1,12 @@
 // src/main/sync.js
-const fetch = require('node-fetch');
-const { BrowserWindow } = require('electron');
-const fs = require('fs');
-const path = require('path');
-const db = require('./db/db');
-const b2i = (v) => (v ? 1 : 0);
+'use strict';
 
-/* -------------------------------------------------
-   API base
---------------------------------------------------*/
-function readApiBase() {
-  try {
-    if (process.env.CAISSE_API_URL) return process.env.CAISSE_API_URL;
-    const cfgPath = path.join(__dirname, '..', '..', 'config.json');
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    if (cfg && cfg.api_base_url) return cfg.api_base_url;
-  } catch (_) {}
-  return 'http://localhost:3001';
-}
-const API_URL = readApiBase();
+const { BrowserWindow } = require('electron');
+const db = require('./db/db');
+const { apiFetch } = require('./apiClient');
+
+// helpers
+const b2i = (v) => (v ? 1 : 0);
 
 function notifyRenderer(channel, payload) {
   BrowserWindow.getAllWindows().forEach((w) => {
@@ -26,7 +14,7 @@ function notifyRenderer(channel, payload) {
   });
 }
 
-/* petites aides pour le chip */
+/* petites aides pour le chip (badge sync dans l'UI) */
 function setState(status, info = {}) {
   // status: 'online' | 'offline' | 'pushing' | 'pulling' | 'idle'
   notifyRenderer('sync:state', { status, ...info, ts: Date.now() });
@@ -36,13 +24,12 @@ function setState(status, info = {}) {
    PULL refs depuis Neon -> Sauvegarde locale
 --------------------------------------------------*/
 async function pullRefs({ since = null } = {}) {
-  const url = new URL(`${API_URL}/sync/pull_refs`);
-  if (since) url.searchParams.set('since', since);
+  const qs = since ? `?since=${encodeURIComponent(since)}` : '';
 
   setState('pulling');
   let res;
   try {
-    res = await fetch(url.toString());
+    res = await apiFetch(`/sync/pull_refs${qs}`, { method: 'GET' });
   } catch (e) {
     setState('offline', { error: String(e) });
     throw new Error(`pull_refs network ${String(e)}`);
@@ -67,10 +54,12 @@ async function pullRefs({ since = null } = {}) {
   } = d;
 
   const upUnite = db.prepare(
-    `INSERT INTO unites (id, nom) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
+    `INSERT INTO unites (id, nom) VALUES (?, ?)
+     ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
   );
   const upFam = db.prepare(
-    `INSERT INTO familles (id, nom) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
+    `INSERT INTO familles (id, nom) VALUES (?, ?)
+     ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
   );
   const upCat = db.prepare(`
     INSERT INTO categories (id, nom, famille_id) VALUES (?, ?, ?)
@@ -114,31 +103,75 @@ async function pullRefs({ since = null } = {}) {
   `);
 
   const tx = db.transaction(() => {
-    for (const r of unites) upUnite.run(r.id, r.nom);
-    for (const r of familles) upFam.run(r.id, r.nom);
-    for (const r of categories) upCat.run(r.id, r.nom, r.famille_id ?? null);
+    const asInt = (v) => {
+      const n = Number(v);
+      return Number.isInteger(n) ? n : null;
+    };
 
-    for (const r of adherents)
+    // Unités
+    for (const r of unites) {
+      const id = asInt(r.id);
+      if (id == null) continue; // évite "datatype mismatch"
+      upUnite.run(id, r.nom);
+    }
+
+    // Familles
+    for (const r of familles) {
+      const id = asInt(r.id);
+      if (id == null) continue;
+      upFam.run(id, r.nom);
+    }
+
+    // Catégories
+    for (const r of categories) {
+      const id = asInt(r.id);
+      if (id == null) continue;
+      const famId = asInt(r.famille_id);
+      upCat.run(id, r.nom, famId);
+    }
+
+    // Adhérents
+    for (const r of adherents) {
+      const id = asInt(r.id);
+      if (id == null) continue;
       upAdh.run(
-        r.id, r.nom, r.prenom, r.email1, r.email2, r.telephone1, r.telephone2, r.adresse,
+        id, r.nom, r.prenom, r.email1, r.email2, r.telephone1, r.telephone2, r.adresse,
         r.code_postal, r.ville, r.nb_personnes_foyer, r.tranche_age, Number(r.droit_entree ?? 0),
         r.date_inscription, b2i(r.archive), r.date_archivage, r.date_reactivation
       );
+    }
 
-    for (const r of fournisseurs)
+    // Fournisseurs
+    for (const r of fournisseurs) {
+      const id = asInt(r.id);
+      if (id == null) continue;
+      const catId = asInt(r.categorie_id);
+      const refId = asInt(r.referent_id);
       upFour.run(
-        r.id, r.nom, r.contact, r.email, r.telephone, r.adresse, r.code_postal, r.ville,
-        r.categorie_id ?? null, r.referent_id ?? null, r.label ?? null
+        id, r.nom, r.contact, r.email, r.telephone, r.adresse, r.code_postal, r.ville,
+        catId, refId, r.label ?? null
       );
+    }
 
-    for (const r of produits)
+    // Produits
+    for (const r of produits) {
+      const id  = asInt(r.id);
+      if (id == null) continue;
+      const uId = asInt(r.unite_id);
+      const fId = asInt(r.fournisseur_id);
+      const cId = asInt(r.categorie_id);
       upProd.run(
-        r.id, r.nom, r.reference, Number(r.prix ?? 0), Number(r.stock ?? 0),
-        r.code_barre ?? null, r.unite_id ?? null, r.fournisseur_id ?? null, r.categorie_id ?? null, r.updated_at || null
+        id, r.nom, r.reference, Number(r.prix ?? 0), Number(r.stock ?? 0),
+        r.code_barre ?? null, uId, fId, cId, r.updated_at || null
       );
+    }
 
-    for (const m of modes_paiement)
-      upMode.run(m.id, m.nom, Number(m.taux_percent ?? 0), Number(m.frais_fixe ?? 0), b2i(!!m.actif));
+    // Modes de paiement
+    for (const m of modes_paiement) {
+      const id = asInt(m.id);
+      if (id == null) continue;
+      upMode.run(id, m.nom, Number(m.taux_percent ?? 0), Number(m.frais_fixe ?? 0), b2i(!!m.actif));
+    }
   });
   tx();
 
@@ -185,15 +218,18 @@ async function pushOpsNow(deviceId) {
   const payload = {
     deviceId,
     ops: ops.map(o => ({
-      id: o.id, op_type: o.op_type, entity_type: o.entity_type, entity_id: o.entity_id, payload_json: o.payload_json
+      id: o.id,
+      op_type: o.op_type,
+      entity_type: o.entity_type,
+      entity_id: o.entity_id,
+      payload_json: o.payload_json
     })),
   };
 
   let res;
   try {
-    res = await fetch(`${API_URL}/sync/push_ops`, {
+    res = await apiFetch('/sync/push_ops', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
   } catch (e) {
@@ -254,22 +290,26 @@ function collectLocalRefs() {
 async function bootstrapIfNeeded() {
   let needed = false;
   try {
-    const r = await fetch(`${API_URL}/sync/bootstrap_needed`);
+    const r = await apiFetch('/sync/bootstrap_needed', { method: 'GET' });
     if (r.ok) {
       const j = await r.json();
       needed = !!j?.needed;
+    } else {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `bootstrap_needed HTTP ${r.status} ${t}` };
     }
   } catch (e) {
     setState('offline', { error: String(e) });
+    return { ok: false, error: String(e) };
   }
+
   if (!needed) return { ok: true, bootstrapped: false };
 
   const refs = collectLocalRefs();
   let resp;
   try {
-    resp = await fetch(`${API_URL}/sync/bootstrap`, {
+    resp = await apiFetch('/sync/bootstrap', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(refs),
     });
   } catch (e) {
@@ -324,9 +364,8 @@ function startAutoSync(deviceId) {
 --------------------------------------------------*/
 async function pushBootstrapRefs() {
   const refs = collectLocalRefs();
-  const resp = await fetch(`${API_URL}/sync/bootstrap`, {
+  const resp = await apiFetch('/sync/bootstrap', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
     body: JSON.stringify(refs),
   });
   if (!resp.ok) {
@@ -340,30 +379,12 @@ async function pushBootstrapRefs() {
 }
 
 async function syncPushAll() {
-  const all = (sql) => db.prepare(sql).all();
-  const unites = all(`SELECT id, nom FROM unites ORDER BY id`);
-  const familles = all(`SELECT id, nom FROM familles ORDER BY id`);
-  const categories = all(`SELECT id, nom, famille_id FROM categories ORDER BY id`);
-  const adherents = all(`
-    SELECT id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
-           nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation
-    FROM adherents ORDER BY id
-  `);
-  const fournisseurs = all(`
-    SELECT id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label
-    FROM fournisseurs ORDER BY id
-  `);
-  const produits = all(`
-    SELECT id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at
-    FROM produits ORDER BY id
-  `);
-  const modes_paiement = all(`SELECT id, nom, taux_percent, frais_fixe, actif FROM modes_paiement ORDER BY id`);
+  const { unites, familles, categories, adherents, fournisseurs, produits, modes_paiement } = collectLocalRefs();
 
   let res;
   try {
-    res = await fetch(`${API_URL}/sync/bootstrap`, {
+    res = await apiFetch('/sync/bootstrap', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ unites, familles, categories, adherents, fournisseurs, produits, modes_paiement }),
     });
   } catch (e) {
