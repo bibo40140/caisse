@@ -1,6 +1,7 @@
 // src/main/preload.js
 const { contextBridge, ipcRenderer } = require('electron');
 
+
 /* -------------------------------------------------
    Allow-list des events écoutables côté renderer
 -------------------------------------------------- */
@@ -49,6 +50,9 @@ contextBridge.exposeInMainWorld('electronEvents', { on, off, once });
 contextBridge.exposeInMainWorld('electronAPI', {
   /* -------- Events (utilisés par le chip) -------- */
   on, off, once,
+
+ 
+
 
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
@@ -124,6 +128,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   analyserImportProduits: (filepath) => ipcRenderer.invoke('analyser-import-produits', filepath),
   validerImportProduits: (produits) => ipcRenderer.invoke('valider-import-produits', produits),
 
+  // --- Email settings (par tenant) ---
+emailGetSettings: () => ipcRenderer.invoke('email:getSettings'),
+emailSetSettings: (s) => ipcRenderer.invoke('email:setSettings', s),
+emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
+
   /* -------------- Ventes ------------------------- */
   enregistrerVente: (data) => ipcRenderer.invoke('enregistrer-vente', data),
   envoyerFactureEmail: (facture) => ipcRenderer.invoke('envoyer-facture-email', facture),
@@ -133,6 +142,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getStock: (id) => ipcRenderer.invoke('get-stock', id),
   getHistoriqueVentes: (filters) => ipcRenderer.invoke('get-historique-ventes', filters),
   getDetailsVente: (id) => ipcRenderer.invoke('get-details-vente', id),
+  
 
   /* -------------- Adhérents ---------------------- */
   getAdherents: (archive = 0) => ipcRenderer.invoke('get-adherents', archive),

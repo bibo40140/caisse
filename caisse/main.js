@@ -1,11 +1,12 @@
 // main.js
 const { app, BrowserWindow, ipcMain } = require('electron');
+
 const path = require('path');
 const jwt = require('jsonwebtoken');
 
 // === Auth & API config ===
 const { ensureAuth, getConfig } = require('./src/main/config');
-const { setApiBase, apiMainClient ,setAuthToken, apiFetch, logout } = require('./src/main/apiClient');
+const { setApiBase, apiMainClient, setAuthToken, apiFetch, logout } = require('./src/main/apiClient');
 
 // === App modules existants ===
 const db = require('./src/main/db/db');
@@ -21,6 +22,20 @@ const authCache = {
   tenant_id: null,
   user_id: null,
 };
+
+// --- garde-fou pour handlers email
+let _emailHandlersRegistered = false;
+function ensureEmailHandlers() {
+  if (_emailHandlersRegistered) return;
+  try {
+    const registerEmailHandlers = require('./src/main/handlers/email');
+    registerEmailHandlers();
+    _emailHandlersRegistered = true;
+    console.log('[main] email handlers registered');
+  } catch (e) {
+    console.error('[main] email handlers registration failed:', e?.message || e);
+  }
+}
 
 function computeAuthInfoFromToken(token) {
   if (!token) return { role: 'user', is_super_admin: false, tenant_id: null, user_id: null, email: null };
@@ -64,8 +79,8 @@ function createMainWindow() {
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'src', 'main', 'preload.js'),
-      contextIsolation: true
-    }
+      contextIsolation: true,
+    },
   });
   mainWin.maximize();
   mainWin.loadFile('index.html');
@@ -83,8 +98,8 @@ function createLoginWindow() {
     width: 420, height: 420, resizable: false,
     webPreferences: {
       preload: path.join(__dirname, 'src', 'main', 'preload.js'),
-      contextIsolation: true
-    }
+      contextIsolation: true,
+    },
   });
   loginWin.loadFile('src/renderer/login.html');
   loginWin.on('closed', () => { loginWin = null; });
@@ -100,8 +115,8 @@ function createOnboardingWindow() {
     width: 640, height: 720,
     webPreferences: {
       preload: path.join(__dirname, 'src', 'main', 'preload.js'),
-      contextIsolation: true
-    }
+      contextIsolation: true,
+    },
   });
   onboardWin.loadFile('src/renderer/onboarding.html');
   onboardWin.on('closed', () => { onboardWin = null; });
@@ -114,7 +129,6 @@ app.on('second-instance', () => {
     if (w.isMinimized()) w.restore();
     w.focus();
   } else {
-    // Fallback: open login by default
     createLoginWindow();
   }
 });
@@ -163,14 +177,16 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
     if (!r.ok || !js?.token) return { ok: false, error: js?.error || `HTTP ${r.status}` };
 
     setAuthToken(js.token);
-    process.env.API_AUTH_TOKEN = js.token; // <— add this line
+    process.env.API_AUTH_TOKEN = js.token;
+
+    // NEW: enregistrer les handlers email juste après login
+    ensureEmailHandlers();
 
     return { ok: true, token: js.token, role: js.role, is_super_admin: js.is_super_admin };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
-
 
 // Après login : route vers onboarding/main
 ipcMain.handle('auth:after-login-route', async () => {
@@ -179,6 +195,10 @@ ipcMain.handle('auth:after-login-route', async () => {
     const js = await r.json();
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
     const onboarded = !!js.status?.onboarded;
+
+    // NEW: s’assurer encore que les handlers email sont bien là
+    ensureEmailHandlers();
+
     if (!onboarded) {
       if (loginWin) { loginWin.close(); loginWin = null; }
       createOnboardingWindow();
@@ -196,7 +216,6 @@ ipcMain.handle('auth:after-login-route', async () => {
 // ⇢ retourne { ok, role, is_super_admin, tenant_id, user_id }
 ipcMain.handle('auth:getInfo', async () => {
   try {
-    // Try in-memory first (if your api client exposes it), otherwise env fallback
     let token = null;
     try {
       if (typeof apiMainClient?.getAuthToken === 'function') {
@@ -266,9 +285,10 @@ ipcMain.handle('auth:logout', async () => {
   try {
     logout();
     try {
-  const { resetCache } = require('./src/main/db/tenantDb');
-  resetCache();
-} catch {}
+      const { resetCache } = require('./src/main/db/tenantDb');
+      resetCache();
+    } catch {}
+
     // purge cache
     authCache.token = null;
     authCache.role = null;
@@ -287,12 +307,14 @@ ipcMain.handle('auth:logout', async () => {
 });
 
 ipcMain.handle('app:go-main', async () => {
+  // NEW: s’assurer que les handlers email sont là avant d’ouvrir la main
+  ensureEmailHandlers();
   if (onboardWin) { onboardWin.close(); onboardWin = null; }
   createMainWindow();
   return { ok: true };
 });
 
-// Lire les modules du tenant (via onboarding_status)
+// Lire/écrire les modules du tenant (via API onboarding)
 ipcMain.handle('tenant:modules:get', async () => {
   try {
     const r = await apiFetch('/tenant_settings/onboarding_status');
@@ -305,7 +327,6 @@ ipcMain.handle('tenant:modules:get', async () => {
   }
 });
 
-// Écrire les modules du tenant (via POST onboarding)
 ipcMain.handle('tenant:modules:set', async (_e, modules) => {
   try {
     const payload = { modules: modules || {} };
@@ -328,7 +349,6 @@ ipcMain.handle('tenant:modules:set', async (_e, modules) => {
     return { ok: false, error: e?.message || String(e) };
   }
 });
-
 
 // ---------------------------------
 // Single startup flow (ONLY ONE)
@@ -353,6 +373,7 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error('[auth] ensureAuth error:', e?.message || e);
   }
+
   if (auth.ok && auth.token) {
     setAuthToken(auth.token);
 
@@ -367,6 +388,10 @@ app.whenReady().then(async () => {
     if (auth.tenant_id) process.env.TENANT_ID = auth.tenant_id;
     process.env.API_AUTH_TOKEN = auth.token;
     console.log('[auth] OK — tenant =', auth.tenant_id || '(inconnu)');
+
+    // NEW: enregistrer les handlers email dès que l’auth auto est OK
+    ensureEmailHandlers();
+
   } else {
     console.warn('[auth] Pas de token API — on ouvre la fenêtre de login.');
     createLoginWindow();
@@ -409,6 +434,10 @@ app.whenReady().then(async () => {
     const r = await apiFetch('/tenant_settings/onboarding_status');
     const js = await r.json();
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+
+    // s’assurer encore des handlers (sécurité)
+    ensureEmailHandlers();
+
     if (js.status?.onboarded) {
       createMainWindow();
     } else {
@@ -484,13 +513,12 @@ try {
 if (cfgModules.fournisseurs) require('./src/main/handlers/fournisseurs')();
 require('./src/main/handlers/adherents')(ipcMain);
 
-if (cfgModules.cotisations)  require('./src/main/handlers/cotisations');
+if (cfgModules.cotisations) require('./src/main/handlers/cotisations');
 if (cfgModules.imports !== false) require('./src/main/handlers/imports');
 if (cfgModules.stocks) {
   require('./src/main/handlers/stock')(ipcMain);
   require('./src/main/handlers/receptions').registerReceptionHandlers(ipcMain);
 }
-if (cfgModules.email || cfgModules.emails) require('./src/main/handlers/email')(ipcMain);
 
 const registerInventoryHandlers = require('./src/main/handlers/inventory');
 registerInventoryHandlers(ipcMain);
