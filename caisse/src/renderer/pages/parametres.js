@@ -35,6 +35,35 @@
     if (overlay) overlay.style.display = 'none';
   }
 
+  // --- Modules : lecture/écriture centrées sur le TENANT, avec fallback local ---
+async function getActiveModules() {
+  try {
+    if (window.electronAPI?.getTenantModules) {
+      const r = await window.electronAPI.getTenantModules();
+      if (r?.ok && r.modules) return r.modules;
+    }
+  } catch {}
+  // Fallback : ancien config local
+  try {
+    return await (window.getMods?.() || window.electronAPI.getModules());
+  } catch {
+    return {};
+  }
+}
+
+async function saveActiveModules(modules) {
+  // 1) Source de vérité : côté tenant (API)
+  if (window.electronAPI?.setTenantModules) {
+    const r = await window.electronAPI.setTenantModules(modules);
+    if (!r?.ok) throw new Error(r?.error || 'setTenantModules KO');
+  }
+  // 2) Compat : met à jour l’ancien config local aussi (si présent)
+  if (window.electronAPI?.setModules) {
+    try { await window.electronAPI.setModules(modules); } catch {}
+  }
+}
+
+
   function renderParametresHome() {
     const content = document.getElementById("page-content");
     content.innerHTML = `
@@ -288,7 +317,7 @@ window.__debugAuth && window.__debugAuth();
     // Prospects
     document.getElementById('btn-param-prospects')?.addEventListener('click', async () => {
       try {
-        const mods = await (window.getMods?.() || window.electronAPI.getModules());
+const mods = await getActiveModules();
         if (!mods?.prospects) { alert("Le module Prospects n'est pas activé (Paramètres > Modules)."); return; }
         if (!window.PageProspects?.render) { await loadScriptOnce('src/renderer/pages/prospects.js'); }
         const fn = window.PageProspects?.render || window.renderProspectsPage;
@@ -298,7 +327,7 @@ window.__debugAuth && window.__debugAuth();
 
     // Masques si module OFF
     (async () => {
-      const mods = await (window.getMods?.() || window.electronAPI.getModules());
+const mods = await getActiveModules();
       const btnCoti = document.getElementById('btn-param-cotisations');
       if (btnCoti) btnCoti.style.display = mods.cotisations ? '' : 'none';
       const btnPros = document.getElementById('btn-param-prospects');
@@ -954,7 +983,7 @@ window.__debugAuth && window.__debugAuth();
     const container = document.getElementById('page-content');
     if (!container) return;
 
-    const current = await window.electronAPI.getModules();
+const current = await getActiveModules();
 
     let extMargin = 30;
     try {
@@ -1142,7 +1171,7 @@ window.__debugAuth && window.__debugAuth();
           await window.electronAPI.setVentesMargin(v);
         }
 
-        await window.electronAPI.setModules(payload);
+await saveActiveModules(payload);
         if (window.clearModsCache) window.clearModsCache();
         window.location.reload();
       } catch (e) {

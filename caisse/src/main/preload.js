@@ -223,6 +223,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Infos d’auth pour afficher le bouton "Tenants (Super admin)"
   getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
+
+    // --- Modules par tenant (API) ---
+  getTenantModules: () => ipcRenderer.invoke('tenant:modules:get'),
+  setTenantModules: (modules) => ipcRenderer.invoke('tenant:modules:set', modules),
+
 });
 
 /* -------------- Paniers / Carts ------------------ */

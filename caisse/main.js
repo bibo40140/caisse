@@ -265,6 +265,10 @@ ipcMain.handle('onboarding:submit', async (_e, payload) => {
 ipcMain.handle('auth:logout', async () => {
   try {
     logout();
+    try {
+  const { resetCache } = require('./src/main/db/tenantDb');
+  resetCache();
+} catch {}
     // purge cache
     authCache.token = null;
     authCache.role = null;
@@ -287,6 +291,44 @@ ipcMain.handle('app:go-main', async () => {
   createMainWindow();
   return { ok: true };
 });
+
+// Lire les modules du tenant (via onboarding_status)
+ipcMain.handle('tenant:modules:get', async () => {
+  try {
+    const r = await apiFetch('/tenant_settings/onboarding_status');
+    const js = await r.json();
+    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    const modules = js?.status?.modules || {};
+    return { ok: true, modules };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Écrire les modules du tenant (via POST onboarding)
+ipcMain.handle('tenant:modules:set', async (_e, modules) => {
+  try {
+    const payload = { modules: modules || {} };
+    const r = await apiFetch('/tenant_settings/onboarding', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const js = await r.json();
+    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+
+    // (optionnel) garder l’ancien config local en phase pour les écrans historiques
+    try {
+      const { writeModules } = require('./src/main/db/config');
+      writeModules(payload.modules || {});
+    } catch (_) {}
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
 
 // ---------------------------------
 // Single startup flow (ONLY ONE)
