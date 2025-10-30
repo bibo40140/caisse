@@ -57,19 +57,5 @@
 <script src="./src/renderer/services/syncClient.js"></script>
 
 
-
-<script>
-  document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('btn-logout')?.addEventListener('click', async () => {
-      if (!confirm('Se déconnecter maintenant ?')) return;
-      const r = await (window.electronAPI?.logout?.() || Promise.resolve({ ok:false, error:'API manquante' }));
-      if (!r?.ok) {
-        alert(r?.error || 'Déconnexion impossible');
-      }
-      // La fenêtre Login s’ouvre automatiquement côté main.js
-    });
-  });
-</script>
-
 </body>
 </html>

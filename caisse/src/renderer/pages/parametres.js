@@ -55,10 +55,126 @@
         <li><button id="btn-param-prospects">👥 Prospects</button></li>
         <li><button id="btn-sync-push">☁️ Push produits (local → Neon)</button></li>
         <li><button id="btn-sync-pull">🔁 Pull produits (Neon → local)</button></li>
+        <li><button id="btn-tenants-admin" style="display:none;">🏪 Tenants (Super admin)</button></li>
         <li><button id="btn-param-autres">🔧 Autres paramètres</button></li>
+
       </ul>
       <div id="parametres-souspage" style="margin-top: 20px;"></div>
     `;
+    // --- Super admin? Afficher le bouton Tenants
+// --- Helpers super admin ---
+function decodeJwtPayload(tok) {
+  try {
+    const p = tok.split('.')[1];
+    const json = atob(p.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(decodeURIComponent(
+      json.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+    ));
+  } catch { return null; }
+}
+
+function showTenantButtonIfSuper(info) {
+  const btnTen = document.getElementById('btn-tenants-admin');
+  if (!btnTen) return;
+  const isSuper =
+    !!info?.is_super_admin ||
+    info?.role === 'super_admin' ||
+    info === true; // au cas où getAuthInfo() renverrait juste true
+
+  btnTen.style.display = isSuper ? '' : 'none';
+  if (isSuper && !btnTen.__bound) {
+    btnTen.addEventListener('click', renderTenantsAdmin);
+    btnTen.__bound = true;
+  }
+}
+
+async function detectSuperAdmin() {
+  // 1) Essayer via IPC
+  try {
+    if (window.electronAPI?.getAuthInfo) {
+      const info = await window.electronAPI.getAuthInfo();
+      if (info) { showTenantButtonIfSuper(info); return; }
+    }
+  } catch {}
+  // 2) Fallback : via ApiClient (si déjà chargé)
+  try {
+    const tok = window.ApiClient?.getToken?.();
+    if (tok) {
+      const payload = decodeJwtPayload(tok);
+      showTenantButtonIfSuper(payload);
+      return;
+    }
+  } catch {}
+  // 3) Fallback : token en localStorage
+  try {
+    const tok = localStorage.getItem('auth_token') || localStorage.getItem('mt_token') || localStorage.getItem('jwt');
+    if (tok) {
+      const payload = decodeJwtPayload(tok);
+      showTenantButtonIfSuper(payload);
+      return;
+    }
+  } catch {}
+  // sinon on laisse caché
+}
+
+
+// EXPLIQUE MOI QUI JE SUIS (debug)
+window.__debugAuth = async function () {
+  let ipcInfo = null;
+  try {
+    ipcInfo = await (window.electronAPI?.getAuthInfo?.() ?? null);
+    console.log('[auth] IPC getAuthInfo =>', ipcInfo);
+  } catch (e) {
+    console.log('[auth] IPC getAuthInfo error =>', e);
+  }
+
+  // util: base64url → json
+  function decodeJwtPayload(token) {
+    try {
+      const part = token.split('.')[1];
+      const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '==='.slice((base64.length + 3) % 4);
+      const json = atob(padded);
+      return JSON.parse(decodeURIComponent(
+        Array.from(json).map(c => '%' + c.charCodeAt(0).toString(16).padStart(2,'0')).join('')
+      ));
+    } catch {
+      return null;
+    }
+  }
+
+  let tok = null, payload = null;
+  try {
+    tok =
+      (window.ApiClient?.getToken?.() ?? null) ||  // ✅ appel en `?.()`
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('mt_token') ||
+      localStorage.getItem('jwt');
+
+    console.log('[auth] Token present?', !!tok);
+
+    if (tok) payload = decodeJwtPayload(tok);
+    console.log('[auth] JWT payload =>', payload);
+  } catch (e) {
+    console.log('[auth] JWT decode error =>', e);
+  }
+
+  const isSuper =
+    !!payload?.is_super_admin || payload?.role === 'super_admin' ||
+    !!ipcInfo?.is_super_admin || ipcInfo?.role === 'super_admin';
+
+  console.log('[auth] isSuper computed =>', isSuper);
+};
+
+
+
+// Appel immédiat (peut déjà suffire si getAuthInfo est en place)
+detectSuperAdmin();
+
+
+window.__debugAuth && window.__debugAuth();
+
+
 
     // Voyant réseau/sync
     (function ensureSyncStatusBadge(){
@@ -102,6 +218,8 @@
     (async function setupMtAuthUI(){
       try {
         await loadScriptOnce('src/renderer/lib/apiClient.js');
+        detectSuperAdmin(); // retente après que l'ApiClient soit dispo
+
       } catch (e) {
         console.error('apiClient.js introuvable', e);
         const s = document.getElementById('mt-status');
@@ -1241,6 +1359,129 @@ async function exportInventoryCSV(apiBase, sessionId) {
   }
 }
 
+async function renderTenantsAdmin() {
+  const host = document.getElementById('parametres-souspage') || document.getElementById('page-content');
+  if (!host) return;
+
+  // Feuilles de style (une seule fois)
+  if (!document.getElementById('tenants-admin-style')) {
+    const st = document.createElement('style');
+    st.id = 'tenants-admin-style';
+    st.textContent = `
+      .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; box-shadow: 0 4px 14px rgba(0,0,0,.05); }
+      .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; }
+      .row > div { display:flex; flex-direction:column; gap:6px; }
+      .muted { color:#6b7280; font-size:12px; }
+      .table { width:100%; border-collapse:collapse; }
+      .table th, .table td { border:1px solid #e5e7eb; padding:8px; }
+      .table th { background:#f9fafb; text-align:left; }
+      .right { text-align:right; }
+    `;
+    document.head.appendChild(st);
+  }
+
+  host.innerHTML = `
+    <h2>Gestion des épiceries (tenants)</h2>
+    <div class="muted">Réservé au super admin. Crée de nouvelles épiceries et visualise la liste existante.</div>
+    <div style="height:8px;"></div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px 0;">Créer une nouvelle épicerie</h3>
+      <div class="row">
+        <div><label>Nom de l'épicerie<br><input id="t-name" placeholder="Ex: Coop’az Azur"></label></div>
+        <div><label>Email admin<br><input id="t-email" type="email" placeholder="gerant@epicerie.fr"></label></div>
+        <div><label>Mot de passe provisoire<br><input id="t-pass" type="password" placeholder="Provisoire123!"></label></div>
+        <div><label>Raison sociale (optionnel)<br><input id="t-company" placeholder="Raison sociale"></label></div>
+        <div><button id="t-create">Créer le tenant</button></div>
+      </div>
+      <div id="t-result" class="muted" style="margin-top:6px;"></div>
+    </div>
+
+    <div style="height:16px;"></div>
+
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <h3 style="margin:0;">Liste des tenants</h3>
+        <button id="t-refresh">Rafraîchir</button>
+      </div>
+      <div id="t-list" style="margin-top:10px;">Chargement…</div>
+    </div>
+  `;
+
+  const out = (msg) => { const el = document.getElementById('t-result'); if (el) el.textContent = msg || ''; };
+
+  // Création tenant
+  document.getElementById('t-create')?.addEventListener('click', async () => {
+    const tenant_name = document.getElementById('t-name').value.trim();
+    const email       = document.getElementById('t-email').value.trim();
+    const password    = document.getElementById('t-pass').value;
+    const company_name= document.getElementById('t-company').value.trim() || tenant_name;
+
+    if (!tenant_name || !email || !password) {
+      out('Champs requis manquants.'); return;
+    }
+    out('Création en cours…');
+
+    try {
+      const r = await window.electronAPI.adminRegisterTenant({ tenant_name, email, password, company_name });
+      if (!r?.ok) throw new Error(r?.error || 'register-tenant KO');
+      out(`✅ Créé — tenant_id: ${r.tenant_id}`);
+      // rafraîchir la liste
+      await loadTenants();
+    } catch (e) {
+      out('Erreur: ' + (e?.message || e));
+    }
+  });
+
+  // Liste tenants
+  async function loadTenants() {
+    const box = document.getElementById('t-list');
+    if (!box) return;
+    box.textContent = 'Chargement…';
+    try {
+      // nécessite l’IPC adminListTenants (voir plus bas)
+      const r = await (window.electronAPI?.adminListTenants?.() || null);
+      if (!r?.ok) {
+        box.innerHTML = `
+          <div class="muted">Impossible de charger la liste (adminListTenants non dispo).<br>
+          Tu peux déjà créer des tenants avec le formulaire ci-dessus.</div>`;
+        return;
+      }
+      const rows = r.tenants || [];
+      if (!rows.length) {
+        box.innerHTML = `<div class="muted">Aucun tenant.</div>`;
+        return;
+      }
+      box.innerHTML = `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th>Company</th>
+              <th>Tenant ID</th>
+              <th>Admin (email)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(t => `
+              <tr>
+                <td>${t.name || '—'}</td>
+                <td>${t.company_name || '—'}</td>
+                <td><code>${t.id}</code></td>
+                <td>${t.admin_email || '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (e) {
+      box.innerHTML = `<div class="muted">Erreur: ${e?.message || e}</div>`;
+    }
+  }
+
+  document.getElementById('t-refresh')?.addEventListener('click', loadTenants);
+  await loadTenants();
+}
 
 
   // === Export global ===

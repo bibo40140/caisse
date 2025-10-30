@@ -1,10 +1,11 @@
 // main.js
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const jwt = require('jsonwebtoken');
 
 // === Auth & API config ===
 const { ensureAuth, getConfig } = require('./src/main/config');
-const { setApiBase, setAuthToken, apiFetch, logout } = require('./src/main/apiClient');
+const { setApiBase, apiMainClient ,setAuthToken, apiFetch, logout } = require('./src/main/apiClient');
 
 // === App modules existants ===
 const db = require('./src/main/db/db');
@@ -12,7 +13,35 @@ const { getDeviceId } = require('./src/main/device');
 const { runBootstrap } = require('./src/main/bootstrap');
 const sync = require('./src/main/sync'); // hydrateOnStartup, pullAll, pushOpsNow, startAutoSync
 
-// --- Single instance lock (prevents double launch)
+// --- cache local des infos d'auth (rempli au login / au startup)
+const authCache = {
+  token: null,
+  role: null,
+  is_super_admin: false,
+  tenant_id: null,
+  user_id: null,
+};
+
+function computeAuthInfoFromToken(token) {
+  if (!token) return { role: 'user', is_super_admin: false, tenant_id: null, user_id: null, email: null };
+  try {
+    const payload = jwt.decode(token) || {};
+    const role = payload.role || 'user';
+    const isSuper = !!payload.is_super_admin || role === 'super_admin';
+    return {
+      role,
+      is_super_admin: isSuper,
+      tenant_id: payload.tenant_id ?? null,
+      user_id: payload.user_id ?? payload.sub ?? null,
+      email: payload.email ?? null,
+      _raw: payload,
+    };
+  } catch {
+    return { role: 'user', is_super_admin: false, tenant_id: null, user_id: null, email: null };
+  }
+}
+
+// --- Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -93,7 +122,6 @@ app.on('second-instance', () => {
 // macOS: re-open a window if none
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    // If we had a token we’ll switch to main later; login is a safe default
     createLoginWindow();
   }
 });
@@ -106,6 +134,24 @@ app.on('window-all-closed', () => {
 // ---------------------------------
 // IPC: Auth / Onboarding flow
 // ---------------------------------
+
+// Créer un tenant (réservé côté API au super admin)
+ipcMain.handle('admin:registerTenant', async (_e, payload) => {
+  try {
+    const r = await apiFetch('/auth/register-tenant', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const js = await r.json();
+    if (!r.ok || !js?.tenant_id) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, tenant_id: js.tenant_id, token: js.token };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Login
 ipcMain.handle('auth:login', async (_e, { email, password }) => {
   try {
     const r = await apiFetch('/auth/login', {
@@ -115,13 +161,18 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
     });
     const js = await r.json();
     if (!r.ok || !js?.token) return { ok: false, error: js?.error || `HTTP ${r.status}` };
+
     setAuthToken(js.token);
-    return { ok: true, token: js.token };
+    process.env.API_AUTH_TOKEN = js.token; // <— add this line
+
+    return { ok: true, token: js.token, role: js.role, is_super_admin: js.is_super_admin };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
 
+
+// Après login : route vers onboarding/main
 ipcMain.handle('auth:after-login-route', async () => {
   try {
     const r = await apiFetch('/tenant_settings/onboarding_status');
@@ -137,6 +188,48 @@ ipcMain.handle('auth:after-login-route', async () => {
       createMainWindow();
       return { ok: true, next: 'main' };
     }
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// ⇢ retourne { ok, role, is_super_admin, tenant_id, user_id }
+ipcMain.handle('auth:getInfo', async () => {
+  try {
+    // Try in-memory first (if your api client exposes it), otherwise env fallback
+    let token = null;
+    try {
+      if (typeof apiMainClient?.getAuthToken === 'function') {
+        token = apiMainClient.getAuthToken();
+      }
+    } catch (_) {}
+    if (!token && process.env.API_AUTH_TOKEN) token = process.env.API_AUTH_TOKEN;
+
+    if (!token) return { ok: false, error: 'no token' };
+
+    const payload = jwt.decode(token) || {};
+    const role = payload.role || 'user';
+    const isSuper = !!payload.is_super_admin || role === 'super_admin';
+
+    return {
+      ok: true,
+      role,
+      is_super_admin: isSuper,
+      tenant_id: payload.tenant_id ?? null,
+      user_id: payload.user_id ?? payload.sub ?? null,
+    };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Liste des tenants (réservé super admin côté API)
+ipcMain.handle('admin:listTenants', async () => {
+  try {
+    const r = await apiFetch('/tenants');
+    const js = await r.json();
+    if (!r.ok || !Array.isArray(js?.tenants)) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, tenants: js.tenants };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -168,30 +261,26 @@ ipcMain.handle('onboarding:submit', async (_e, payload) => {
   }
 });
 
-// Déconnexion : purge le token, ferme la fenêtre principale et ouvre la fenêtre de login
+// Déconnexion : purge token, ferme app, rouvre login
 ipcMain.handle('auth:logout', async () => {
   try {
-    // vide le token (et supprime auth_token du config.json)
     logout();
+    // purge cache
+    authCache.token = null;
+    authCache.role = null;
+    authCache.is_super_admin = false;
+    authCache.tenant_id = null;
+    authCache.user_id = null;
 
-    // ferme la/les fenêtres "app"
-    if (mainWin && !mainWin.isDestroyed()) {
-      try { mainWin.close(); } catch {}
-      mainWin = null;
-    }
-    if (onboardWin && !onboardWin.isDestroyed()) {
-      try { onboardWin.close(); } catch {}
-      onboardWin = null;
-    }
+    if (mainWin && !mainWin.isDestroyed()) { try { mainWin.close(); } catch {} mainWin = null; }
+    if (onboardWin && !onboardWin.isDestroyed()) { try { onboardWin.close(); } catch {} onboardWin = null; }
 
-    // ouvre la fenêtre de login
     createLoginWindow();
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
-
 
 ipcMain.handle('app:go-main', async () => {
   if (onboardWin) { onboardWin.close(); onboardWin = null; }
@@ -224,13 +313,22 @@ app.whenReady().then(async () => {
   }
   if (auth.ok && auth.token) {
     setAuthToken(auth.token);
+
+    // remplir le cache d'emblée
+    authCache.token = auth.token;
+    const info = computeAuthInfoFromToken(auth.token);
+    authCache.role = info.role;
+    authCache.is_super_admin = info.is_super_admin;
+    authCache.tenant_id = info.tenant_id;
+    authCache.user_id = info.user_id;
+
     if (auth.tenant_id) process.env.TENANT_ID = auth.tenant_id;
     process.env.API_AUTH_TOKEN = auth.token;
     console.log('[auth] OK — tenant =', auth.tenant_id || '(inconnu)');
   } else {
     console.warn('[auth] Pas de token API — on ouvre la fenêtre de login.');
     createLoginWindow();
-    return; // stop here (bootstrap/hydrate will run after login if you want)
+    return;
   }
 
   // 3) Auto-sync
@@ -337,7 +435,7 @@ registerCategoryHandlers();
 // chargements conditionnels (synchrone)
 let cfgModules = {};
 try {
-  const c = getConfig(); // if your getConfig is async, replace with a cached config or make a tiny sync reader here
+  const c = getConfig(); // si getConfig est async chez toi, garde ce try/catch mais évite l'appel sync ici
   cfgModules = (c && c.modules) || {};
 } catch { cfgModules = {}; }
 

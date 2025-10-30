@@ -2,16 +2,15 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 /* -------------------------------------------------
-   Allow-list des canaux events écoutables côté renderer
-   (sécurité : on limite explicitement les noms)
+   Allow-list des events écoutables côté renderer
 -------------------------------------------------- */
 const ALLOWED_EVENTS = new Set([
   // sync + chip
-  'sync:state',          // { status: 'online'|'offline'|'pushing'|'pulling', pending, lastError? }
+  'sync:state',          // { status, pending, lastError? }
   'ops:pushed',          // { count }
-  'data:refreshed',      // { from: 'pull_refs' | ... }
+  'data:refreshed',      // { from }
 
-  // (optionnel si tu les utilises plus tard)
+  // optionnels
   'sync:error',
   'sync:pull_done',
 
@@ -26,38 +25,30 @@ function on(channel, listener) {
     try { listener(_event, data); } catch (_) {}
   };
   ipcRenderer.on(channel, wrapped);
-  // retourne un unsubscribe pratique
   return () => ipcRenderer.removeListener(channel, wrapped);
 }
-
 function once(channel, listener) {
   if (!ALLOWED_EVENTS.has(channel)) return;
   ipcRenderer.once(channel, (_event, data) => {
     try { listener(_event, data); } catch (_) {}
   });
 }
-
 function off(channel, listener) {
   ipcRenderer.removeListener(channel, listener);
 }
 
 /* -------------------------------------------------
-   Espace "compat" electronEvents (garde le tien)
+   Espace "compat" electronEvents
 -------------------------------------------------- */
-contextBridge.exposeInMainWorld('electronEvents', {
-  on,
-  off,
-  once,
-});
+contextBridge.exposeInMainWorld('electronEvents', { on, off, once });
 
 /* -------------------------------------------------
-   API principale (IPC invoke + events on/off/once)
+   API principale (IPC invoke)
+   ⚠️ Alignée avec les handlers déclarés dans main.js
 -------------------------------------------------- */
 contextBridge.exposeInMainWorld('electronAPI', {
-  /* -------- Events (⇒ le chip utilise ça) -------- */
-  on,
-  off,
-  once,
+  /* -------- Events (utilisés par le chip) -------- */
+  on, off, once,
 
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
@@ -74,9 +65,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncPushAll: () => ipcRenderer.invoke('sync:push_all'),
   syncPullAll: () => ipcRenderer.invoke('sync:pull_all'),
   syncPushBootstrapRefs: () => ipcRenderer.invoke('sync:pushBootstrapRefs'),
-  // Anciens alias (si encore utilisés)
-  syncPushProduits: () => ipcRenderer.invoke('sync:push-all'),
-  syncPullProduits: () => ipcRenderer.invoke('sync:pull-all'),
+  // anciens alias → on mappe vers les bons canaux pour éviter les erreurs
+  syncPushProduits: () => ipcRenderer.invoke('sync:push_all'),
+  syncPullProduits: () => ipcRenderer.invoke('sync:pull_all'),
   // Outils
   opsPushNow: () => ipcRenderer.invoke('ops:push-now'),
   opsPendingCount: () => ipcRenderer.invoke('ops:pending-count'),
@@ -114,7 +105,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('categories:set-family', { id: Number(id), familleId: Number(famille_id ?? familleId) }),
   deleteCategory: (arg) => ipcRenderer.invoke('categories:delete', Number(arg?.id ?? arg)),
 
-  // Anciens alias
+  // anciens alias (si encore utilisés)
   ajouterCategorie: (nom) => ipcRenderer.invoke('ajouter-categorie', nom),
   modifierCategorie: (id, nom) => ipcRenderer.invoke('modifier-categorie', id, nom),
   supprimerCategorie: (id) => ipcRenderer.invoke('supprimer-categorie', id),
@@ -211,28 +202,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
   },
 
-  /* -------------- Inventaire / produits  -------- */
+  /* -------------- Inventaire / produits ---------- */
   produits: {
     list: () => ipcRenderer.invoke('produits:list'),
   },
-sendInventoryRecapEmail: (payload) => ipcRenderer.invoke('send-inventory-recap-email', payload),
 
-  /* -------------- login---------- */
- authLogin: ({ email, password }) => ipcRenderer.invoke('auth:login', { email, password }),
+  sendInventoryRecapEmail: (payload) => ipcRenderer.invoke('send-inventory-recap-email', payload),
+
+  /* -------------- Auth / onboarding -------------- */
+  authLogin: ({ email, password }) => ipcRenderer.invoke('auth:login', { email, password }),
   afterLoginRoute: () => ipcRenderer.invoke('auth:after-login-route'),
-  /* -------------- onboarding---------- */
   getOnboardingStatus: () => ipcRenderer.invoke('onboarding:status'),
   submitOnboarding: (payload) => ipcRenderer.invoke('onboarding:submit', payload),
   goMain: () => ipcRenderer.invoke('app:go-main'),
-   logout: () => ipcRenderer.invoke('auth:logout'),
+  logout: () => ipcRenderer.invoke('auth:logout'),
 
+  // Super admin (API protège ces routes)
+  adminRegisterTenant: (payload) => ipcRenderer.invoke('admin:registerTenant', payload),
+  adminListTenants: () => ipcRenderer.invoke('admin:listTenants'),
 
-
-
-  
+  // Infos d’auth pour afficher le bouton "Tenants (Super admin)"
+  getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
 });
-
-
 
 /* -------------- Paniers / Carts ------------------ */
 contextBridge.exposeInMainWorld('carts', {
@@ -243,7 +234,7 @@ contextBridge.exposeInMainWorld('carts', {
   delete: (id)          => ipcRenderer.invoke('cart-delete', id),
   remove: (id)          => ipcRenderer.invoke('cart-delete', id),
 
-  // Alias optionnel pour l’inventaire (si ton code l’appelait via carts.inventory.*)
+  // Alias inventaire
   inventory: {
     start:     (payload)                         => ipcRenderer.invoke('inventory:start', payload),
     countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>

@@ -4,6 +4,8 @@ console.log('[API] build=no-mailer v1 (multi-tenant full)');
 
 import 'dotenv/config';
 import express from 'express';
+import tenantsRouter from './routes/tenants.js';
+
 import cors from 'cors';
 
 import { pool } from './db/index.js';
@@ -29,6 +31,8 @@ if (!process.env.DATABASE_URL) {
 const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json({ limit: '10mb' }));
+app.use(tenantsRouter);
+
 
 /* =========================
  * Health
