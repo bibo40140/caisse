@@ -130,6 +130,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   emailSetSettings: (s) => ipcRenderer.invoke('email:setSettings', s),
   emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
 
+  // --- Super admin: gestion ciblée d'un tenant ---
+adminGetTenantModules:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:modules:get', tenantId),
+adminSetTenantModules:   (tenantId, modules)        => ipcRenderer.invoke('admin:tenant:modules:set', { tenantId, modules }),
+adminEmailGetSettings:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:email:get', tenantId),
+adminEmailSetSettings:   (tenantId, settings)       => ipcRenderer.invoke('admin:tenant:email:set', { tenantId, settings }),
+adminEmailTestSend:      (tenantId, payload)        => ipcRenderer.invoke('admin:tenant:email:test', { tenantId, ...payload }),
+adminTenantDelete: (tenantId, hard = false) =>  ipcRenderer.invoke('admin:tenant:delete', { tenantId, hard }),
+
+
   /* -------------- Ventes ------------------------- */
   enregistrerVente: (data) => ipcRenderer.invoke('enregistrer-vente', data),
   envoyerFactureEmail: (facture) => ipcRenderer.invoke('envoyer-facture-email', facture),
@@ -229,6 +238,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Super admin (API protège ces routes)
   adminRegisterTenant: (payload) => ipcRenderer.invoke('admin:registerTenant', payload),
   adminListTenants: () => ipcRenderer.invoke('admin:listTenants'),
+
 
   // Infos d’auth pour afficher le bouton "Tenants (Super admin)"
   getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),

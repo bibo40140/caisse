@@ -167,6 +167,13 @@ function getTenantHeaders() {
   return h;
 }
 
+function getTenantHeadersFor(tenantId) {
+  const h = {};
+  if (tenantId) h['x-tenant-id'] = String(tenantId);
+  return h;
+}
+
+
 // ---------------------------------
 // Helpers fetch JSON sûrs
 // ---------------------------------
@@ -198,6 +205,8 @@ ipcMain.handle('admin:registerTenant', async (_e, payload) => {
     return { ok: false, error: e?.message || String(e) };
   }
 });
+
+
 
 // Login
 ipcMain.handle('auth:login', async (_e, { email, password }) => {
@@ -279,12 +288,59 @@ ipcMain.handle('auth:getInfo', async () => {
 });
 
 // Liste des tenants (réservé super admin côté API)
+// Helper: essaie plusieurs endpoints jusqu'à trouver la liste des tenants
+async function tryFetchTenantsMulti() {
+  // 1) Endpoint custom via config.json si présent
+  let custom = '';
+  try {
+    const cfg = getConfig();
+    if (cfg && typeof cfg.tenants_endpoint === 'string' && cfg.tenants_endpoint.trim()) {
+      custom = cfg.tenants_endpoint.trim(); // ex: "/admin/tenants/list"
+      if (!custom.startsWith('/')) custom = '/' + custom;
+    }
+  } catch {}
+
+  const candidates = [
+    custom || null,
+    '/tenants',                    // version A
+    '/admin/tenants',              // version B
+    '/admin/tenants/list',         // version B'
+    '/tenant_settings/tenants',    // version C
+    '/api/tenants',                // version D
+    '/v1/tenants',                 // version E
+  ].filter(Boolean);
+
+  for (const path of candidates) {
+    let r;
+    try {
+      r = await apiFetch(path, { headers: { accept: 'application/json' } });
+    } catch (e) {
+      continue; // réseau KO → essaie le suivant
+    }
+
+    const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+    if (!ct.includes('application/json')) {
+      // 404 HTML / page login → on continue
+      continue;
+    }
+
+    let js;
+    try { js = await r.json(); } catch { continue; }
+
+    // Formats possibles
+    if (r.ok && Array.isArray(js?.tenants)) return { ok: true, tenants: js.tenants };
+    if (r.ok && Array.isArray(js?.items))   return { ok: true, tenants: js.items };
+    if (r.ok && Array.isArray(js?.data))    return { ok: true, tenants: js.data };
+  }
+
+  return { ok: false, error: 'Aucun endpoint JSON compatible pour la liste des tenants.' };
+}
+
 ipcMain.handle('admin:listTenants', async () => {
   try {
-    const r = await apiFetch('/tenants', { headers: { accept: 'application/json' } });
-    const js = await safeJson(r);
-    if (!r.ok || !Array.isArray(js?.tenants)) throw new Error(js?.error || `HTTP ${r.status}`);
-    return { ok: true, tenants: js.tenants };
+    const res = await tryFetchTenantsMulti();
+    if (!res.ok) return res;
+    return { ok: true, tenants: res.tenants };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -353,9 +409,9 @@ ipcMain.handle('app:go-main', async () => {
 ipcMain.handle('tenant:modules:get', async () => {
   try {
     const r = await apiFetch('/tenant_settings/onboarding_status', {
-      headers: { ...getTenantHeaders() }   // ⇐ ICI
+      headers: { accept: 'application/json', ...getTenantHeaders() }
     });
-    const js = await r.json();
+    const js = await safeJson(r);
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
     const modules = js?.status?.modules || {};
     return { ok: true, modules };
@@ -369,10 +425,10 @@ ipcMain.handle('tenant:modules:set', async (_e, modules) => {
     const payload = { modules: modules || {} };
     const r = await apiFetch('/tenant_settings/onboarding', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...getTenantHeaders() },  // ⇐ ICI
+      headers: { 'content-type': 'application/json', accept: 'application/json', ...getTenantHeaders() },
       body: JSON.stringify(payload),
     });
-    const js = await r.json();
+    const js = await safeJson(r);
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
 
     try {
@@ -380,6 +436,95 @@ ipcMain.handle('tenant:modules:set', async (_e, modules) => {
       writeModules(payload.modules || {});
     } catch {}
     return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+
+// --- ADMIN: Modules d'un tenant ciblé ---
+ipcMain.handle('admin:tenant:modules:get', async (_e, tenantId) => {
+  try {
+    const r = await apiFetch('/tenant_settings/modules', {
+      headers: { accept: 'application/json', ...getTenantHeadersFor(tenantId) }
+    });
+    const js = await safeJson(r);
+    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, modules: js.modules || {} };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('admin:tenant:modules:set', async (_e, { tenantId, modules }) => {
+  try {
+    const r = await apiFetch('/tenant_settings/modules', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', accept: 'application/json', ...getTenantHeadersFor(tenantId) },
+      body: JSON.stringify(modules || {}),
+    });
+    const js = await safeJson(r);
+    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, modules: js.modules || {} };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// --- ADMIN: Email d'un tenant ciblé ---
+ipcMain.handle('admin:tenant:email:get', async (_e, tenantId) => {
+  try {
+    const r = await apiFetch('/tenant_settings/email', {
+      headers: { accept: 'application/json', ...getTenantHeadersFor(tenantId) }
+    });
+    const js = await safeJson(r);
+    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, settings: js.settings || {} };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('admin:tenant:email:set', async (_e, { tenantId, settings }) => {
+  try {
+    const r = await apiFetch('/tenant_settings/email', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', accept: 'application/json', ...getTenantHeadersFor(tenantId) },
+      body: JSON.stringify(settings || {}),
+    });
+    const js = await safeJson(r);
+    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, settings: js.settings || {} };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('admin:tenant:email:test', async (_e, { tenantId, to, subject, text, html }) => {
+  try {
+    const r = await apiFetch('/mailer/test', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json', ...getTenantHeadersFor(tenantId) },
+      body: JSON.stringify({ to, subject, text, html }),
+    });
+    const js = await safeJson(r);
+    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+// --- ADMIN: suppression d'un tenant (soft delete par défaut, hard avec { hard: true })
+ipcMain.handle('admin:tenant:delete', async (_e, { tenantId, hard = false }) => {
+  try {
+    const url = `/tenants/${encodeURIComponent(String(tenantId))}${hard ? '?hard=1' : ''}`;
+    const r = await apiFetch(url, {
+      method: 'DELETE',
+      headers: { accept: 'application/json' },
+    });
+    const js = await safeJson(r);
+    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, hard: !!hard };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }

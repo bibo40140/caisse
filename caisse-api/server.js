@@ -31,7 +31,7 @@ if (!process.env.DATABASE_URL) {
 const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 app.use(express.json({ limit: '10mb' }));
-app.use(tenantsRouter);
+app.use('/tenants', tenantsRouter);
 
 
 /* =========================
