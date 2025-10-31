@@ -1,6 +1,5 @@
 // main.js
 const { app, BrowserWindow, ipcMain } = require('electron');
-
 const path = require('path');
 const jwt = require('jsonwebtoken');
 
@@ -33,6 +32,7 @@ function ensureEmailHandlers() {
     _emailHandlersRegistered = true;
     console.log('[main] email handlers registered');
   } catch (e) {
+    // Ne pas faire planter l’app si le module n’existe pas encore
     console.error('[main] email handlers registration failed:', e?.message || e);
   }
 }
@@ -145,6 +145,40 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+
+function getTenantHeaders() {
+  let token = null;
+  try {
+    if (typeof apiMainClient?.getAuthToken === 'function') {
+      token = apiMainClient.getAuthToken();
+    }
+  } catch {}
+  if (!token && process.env.API_AUTH_TOKEN) token = process.env.API_AUTH_TOKEN;
+
+  const info = computeAuthInfoFromToken(token);
+  const h = {};
+  // Si le token contient un tenant_id, on l’utilise
+  if (info?.tenant_id) {
+    h['x-tenant-id'] = String(info.tenant_id);
+  } else if (process.env.TENANT_ID) {
+    // Sinon, tente un TENANT_ID forcé (ex: via .env/config)
+    h['x-tenant-id'] = String(process.env.TENANT_ID);
+  }
+  return h;
+}
+
+// ---------------------------------
+// Helpers fetch JSON sûrs
+// ---------------------------------
+async function safeJson(r) {
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    const text = await r.text().catch(() => '');
+    throw new Error(`Réponse non-JSON (${r.status}). Corps: ${text.slice(0, 120)}`);
+  }
+  return r.json();
+}
+
 // ---------------------------------
 // IPC: Auth / Onboarding flow
 // ---------------------------------
@@ -154,10 +188,10 @@ ipcMain.handle('admin:registerTenant', async (_e, payload) => {
   try {
     const r = await apiFetch('/auth/register-tenant', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'accept': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const js = await r.json();
+    const js = await safeJson(r);
     if (!r.ok || !js?.tenant_id) throw new Error(js?.error || `HTTP ${r.status}`);
     return { ok: true, tenant_id: js.tenant_id, token: js.token };
   } catch (e) {
@@ -170,16 +204,16 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
   try {
     const r = await apiFetch('/auth/login', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'accept': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const js = await r.json();
+    const js = await safeJson(r);
     if (!r.ok || !js?.token) return { ok: false, error: js?.error || `HTTP ${r.status}` };
 
     setAuthToken(js.token);
     process.env.API_AUTH_TOKEN = js.token;
 
-    // NEW: enregistrer les handlers email juste après login
+    // Enregistrer les handlers email juste après login
     ensureEmailHandlers();
 
     return { ok: true, token: js.token, role: js.role, is_super_admin: js.is_super_admin };
@@ -191,12 +225,14 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
 // Après login : route vers onboarding/main
 ipcMain.handle('auth:after-login-route', async () => {
   try {
-    const r = await apiFetch('/tenant_settings/onboarding_status');
-    const js = await r.json();
+    const r = await apiFetch('/tenant_settings/onboarding_status', {
+      headers: { 'accept': 'application/json' }
+    });
+    const js = await safeJson(r);
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
     const onboarded = !!js.status?.onboarded;
 
-    // NEW: s’assurer encore que les handlers email sont bien là
+    // Sécurité: s’assurer que les handlers email sont bien là
     ensureEmailHandlers();
 
     if (!onboarded) {
@@ -245,8 +281,8 @@ ipcMain.handle('auth:getInfo', async () => {
 // Liste des tenants (réservé super admin côté API)
 ipcMain.handle('admin:listTenants', async () => {
   try {
-    const r = await apiFetch('/tenants');
-    const js = await r.json();
+    const r = await apiFetch('/tenants', { headers: { accept: 'application/json' } });
+    const js = await safeJson(r);
     if (!r.ok || !Array.isArray(js?.tenants)) throw new Error(js?.error || `HTTP ${r.status}`);
     return { ok: true, tenants: js.tenants };
   } catch (e) {
@@ -256,8 +292,8 @@ ipcMain.handle('admin:listTenants', async () => {
 
 ipcMain.handle('onboarding:status', async () => {
   try {
-    const r = await apiFetch('/tenant_settings/onboarding_status');
-    const js = await r.json();
+    const r = await apiFetch('/tenant_settings/onboarding_status', { headers: { accept: 'application/json' } });
+    const js = await safeJson(r);
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
     return { ok: true, ...js };
   } catch (e) {
@@ -269,10 +305,10 @@ ipcMain.handle('onboarding:submit', async (_e, payload) => {
   try {
     const r = await apiFetch('/tenant_settings/onboarding', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'accept': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const js = await r.json();
+    const js = await safeJson(r);
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
     return { ok: true };
   } catch (e) {
@@ -307,7 +343,6 @@ ipcMain.handle('auth:logout', async () => {
 });
 
 ipcMain.handle('app:go-main', async () => {
-  // NEW: s’assurer que les handlers email sont là avant d’ouvrir la main
   ensureEmailHandlers();
   if (onboardWin) { onboardWin.close(); onboardWin = null; }
   createMainWindow();
@@ -317,7 +352,9 @@ ipcMain.handle('app:go-main', async () => {
 // Lire/écrire les modules du tenant (via API onboarding)
 ipcMain.handle('tenant:modules:get', async () => {
   try {
-    const r = await apiFetch('/tenant_settings/onboarding_status');
+    const r = await apiFetch('/tenant_settings/onboarding_status', {
+      headers: { ...getTenantHeaders() }   // ⇐ ICI
+    });
     const js = await r.json();
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
     const modules = js?.status?.modules || {};
@@ -332,18 +369,16 @@ ipcMain.handle('tenant:modules:set', async (_e, modules) => {
     const payload = { modules: modules || {} };
     const r = await apiFetch('/tenant_settings/onboarding', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...getTenantHeaders() },  // ⇐ ICI
       body: JSON.stringify(payload),
     });
     const js = await r.json();
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
 
-    // (optionnel) garder l’ancien config local en phase pour les écrans historiques
     try {
       const { writeModules } = require('./src/main/db/config');
       writeModules(payload.modules || {});
-    } catch (_) {}
-
+    } catch {}
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
@@ -389,9 +424,7 @@ app.whenReady().then(async () => {
     process.env.API_AUTH_TOKEN = auth.token;
     console.log('[auth] OK — tenant =', auth.tenant_id || '(inconnu)');
 
-    // NEW: enregistrer les handlers email dès que l’auth auto est OK
-    ensureEmailHandlers();
-
+    ensureEmailHandlers(); // dès que l’auth auto est OK
   } else {
     console.warn('[auth] Pas de token API — on ouvre la fenêtre de login.');
     createLoginWindow();
@@ -431,12 +464,10 @@ app.whenReady().then(async () => {
 
   // 6) Route to Onboarding or Main
   try {
-    const r = await apiFetch('/tenant_settings/onboarding_status');
-    const js = await r.json();
-    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    const r = await apiFetch('/tenant_settings/onboarding_status', { headers: { accept: 'application/json' } });
+    const js = await safeJson(r);
 
-    // s’assurer encore des handlers (sécurité)
-    ensureEmailHandlers();
+    ensureEmailHandlers(); // sécurité
 
     if (js.status?.onboarded) {
       createMainWindow();
@@ -506,7 +537,7 @@ registerCategoryHandlers();
 // chargements conditionnels (synchrone)
 let cfgModules = {};
 try {
-  const c = getConfig(); // si getConfig est async chez toi, garde ce try/catch mais évite l'appel sync ici
+  const c = getConfig(); // si getConfig est async chez toi, évite l’appel sync
   cfgModules = (c && c.modules) || {};
 } catch { cfgModules = {}; }
 

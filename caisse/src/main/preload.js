@@ -1,7 +1,6 @@
 // src/main/preload.js
 const { contextBridge, ipcRenderer } = require('electron');
 
-
 /* -------------------------------------------------
    Allow-list des events écoutables côté renderer
 -------------------------------------------------- */
@@ -51,9 +50,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------- Events (utilisés par le chip) -------- */
   on, off, once,
 
- 
-
-
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
   getProduits:    () => ipcRenderer.invoke('get-produits'),
@@ -69,7 +65,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncPushAll: () => ipcRenderer.invoke('sync:push_all'),
   syncPullAll: () => ipcRenderer.invoke('sync:pull_all'),
   syncPushBootstrapRefs: () => ipcRenderer.invoke('sync:pushBootstrapRefs'),
-  // anciens alias → on mappe vers les bons canaux pour éviter les erreurs
+  // anciens alias → mappés pour compat
   syncPushProduits: () => ipcRenderer.invoke('sync:push_all'),
   syncPullProduits: () => ipcRenderer.invoke('sync:pull_all'),
   // Outils
@@ -128,10 +124,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   analyserImportProduits: (filepath) => ipcRenderer.invoke('analyser-import-produits', filepath),
   validerImportProduits: (produits) => ipcRenderer.invoke('valider-import-produits', produits),
 
-  // --- Email settings (par tenant) ---
-emailGetSettings: () => ipcRenderer.invoke('email:getSettings'),
-emailSetSettings: (s) => ipcRenderer.invoke('email:setSettings', s),
-emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
+  /* -------------- Email (par tenant) ------------- */
+  // Ces canaux sont fournis par ./src/main/handlers/email
+  emailGetSettings: () => ipcRenderer.invoke('email:getSettings'),
+  emailSetSettings: (s) => ipcRenderer.invoke('email:setSettings', s),
+  emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
 
   /* -------------- Ventes ------------------------- */
   enregistrerVente: (data) => ipcRenderer.invoke('enregistrer-vente', data),
@@ -142,7 +139,6 @@ emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
   getStock: (id) => ipcRenderer.invoke('get-stock', id),
   getHistoriqueVentes: (filters) => ipcRenderer.invoke('get-historique-ventes', filters),
   getDetailsVente: (id) => ipcRenderer.invoke('get-details-vente', id),
-  
 
   /* -------------- Adhérents ---------------------- */
   getAdherents: (archive = 0) => ipcRenderer.invoke('get-adherents', archive),
@@ -177,6 +173,9 @@ emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
 
   /* -------------- Config / Modules --------------- */
   getConfig: () => ipcRenderer.invoke('config:get'),
+
+  // ⚠️ Déprécié — c’était des préférences locales. On les garde pour compat,
+  // mais pour l’UI Modules il faut utiliser getTenantModules / setTenantModules.
   updateModules: (modules) => ipcRenderer.invoke('config:update-modules', modules),
   getModules: () => ipcRenderer.invoke('get-modules'),
   setModules: (modules) => ipcRenderer.invoke('set-modules', modules),
@@ -234,10 +233,9 @@ emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
   // Infos d’auth pour afficher le bouton "Tenants (Super admin)"
   getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
 
-    // --- Modules par tenant (API) ---
+  // --- Modules par tenant (API) ---
   getTenantModules: () => ipcRenderer.invoke('tenant:modules:get'),
   setTenantModules: (modules) => ipcRenderer.invoke('tenant:modules:set', modules),
-
 });
 
 /* -------------- Paniers / Carts ------------------ */

@@ -1,18 +1,18 @@
 {
   "modules": {
-    "cotisations": false,
-    "emails": false,
-    "prospects": false,
-    "inventaire": false,
-    "adherents": false,
+    "cotisations": true,
+    "emails": true,
+    "prospects": true,
+    "inventaire": true,
+    "adherents": true,
     "ventes_exterieur": false,
-    "stocks": false,
-    "modes_paiement": false,
-    "fournisseurs": false,
+    "stocks": true,
+    "modes_paiement": true,
+    "fournisseurs": true,
     "exports": false,
     "multiusers": false,
-    "email": false,
-    "receptions": false
+    "email": true,
+    "receptions": true
   },
   "ventes_exterieur_margin_percent": 30,
   "ventes_ext_margin_percent": 30

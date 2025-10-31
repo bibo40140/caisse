@@ -44,11 +44,17 @@ async function getActiveModules() {
     }
   } catch {}
   // Fallback : ancien config local
-  try {
-    return await (window.getMods?.() || window.electronAPI.getModules());
-  } catch {
-    return {};
+// Fallback : ancien config local
+try {
+  if (typeof window.getMods === 'function') {
+    return await window.getMods();
   }
+  if (window.electronAPI?.getModules) {
+    return await window.electronAPI.getModules();
+  }
+} catch {}
+return {};
+
 }
 
 async function saveActiveModules(modules) {
