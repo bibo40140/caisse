@@ -29,7 +29,11 @@ if (!process.env.DATABASE_URL) {
  * App & middlewares
  * =======================*/
 const app = express();
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'], // 👈
+  exposedHeaders: ['x-tenant-id'], // facultatif
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use('/tenants', tenantsRouter);
 
@@ -53,6 +57,45 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use('/public', express.static(path.join(__dirname, 'public')));
+
+
+
+
+
+//tests//
+// caisse-api/server.js
+import authRouter from './routes/auth.js';
+
+import settingsRouter from './routes/settings.js';
+import adherentsRoutes from './routes/adherents.js';
+
+import adherentsRouter from './routes/adherents.js';
+import fournisseursRouter from './routes/fournisseurs.js';
+import produitsRouter from './routes/produits.js';
+import receptionsRouter from './routes/receptions.js';
+import ventesRouter from './routes/ventes.js';
+import inventoryExtraRouter from './routes/inventory_extra.js';
+import inventoryRoutes from './routes/inventory.js';
+import inventoryExtra from './routes/inventory_extra.js';
+
+
+
+app.use('/auth', authRouter);
+app.use(settingsRouter);
+app.use(adherentsRouter);
+app.use(fournisseursRouter);
+app.use(produitsRouter);
+app.use(receptionsRouter);
+app.use(ventesRouter);
+app.use(inventoryExtraRouter);
+app.use('/inventory', inventoryExtra);
+
+app.use('/adherents', adherentsRoutes);
+app.use('/inventory', inventoryRoutes);
+
+
+
+
 
 
 /* =========================

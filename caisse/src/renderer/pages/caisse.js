@@ -7,50 +7,60 @@
 
 
   // 👉 DÉFINIS ici la VRAIE fonction renderCaisse
-  async function renderCaisse() {
-    // 🔧 Lire la config modules d'abord
-    const modules = await (window.getMods?.() || window.electronAPI.getModules());
-    const adherentsOn = !!modules.adherents;
-    const cotisationsOn = !!(modules.adherents && modules.cotisations);
-    const extOn = !!modules.ventes_exterieur;
-    const prospectsOn = !!modules.prospects;
-    const modesOn = !!modules.modes_paiement;
+  // 👉 DÉFINIS ici la VRAIE fonction renderCaisse
+async function renderCaisse() {
+  // 🔧 Toujours lire les modules frais depuis electronAPI et les normaliser
+  const rawMods = await window.electronAPI.getModules();
+  const b = (v) => v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+  const modules = {
+    adherents:        b(rawMods?.adherents),
+    cotisations:      b(rawMods?.cotisations),
+    ventes_exterieur: b(rawMods?.ventes_exterieur),
+    prospects:        b(rawMods?.prospects),
+    modes_paiement:   b(rawMods?.modes_paiement),
+    emails:           b(rawMods?.emails ?? rawMods?.email),
+    stocks:           b(rawMods?.stocks),
+  };
+  console.log('[CAISSE] Modules actifs:', modules);
 
+  const adherentsOn   = modules.adherents;
+  const cotisationsOn = modules.adherents && modules.cotisations;
+  const extOn         = modules.ventes_exterieur;
+  const prospectsOn   = modules.prospects;
+  const modesOn       = modules.modes_paiement;
 
+  // saleMode : on respecte le dernier choix tant que l'utilisateur n'a pas vidé/validé.
+  // S'il n'existe pas encore, défaut = 'adherent' si dispo, sinon 'exterieur'.
+  let saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : (extOn ? 'exterieur' : 'adherent'));
 
-
-    // saleMode : on respecte le dernier choix tant que l'utilisateur n'a pas vidé/validé.
-    // S'il n'existe pas encore, défaut = 'adherent' si dispo, sinon 'exterieur'.
-    let saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : (extOn ? 'exterieur' : 'adherent'));
-
-    // 🔧 Lire la marge ventes ext. (défaut 30%)
-    let extMargin = 30;
-    try {
-      if (window.electronAPI.getVentesMargin) {
-        const r = await window.electronAPI.getVentesMargin();
-        const v = Number(r?.percent);
-        if (Number.isFinite(v) && v >= 0) extMargin = v;
-      } else {
-        const cfg = await window.electronAPI.getConfig();
-        const v = Number(cfg?.ventes_ext_margin_percent);
-        if (Number.isFinite(v) && v >= 0) extMargin = v;
-      }
-    } catch { }
-    const extFactor = 1 + (extMargin / 100);
-    // Libellé dynamique pour le bouton radio "Extérieur"
-    const fmtPct = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.00$/, ''));
-    const extPctLabel = `(+${fmtPct(extMargin)}%)`;
-
-    // si Extérieur OFF mais saleMode='exterieur' → on force 'adherent'
-    if (!extOn && saleMode === 'exterieur') {
-      saleMode = 'adherent';
-      localStorage.setItem('saleMode', 'adherent');
+  // 🔧 Lire la marge ventes ext. (défaut 30%)
+  let extMargin = 30;
+  try {
+    if (window.electronAPI.getVentesMargin) {
+      const r = await window.electronAPI.getVentesMargin();
+      const v = Number(r?.percent);
+      if (Number.isFinite(v) && v >= 0) extMargin = v;
+    } else {
+      const cfg = await window.electronAPI.getConfig();
+      const v = Number(cfg?.ventes_ext_margin_percent);
+      if (Number.isFinite(v) && v >= 0) extMargin = v;
     }
-    // si Adhérents OFF mais Extérieur ON et saleMode='adherent' → on force 'exterieur'
-    if (!adherentsOn && extOn && saleMode === 'adherent') {
-      saleMode = 'exterieur';
-      localStorage.setItem('saleMode', 'exterieur');
-    }
+  } catch {}
+  const extFactor = 1 + (extMargin / 100);
+  const fmtPct = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.00$/, ''));
+  const extPctLabel = `(+${fmtPct(extMargin)}%)`;
+
+  // si Extérieur OFF mais saleMode='exterieur' → on force 'adherent'
+  if (!extOn && saleMode === 'exterieur') {
+    saleMode = 'adherent';
+    localStorage.setItem('saleMode', 'adherent');
+  }
+  // si Adhérents OFF mais Extérieur ON et saleMode='adherent' → on force 'exterieur'
+  if (!adherentsOn && extOn && saleMode === 'adherent') {
+    saleMode = 'exterieur';
+    localStorage.setItem('saleMode', 'exterieur');
+  }
+
 
     const content = document.getElementById('page-content');
     const produits = await window.electronAPI.getProduits();
@@ -1741,253 +1751,252 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
 
   }
 
-  async function validerVente() {
+async function validerVente() {
+  try {
+    // 🔧 Lire et normaliser les modules à chaque validation
+    const rawMods = await window.electronAPI.getModules();
+    const b = (v) => v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+    const modules = {
+      adherents:        b(rawMods?.adherents),
+      cotisations:      b(rawMods?.cotisations),
+      ventes_exterieur: b(rawMods?.ventes_exterieur),
+      prospects:        b(rawMods?.prospects),
+      modes_paiement:   b(rawMods?.modes_paiement),
+      emails:           b(rawMods?.emails ?? rawMods?.email),
+      stocks:           b(rawMods?.stocks),
+    };
+    console.log('[CAISSE] Modules actifs (valider):', modules);
+
+    const adherentsOn   = modules.adherents;
+    const prospectsOn   = modules.prospects;
+    const cotisationsOn = modules.adherents && modules.cotisations;
+    const extOn         = modules.ventes_exterieur;
+    const modesOn       = modules.modes_paiement;
+
+    // 1) Contexte de vente (mode + marge ext.)
+    const saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : 'exterieur');
+    const isExt = extOn && (saleMode === 'exterieur');
+
+    let extMargin = 30;
     try {
-      const modules = await (window.getMods?.() || window.electronAPI.getModules());
-      const adherentsOn = !!modules.adherents;
-      const prospectsOn = !!modules.prospects;
-      const cotisationsOn = !!(modules.adherents && modules.cotisations);
-      const extOn = !!modules.ventes_exterieur;
-      const modesOn = !!modules.modes_paiement;
-
-      // 1) Contexte de vente (mode + marge ext.)
-      const saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : 'exterieur');
-      const isExt = extOn && (saleMode === 'exterieur');
-
-      let extMargin = 30;
-      try {
-        if (window.electronAPI.getVentesMargin) {
-          const r = await window.electronAPI.getVentesMargin();
-          const v = Number(r?.percent);
-          if (Number.isFinite(v) && v >= 0) extMargin = v;
-        } else {
-          const cfg = await window.electronAPI.getConfig();
-          const v = Number(cfg?.ventes_ext_margin_percent);
-          if (Number.isFinite(v) && v >= 0) extMargin = v;
-        }
-      } catch { }
-      const factor = isExt ? (1 + extMargin / 100) : 1;
-
-      // 2) Panier
-      const panier = Array.isArray(window.panier) ? window.panier : [];
-      if (panier.length === 0) {
-        alert('Panier vide !');
-        return;
+      if (window.electronAPI.getVentesMargin) {
+        const r = await window.electronAPI.getVentesMargin();
+        const v = Number(r?.percent);
+        if (Number.isFinite(v) && v >= 0) extMargin = v;
+      } else {
+        const cfg = await window.electronAPI.getConfig();
+        const v = Number(cfg?.ventes_ext_margin_percent);
+        if (Number.isFinite(v) && v >= 0) extMargin = v;
       }
+    } catch {}
+    const factor = isExt ? (1 + extMargin / 100) : 1;
 
-      // 3) Mode de paiement (obligatoire si module actif)
-      const selectMP = document.getElementById('mode-paiement-select');
-      const mode_paiement_id = modesOn ? (Number(selectMP?.value || 0) || null) : null;
-      const mode_paiement_label = modesOn ? (selectMP?.selectedOptions?.[0]?.textContent?.trim() || '') : '';
-      if (modesOn && !mode_paiement_id) {
-        alert('Merci de choisir un mode de paiement.');
-        return;
-      }
+    // 2) Panier
+    const panier = Array.isArray(window.panier) ? window.panier : [];
+    if (panier.length === 0) {
+      alert('Panier vide !');
+      return;
+    }
 
-      // 4) Type de vente + destinataire
-      let sale_type = 'adherent';
-      let adherentId = null;
-      let adherentEmail = null;
-      let clientEmailExt = null;
-      let _prospectSelectedForSale = null;
+    // 3) Mode de paiement (obligatoire si module actif)
+    const selectMP = document.getElementById('mode-paiement-select');
+    const mode_paiement_id = modesOn ? (Number(selectMP?.value || 0) || null) : null;
+    const mode_paiement_label = modesOn ? (selectMP?.selectedOptions?.[0]?.textContent?.trim() || '') : '';
+    if (modesOn && !mode_paiement_id) {
+      alert('Merci de choisir un mode de paiement.');
+      return;
+    }
 
-      if (isExt) {
-        sale_type = 'exterieur';
-        clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
-      } else if (adherentsOn) {
-        const hiddenAdh = document.getElementById('adherent-select');
-        const adhIdRaw = hiddenAdh?.value || '';
-        const adhMail = hiddenAdh?.dataset?.email || '';
+    // 4) Type de vente + destinataire
+    let sale_type = 'adherent';
+    let adherentId = null;
+    let adherentEmail = null;
+    let clientEmailExt = null;
+    let _prospectSelectedForSale = null;
 
-        if (adhIdRaw && adhMail) {
-          sale_type = 'adherent';
-          adherentId = Number(adhIdRaw);
-          adherentEmail = adhMail;
-        } else if (prospectsOn) {
-          const hp = document.getElementById('prospect-select');
-          const prospectId = hp?.value || '';
-          const prospectEmail = hp?.dataset?.email || '';
-          if (!prospectId) {
-            alert('Merci de sélectionner un adhérent, ou bien un prospect, ou passe en mode Extérieur.');
-            return;
-          }
-          sale_type = 'prospect';
-          adherentId = null; // jamais l’ID du prospect ici
-          _prospectSelectedForSale = { id: Number(prospectId), email: (prospectEmail || null) };
-        } else {
-          alert('Merci de sélectionner un adhérent (ou active le module prospects / passe en Extérieur).');
+    if (isExt) {
+      sale_type = 'exterieur';
+      clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
+    } else if (adherentsOn) {
+      const hiddenAdh = document.getElementById('adherent-select');
+      const adhIdRaw = hiddenAdh?.value || '';
+      const adhMail = hiddenAdh?.dataset?.email || '';
+
+      if (adhIdRaw && adhMail) {
+        sale_type = 'adherent';
+        adherentId = Number(adhIdRaw);
+        adherentEmail = adhMail;
+      } else if (prospectsOn) {
+        const hp = document.getElementById('prospect-select');
+        const prospectId = hp?.value || '';
+        const prospectEmail = hp?.dataset?.email || '';
+        if (!prospectId) {
+          alert('Merci de sélectionner un adhérent, ou bien un prospect, ou passe en mode Extérieur.');
           return;
         }
+        sale_type = 'prospect';
+        adherentId = null;
+        _prospectSelectedForSale = { id: Number(prospectId), email: (prospectEmail || null) };
       } else {
-        sale_type = 'exterieur';
-        clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
-      }
-
-      // 5) Construire les lignes vendables (produits uniquement, id numérique)
-      const lignesProduits = panier
-        .filter(p =>
-          p &&
-          p.type !== 'cotisation' &&
-          p.type !== 'acompte' &&
-          Number.isFinite(Number(p.id))
-        );
-
-      // garde-fou : pas de lignes produits
-      if (!lignesProduits.length) {
-        console.error('[validerVente] Aucune ligne produit après filtrage, window.panier =', window.panier);
-        alert('Aucune ligne de vente (ticket vide ou lignes invalides). Rouvre le ticket ou ajoute un produit.');
+        alert('Merci de sélectionner un adhérent (ou active le module prospects / passe en Extérieur).');
         return;
       }
-
-      // 6) Totaux
-      const sousTotalProduits = lignesProduits.reduce((s, p) => {
-        const remise = Number(p.remise || 0);
-        const puApplique = Number(p.prix) * factor * (1 - remise / 100);
-        return s + puApplique * Number(p.quantite || 0);
-      }, 0);
-
-      const totalCotisation = (!isExt && cotisationsOn ? panier : [])
-        .filter(p => p.type === 'cotisation')
-        .reduce((s, p) => s + Number(p.prix) * Number(p.quantite || 1), 0);
-
-      const totalAcompte = panier
-        .filter(p => p.type === 'acompte')
-        .reduce((s, p) => s + Math.abs(Number(p.prix) * Number(p.quantite || 1)), 0);
-
-      let frais_paiement = 0;
-      if (modesOn) {
-        const taux = parseFloat(selectMP?.selectedOptions?.[0]?.dataset?.taux || '0');
-        const fixe = parseFloat(selectMP?.selectedOptions?.[0]?.dataset?.fixe || '0');
-        const baseNet = Math.max(0, sousTotalProduits - totalAcompte);
-        frais_paiement = Math.round(((baseNet * (taux / 100)) + fixe) * 100) / 100;
-      }
-
-      const total = Math.round((sousTotalProduits + totalCotisation - totalAcompte + frais_paiement) * 100) / 100;
-
-      // 7) Lignes DB (PU appliqué = remise + éventuel +30%)
-      const lignes = lignesProduits.map(p => {
-        const remise = Number(p.remise || 0);
-        const puOrig = Number(p.prix);
-        const puApplique = puOrig * factor * (1 - remise / 100);
-        return {
-          produit_id: Number(p.id),
-          quantite: Number(p.quantite || 0),
-          prix: Number(puApplique.toFixed(4)),       // PU appliqué
-          prix_unitaire: Number(puOrig.toFixed(4)),  // PU original
-          remise_percent: Number(remise.toFixed(4))
-        };
-      });
-
-      if (!lignes.length) {
-        console.error('[validerVente] Aucune ligne à envoyer au backend, lignesProduits =', lignesProduits);
-        alert('Aucune ligne de vente valide.');
-        return;
-      }
-      // 🔎 DEBUG - payload envoyé au main
-      const _payloadVente = {
-        total: Number(total || 0),
-        adherent_id: (sale_type === 'adherent' && Number.isFinite(Number(adherentId))) ? Number(adherentId) : null,
-        cotisation: (sale_type === 'adherent' && cotisationsOn) ? Number(totalCotisation || 0) : 0,
-        mode_paiement_id: (modesOn && Number.isFinite(Number(mode_paiement_id))) ? Number(mode_paiement_id) : null,
-        mode_paiement_label,
-        frais_paiement,
-        sale_type,
-        client_email: (sale_type === 'exterieur')
-          ? (clientEmailExt || null)
-          : (_prospectSelectedForSale?.email || adherentEmail || null),
-        lignes
-      };
-
-      console.group('[DEBUG] validerVente() - payload');
-      console.log('window.panier (au moment du clic):', window.panier);
-      console.log('lignesProduits (avant map):', lignesProduits);
-      console.log('payload.lignes (après map):', lignes);
-      console.log('payload total/cotisation/frais:', { total, totalCotisation, frais_paiement });
-      console.groupEnd();
-
-
-
-      // 8) Loader
-      showLoader('Enregistrement de la vente…');
-      const started = Date.now();
-
-      // 9) Enregistrer la vente
-      await window.electronAPI.enregistrerVente(_payloadVente);
-
-
-      // 10) Cotisation auto (si présente)
-      try {
-        if (adherentId && Number(totalCotisation) > 0) {
-          await window.electronAPI.ajouterCotisation(Number(adherentId), Number(totalCotisation));
-        }
-      } catch (e) {
-        console.error('[cotisation] ajout KO :', e);
-        // non bloquant
-      }
-
-      // 11) Envoi facture (si email + module emails)
-      const emailsOn = !!(modules.email || modules.emails);
-      const prospectEmail = _prospectSelectedForSale?.email || null;
-      const emailToSend = isExt
-        ? (clientEmailExt || null)
-        : (adherentEmail || prospectEmail || null);
-
-      if (emailsOn && emailToSend) {
-        try {
-          await window.electronAPI.envoyerFactureEmail({
-            email: emailToSend,
-            lignes: lignesProduits.map(p => {
-              const remise = Number(p.remise || 0);
-              const puOrig = Number(p.prix);
-              const puApplique = puOrig * factor * (1 - remise / 100);
-              return {
-                nom: p.nom,
-                fournisseur_nom: p.fournisseur_nom || '',
-                unite: p.unite || '',
-                quantite: p.quantite,
-                prix: Number(puApplique.toFixed(2)),
-                prix_unitaire: Number(puOrig.toFixed(2)),
-                remise_percent: Number(remise.toFixed(2))
-              };
-            }),
-            cotisation: (!isExt) ? panier.filter(p => p.type === 'cotisation') : [],
-            acompte: totalAcompte,
-            frais_paiement,
-            mode_paiement: selectMP?.selectedOptions?.[0]?.textContent || '',
-            total
-          });
-        } catch (e) {
-          console.warn('Envoi email échoué, vente quand même validée :', e);
-        }
-      }
-
-      // 12) Si la vente provenait d’un ticket → le supprimer
-      try {
-        const id = window.currentCartId || localStorage.getItem('currentCartId');
-        if (id && window.carts?.delete) {
-          await window.carts.delete(id);
-        }
-        window.currentCartId = null;
-        try { localStorage.removeItem('currentCartId'); } catch { }
-      } catch (e) {
-        console.warn('[carts] suppression du ticket après vente — échec non bloquant:', e);
-      }
-
-      // 13) UX : garder le loader visible au moins 1s, reset UI
-      const elapsed = Date.now() - started;
-      if (elapsed < 1000) await new Promise(res => setTimeout(res, 1000 - elapsed));
-      hideLoader();
-
-      alert('Vente enregistrée ✅');
-      viderPanier({ skipConfirm: true });
-      document.getElementById('search-produit')?.focus();
-
-    } catch (err) {
-      console.error('Erreur validerVente:', err);
-      try { hideLoader(); } catch { }
-      alert('Erreur pendant la validation de la vente. Consulte la console.');
+    } else {
+      sale_type = 'exterieur';
+      clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
     }
+
+    // 5) Lignes vendables (produits uniquement, id numérique)
+    const lignesProduits = panier
+      .filter(p =>
+        p &&
+        p.type !== 'cotisation' &&
+        p.type !== 'acompte' &&
+        Number.isFinite(Number(p.id))
+      );
+
+    if (!lignesProduits.length) {
+      console.error('[validerVente] Aucune ligne produit après filtrage, window.panier =', window.panier);
+      alert('Aucune ligne de vente (ticket vide ou lignes invalides). Rouvre le ticket ou ajoute un produit.');
+      return;
+    }
+
+    // 6) Totaux
+    const sousTotalProduits = lignesProduits.reduce((s, p) => {
+      const remise = Number(p.remise || 0);
+      const puApplique = Number(p.prix) * factor * (1 - remise / 100);
+      return s + puApplique * Number(p.quantite || 0);
+    }, 0);
+
+    const totalCotisation = (!isExt && cotisationsOn ? panier : [])
+      .filter(p => p.type === 'cotisation')
+      .reduce((s, p) => s + Number(p.prix) * Number(p.quantite || 1), 0);
+
+    const totalAcompte = panier
+      .filter(p => p.type === 'acompte')
+      .reduce((s, p) => s + Math.abs(Number(p.prix) * Number(p.quantite || 1)), 0);
+
+    let frais_paiement = 0;
+    if (modesOn) {
+      const taux = parseFloat(selectMP?.selectedOptions?.[0]?.dataset?.taux || '0');
+      const fixe = parseFloat(selectMP?.selectedOptions?.[0]?.dataset?.fixe || '0');
+      const baseNet = Math.max(0, sousTotalProduits - totalAcompte);
+      frais_paiement = Math.round(((baseNet * (taux / 100)) + fixe) * 100) / 100;
+    }
+
+    const total = Math.round((sousTotalProduits + totalCotisation - totalAcompte + frais_paiement) * 100) / 100;
+
+    // 7) Lignes DB (PU appliqué = remise + éventuelle marge extérieur)
+    const lignes = lignesProduits.map(p => {
+      const remise = Number(p.remise || 0);
+      const puOrig = Number(p.prix);
+      const puApplique = puOrig * factor * (1 - remise / 100);
+      return {
+        produit_id: Number(p.id),
+        quantite: Number(p.quantite || 0),
+        prix: Number(puApplique.toFixed(4)),       // PU appliqué
+        prix_unitaire: Number(puOrig.toFixed(4)),  // PU original
+        remise_percent: Number(remise.toFixed(4))
+      };
+    });
+
+    if (!lignes.length) {
+      console.error('[validerVente] Aucune ligne à envoyer au backend, lignesProduits =', lignesProduits);
+      alert('Aucune ligne de vente valide.');
+      return;
+    }
+
+    // 8) Loader
+    showLoader('Enregistrement de la vente…');
+    const started = Date.now();
+
+    // 9) Enregistrer la vente
+    await window.electronAPI.enregistrerVente({
+      total: Number(total || 0),
+      adherent_id: (sale_type === 'adherent' && Number.isFinite(Number(adherentId))) ? Number(adherentId) : null,
+      cotisation: (sale_type === 'adherent' && cotisationsOn) ? Number(totalCotisation || 0) : 0,
+      mode_paiement_id: (modesOn && Number.isFinite(Number(mode_paiement_id))) ? Number(mode_paiement_id) : null,
+      mode_paiement_label,
+      frais_paiement,
+      sale_type,
+      client_email: (sale_type === 'exterieur')
+        ? (clientEmailExt || null)
+        : (_prospectSelectedForSale?.email || adherentEmail || null),
+      lignes
+    });
+
+    // 10) Cotisation auto (si présente)
+    try {
+      if (adherentId && Number(totalCotisation) > 0) {
+        await window.electronAPI.ajouterCotisation(Number(adherentId), Number(totalCotisation));
+      }
+    } catch (e) {
+      console.error('[cotisation] ajout KO :', e);
+    }
+
+    // 11) Envoi facture uniquement si module emails ON
+    const emailsOn = modules.emails; // ← normalisé
+    const prospectEmail = _prospectSelectedForSale?.email || null;
+    const emailToSend = isExt
+      ? (clientEmailExt || null)
+      : (adherentEmail || prospectEmail || null);
+
+    if (emailsOn && emailToSend) {
+      try {
+        await window.electronAPI.envoyerFactureEmail({
+          email: emailToSend,
+          lignes: lignesProduits.map(p => {
+            const remise = Number(p.remise || 0);
+            const puOrig = Number(p.prix);
+            const puApplique = puOrig * factor * (1 - remise / 100);
+            return {
+              nom: p.nom,
+              fournisseur_nom: p.fournisseur_nom || '',
+              unite: p.unite || '',
+              quantite: p.quantite,
+              prix: Number(puApplique.toFixed(2)),
+              prix_unitaire: Number(puOrig.toFixed(2)),
+              remise_percent: Number(remise.toFixed(2))
+            };
+          }),
+          cotisation: (!isExt) ? panier.filter(p => p.type === 'cotisation') : [],
+          acompte: totalAcompte,
+          frais_paiement,
+          mode_paiement: selectMP?.selectedOptions?.[0]?.textContent || '',
+          total
+        });
+      } catch (e) {
+        console.warn('Envoi email échoué, vente quand même validée :', e);
+      }
+    }
+
+    // 12) Si la vente provenait d’un ticket → le supprimer
+    try {
+      const id = window.currentCartId || localStorage.getItem('currentCartId');
+      if (id && window.carts?.delete) {
+        await window.carts.delete(id);
+      }
+      window.currentCartId = null;
+      try { localStorage.removeItem('currentCartId'); } catch {}
+    } catch (e) {
+      console.warn('[carts] suppression du ticket après vente — échec non bloquant:', e);
+    }
+
+    // 13) UX : garder le loader visible au moins 1s, reset UI
+    const elapsed = Date.now() - started;
+    if (elapsed < 1000) await new Promise(res => setTimeout(res, 1000 - elapsed));
+    hideLoader();
+
+    alert('Vente enregistrée ✅');
+    viderPanier({ skipConfirm: true });
+    document.getElementById('search-produit')?.focus();
+
+  } catch (err) {
+    console.error('Erreur validerVente:', err);
+    try { hideLoader(); } catch {}
+    alert('Erreur pendant la validation de la vente. Consulte la console.');
   }
+}
 
 
   // ❗ Export : on expose aussi window.renderCaisse car le routeur l'appelle

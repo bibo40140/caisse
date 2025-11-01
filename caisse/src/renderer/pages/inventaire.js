@@ -55,6 +55,9 @@
   async function getConfig() {
     try { return await (window.electronAPI?.getConfig?.()); } catch { return {}; }
   }
+  async function getModules() {
+    try { return await (window.getMods?.() || window.electronAPI.getModules()); } catch { return {}; }
+  }
 
   // --- Draft key & session key ----------------------------------------------
   const INV_SESSION_KEY = 'inventory_session_id';
@@ -592,34 +595,37 @@
         }
 
         try {
-         // 2) Clôture
-const res = await window.electronAPI.inventory.finalize({
-  sessionId,
-  user: currentUser,
-  email_to: emailTo
-});
+          // 2) Clôture
+          const res = await window.electronAPI.inventory.finalize({
+            sessionId,
+            user: currentUser,
+            email_to: emailTo
+          });
 
-// 3) Pull complet pour rafraîchir les stocks locaux
-try { await window.electronAPI.syncPullAll(); } catch (e) { /* non bloquant */ }
+          // 3) Pull complet pour rafraîchir les stocks locaux
+          try { await window.electronAPI.syncPullAll(); } catch (e) { /* non bloquant */ }
 
-// 4) Nettoyage local
-try { localStorage.removeItem(INV_SESSION_KEY); } catch {}
-try { localStorage.removeItem(DRAFT_KEY); } catch {}
+          // 4) Nettoyage local
+          try { localStorage.removeItem(INV_SESSION_KEY); } catch {}
+          try { localStorage.removeItem(DRAFT_KEY); } catch {}
 
-// 5) Récap simple
-const end   = new Date();
-const dateStr = end.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
-alert(
-  "✅ Inventaire clôturé.\n\n" +
-  `Date : ${dateStr}\n` +
-  `Produits inventoriés : ${countedProducts}\n` +
-  `Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €`
-);
+          // 5) Récap simple
+          const end   = new Date();
+          const dateStr = end.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
+          alert(
+            "✅ Inventaire clôturé.\n\n" +
+            `Date : ${dateStr}\n` +
+            `Produits inventoriés : ${countedProducts}\n` +
+            `Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €`
+          );
 
-// 5-bis) Envoi mail (via IPC → Gmail local)
-try {
-  const subject = `Inventaire clôturé — ${res?.recap?.session?.name || 'Session'}`;
-  const text =
+          // 5-bis) Envoi mail récap (tenant-aware) **uniquement si module emails ON ET email_to défini**
+          try {
+            const mods = await getModules();
+            const emailsOn = !!(mods?.email || mods?.emails);
+            if (emailsOn && emailTo) {
+              const subject = `Inventaire clôturé — ${res?.recap?.session?.name || 'Session'}`;
+              const text =
 `Inventaire "${res?.recap?.session?.name || ''}" clôturé le ${dateStr}.
 
 Produits inventoriés : ${countedProducts}
@@ -627,17 +633,18 @@ Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €.
 
 Session #${res?.recap?.session?.id || ''}`;
 
-  await window.electronAPI.sendInventoryRecapEmail({
-    to: 'epiceriecoopaz@gmail.com',
-    subject,
-    text,
-  });
-} catch (e) {
-  console.warn('[inventaire] envoi email recap a échoué:', e?.message || e);
-}
+              await window.electronAPI.sendInventoryRecapEmail({
+                to: emailTo,
+                subject,
+                text,
+              });
+            }
+          } catch (e) {
+            console.warn('[inventaire] envoi email recap a échoué (ignoré):', e?.message || e);
+          }
 
-// 6) Recharger l'écran
-location.reload();
+          // 6) Recharger l'écran
+          location.reload();
 
         } catch (e) {
           alert('Erreur de clôture : ' + (e?.message || e));

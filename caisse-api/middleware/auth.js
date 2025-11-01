@@ -47,12 +47,12 @@ function assignAuthContext(req, payload) {
   if (req.isSuperAdmin && overrideTenant) {
     tenantId = String(overrideTenant);
   }
-  req.tenantId = tenantId;
-
+   req.tenantId = tenantId;
   req.user = {
     id: payload.user_id,
     email: payload.email,
     role: payload.role,
+    tenant_id: tenantId,         // 👈 pratique pour les routes
   };
 }
 
@@ -113,7 +113,8 @@ export function tenantRequired(req, res, next) {
  */
 export function adminOrSuperAdmin(req, res, next) {
   if (req.isSuperAdmin) return next();
-  if (req.user?.role === 'admin') return next();
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'admin' || role === 'tenant_admin') return next();
   return res.status(403).json({ error: 'Admin required' });
 }
 

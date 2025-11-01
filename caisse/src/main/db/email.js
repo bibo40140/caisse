@@ -1,97 +1,91 @@
 // src/main/db/email.js
-const fs = require('fs');
-const path = require('path');
 const nodemailer = require('nodemailer');
-const db = require('./db'); // ← proxy tenant-aware (sélectionne la DB du tenant actif)
+const db = require('./db'); // proxy tenant-aware (DB locale du tenant actif)
 
 // ─────────────────────────────────────────────────────────
-// Helpers config globale (fallback *optionnel*)
+// Helpers: lecture des settings depuis tenant_settings
 // ─────────────────────────────────────────────────────────
-function readAppConfig() {
-  try {
-    const cfgPath = path.join(__dirname, '..', '..', 'config.json');
-    if (fs.existsSync(cfgPath)) {
-      return JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    }
-  } catch (_) {}
-  return null;
+function getJsonSetting(key) {
+  const row = db.prepare(`SELECT value_json FROM tenant_settings WHERE key = ?`).get(String(key));
+  if (!row || !row.value_json) return null;
+  try { return JSON.parse(row.value_json); } catch { return null; }
+}
+
+function getTenantModules() {
+  // attendu: { emails: true/false, ... }
+  return getJsonSetting('modules') || {};
+}
+
+function getEmailSettings() {
+  // attendu: { provider: "smtp"|"gmail"|"disabled", host?, port?, secure?, user?, pass?, from? }
+  return getJsonSetting('email');
 }
 
 // ─────────────────────────────────────────────────────────
-// Lecture/écriture des réglages e-mail dans tenant_settings
-// Clé: "email"  |  value_json: { provider, host, port, secure, user, pass, from }
-// provider: "smtp" | "gmail" | "disabled" (par défaut: "gmail")
+// Garde: module emails activé + config présente
 // ─────────────────────────────────────────────────────────
-function getEmailSettings() {
-  try {
-    const row = db.prepare(`SELECT value_json FROM tenant_settings WHERE key = ?`).get('email');
-    if (!row || !row.value_json) return null;
-    return JSON.parse(row.value_json);
-  } catch {
-    return null;
+function assertEmailsEnabled() {
+  const modules = getTenantModules();
+  if (!modules || modules.emails !== true) {
+    const e = new Error('Module Emails désactivé pour ce tenant.');
+    e.code = 'EMAILS_DISABLED';
+    throw e;
   }
 }
 
-function setEmailSettings(settings = {}) {
-  const cleaned = { ...settings };
-  // Normalisations douces
-  if (cleaned.provider == null) cleaned.provider = 'gmail';
-  if (cleaned.port != null) cleaned.port = Number(cleaned.port);
-  if (cleaned.secure != null) cleaned.secure = !!cleaned.secure;
-
-  const value_json = JSON.stringify(cleaned);
-  db.prepare(`
-    INSERT INTO tenant_settings (key, value_json, updated_at)
-    VALUES ('email', ?, datetime('now','localtime'))
-    ON CONFLICT(key) DO UPDATE SET
-      value_json = excluded.value_json,
-      updated_at = excluded.updated_at
-  `).run(value_json);
-
-  return cleaned;
+function assertSettingsConfigured(s) {
+  if (!s) {
+    const e = new Error('Configuration e-mail manquante pour ce tenant.');
+    e.code = 'EMAILS_NOT_CONFIGURED';
+    throw e;
+  }
+  if (s.provider === 'disabled') {
+    const e = new Error('L’envoi d’e-mails est désactivé pour ce tenant.');
+    e.code = 'EMAILS_PROVIDER_DISABLED';
+    throw e;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
-// Transport mail tenant-aware
-// 1) Si tenant_settings.email existe → utiliser sa config
-// 2) Sinon fallback “Gmail app password” (legacy) pour compat
+// Construction du transport — AUCUN fallback en dur
 // ─────────────────────────────────────────────────────────
 function buildTransportFromSettings(s) {
-  if (!s || s.provider === 'gmail') {
-    // Si settings “gmail” ET user/pass fournis → on les utilise
-    // Sinon fallback *legacy* (ancienne conf qui fonctionne déjà chez toi)
-    const user = s?.user || 'epiceriecoopaz@gmail.com';
-    const pass = s?.pass || 'vhkn hzel hasd lkeg';
+  assertSettingsConfigured(s);
+
+  if (s.provider === 'gmail') {
+    // Requiert user+pass préconfigurés dans tenant_settings → sinon on refuse
+    if (!s.user || !s.pass) {
+      const e = new Error("Compte Gmail/app password manquant dans la configuration e-mail du tenant.");
+      e.code = 'EMAILS_GMAIL_MISSING_CREDS';
+      throw e;
+    }
     return nodemailer.createTransport({
       service: 'gmail',
-      auth: { user, pass },
+      auth: { user: s.user, pass: s.pass },
     });
   }
 
   if (s.provider === 'smtp') {
-    const { host, port, secure, user, pass } = s;
-    if (!host) throw new Error('SMTP host manquant (email.host).');
-    // Auth facultative si le serveur l’autorise, mais on passe ce qu’on a
-    const hasAuth = user && pass;
-    return nodemailer.createTransport({
-      host,
-      port: Number.isFinite(port) ? port : 587,
-      secure: !!secure, // true pour 465, false pour 587/STARTTLS
-      auth: hasAuth ? { user, pass } : undefined,
-    });
+    if (!s.host) {
+      const e = new Error('SMTP host manquant (email.host).');
+      e.code = 'EMAILS_SMTP_HOST_MISSING';
+      throw e;
+    }
+    const transport = {
+      host: s.host,
+      port: Number.isFinite(s.port) ? Number(s.port) : 587,
+      secure: !!s.secure, // 465 = true ; 587 STARTTLS = false
+    };
+    if (s.user && s.pass) {
+      transport.auth = { user: s.user, pass: s.pass };
+    }
+    return nodemailer.createTransport(transport);
   }
 
-  if (s.provider === 'disabled') {
-    throw new Error('L’envoi d’e-mails est désactivé pour ce tenant.');
-  }
-
-  // Par défaut → gmail fallback
-  const user = 'epiceriecoopaz@gmail.com';
-  const pass = 'vhkn hzel hasd lkeg';
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user, pass },
-  });
+  // Si provider inconnu → refuse
+  const e = new Error('Provider e-mail invalide ou non supporté.');
+  e.code = 'EMAILS_PROVIDER_INVALID';
+  throw e;
 }
 
 function getMailTransport() {
@@ -101,22 +95,25 @@ function getMailTransport() {
 
 function getDefaultFrom() {
   const s = getEmailSettings();
-  // Priorité: réglage tenant → config.json → fallback gmail user
-  const cfg = readAppConfig();
-  const cfgFrom = cfg?.email?.from || cfg?.smtp?.from;
-  const user = s?.user || 'epiceriecoopaz@gmail.com';
-  return s?.from || cfgFrom || user;
+  // Priorité: from explicit → sinon user (gmail/smtp)
+  if (s?.from) return String(s.from).trim();
+  if (s?.user) return String(s.user).trim();
+  const e = new Error('Adresse "from" introuvable (renseignez email.from ou email.user).');
+  e.code = 'EMAILS_FROM_MISSING';
+  throw e;
 }
 
 // ─────────────────────────────────────────────────────────
-// 📧 Envoi générique
+// 📧 Envoi générique (respect module + config)
 // ─────────────────────────────────────────────────────────
 async function envoyerEmailGenerique({ to, subject, text, html }) {
+  assertEmailsEnabled();
   if (!to) throw new Error('Destinataire manquant');
+
   const transporter = getMailTransport();
   await transporter.sendMail({
     from: getDefaultFrom(),
-    to,
+    to: String(to).trim(),
     subject: subject || '(Sans sujet)',
     text: text || undefined,
     html: html || undefined,
@@ -124,26 +121,23 @@ async function envoyerEmailGenerique({ to, subject, text, html }) {
 }
 
 // ─────────────────────────────────────────────────────────
-// 📧 Envoi facture (tenant-aware; structure inchangée côté appelant)
+// 📧 Envoi facture (respect module + config)
 // ─────────────────────────────────────────────────────────
-function envoyerFactureParEmail({
+async function envoyerFactureParEmail({
   email, lignes, cotisation, acompte = 0, frais_paiement = 0, mode_paiement = '', total
 }) {
-  if (!email) {
-    console.error('❌ Adresse email manquante pour l’envoi de la facture.');
-    return;
-  }
+  assertEmailsEnabled();
+  if (!email) throw new Error('Adresse email manquante pour l’envoi de la facture');
 
   const transporter = getMailTransport();
 
-  const lignesHTML = (lignes || [])
-    .map((p) => {
-      const prix = Number(p.prix || 0);
-      const puOrig = Number(p.prix_unitaire ?? p.prix);
-      const remise = Number(p.remise_percent ?? 0);
-      const qte = Number(p.quantite || 0);
-      const totalLigne = prix * qte;
-      return `
+  const lignesHTML = (lignes || []).map((p) => {
+    const prix = Number(p.prix || 0);
+    const puOrig = Number(p.prix_unitaire ?? p.prix);
+    const remise = Number(p.remise_percent ?? 0);
+    const qte = Number(p.quantite || 0);
+    const totalLigne = prix * qte;
+    return `
       <tr>
         <td>${p.nom || p.produit_nom || ''}</td>
         <td>${p.fournisseur_nom || ''}</td>
@@ -154,8 +148,7 @@ function envoyerFactureParEmail({
         <td>${qte}</td>
         <td>${totalLigne.toFixed(2)} €</td>
       </tr>`;
-    })
-    .join('');
+  }).join('');
 
   const cotisationHTML =
     cotisation && cotisation.length > 0
@@ -216,21 +209,37 @@ function envoyerFactureParEmail({
     </table>
   `;
 
-  return transporter.sendMail({
+  await transporter.sendMail({
     from: getDefaultFrom(),
-    to: email,
-    subject: "Votre facture",
+    to: String(email).trim(),
+    subject: 'Votre facture',
     html,
   });
 }
 
 module.exports = {
-  // transport
   getMailTransport,
-  // envois
   envoyerEmailGenerique,
   envoyerFactureParEmail,
-  // gestion réglages (tenant)
   getEmailSettings,
-  setEmailSettings,
+  setEmailSettings: (s) => {
+    // On conserve ta fonction, mais on force le provider par défaut à "disabled"
+    const cleaned = { ...(s || {}) };
+    if (!cleaned.provider) cleaned.provider = 'disabled';
+    if (cleaned.port != null) cleaned.port = Number(cleaned.port);
+    if (cleaned.secure != null) cleaned.secure = !!cleaned.secure;
+
+    const value_json = JSON.stringify(cleaned);
+    db.prepare(`
+      INSERT INTO tenant_settings (key, value_json, updated_at)
+      VALUES ('email', ?, datetime('now','localtime'))
+      ON CONFLICT(key) DO UPDATE SET
+        value_json = excluded.value_json,
+        updated_at = excluded.updated_at
+    `).run(value_json);
+
+    return cleaned;
+  },
+  // exposé modules si besoin ailleurs
+  getTenantModules,
 };
