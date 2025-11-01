@@ -6,7 +6,24 @@
   try { currentCartId = localStorage.getItem('currentCartId') || null; } catch { }
 
 
-  // 👉 DÉFINIS ici la VRAIE fonction renderCaisse
+
+
+  // — Mémo local: "cet adhérent a payé la cotisation pour AAAA-MM"
+function cotKey(adherentId, d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `cot_paid:${adherentId}:${y}-${m}`;
+}
+function markCotPaid(adherentId, d = new Date()) {
+  try { localStorage.setItem(cotKey(adherentId, d), '1'); } catch {}
+}
+function hasCotPaid(adherentId, d = new Date()) {
+  try { return localStorage.getItem(cotKey(adherentId, d)) === '1'; } catch { return false; }
+}
+
+
+
+
   // 👉 DÉFINIS ici la VRAIE fonction renderCaisse
 async function renderCaisse() {
   // 🔧 Toujours lire les modules frais depuis electronAPI et les normaliser
@@ -295,13 +312,52 @@ function wireDatalistChevron(inputId){
 
 // === Popup cotisation au choix d'un adhérent ================================
 // Appelée par ton code: await verifierCotisationAdherent(adherentId, nomComplet, panier, afficherPanier)
-async function verifierCotisationAdherent(adherentId, nomComplet, panierRef, refreshUI){
+// === Popup cotisation — vérif mensuelle béton ===
+async function verifierCotisationAdherent(adherentId, nomComplet, panierRef, refreshUI) {
+  // 🔒 anti double déclenchement
+  if (window.__cotisationCheckInProgress) return;
+  window.__cotisationCheckInProgress = true;
+
   try {
-    // 1) si une ligne "cotisation" est déjà dans le panier → ne rien faire
+    // 0) déjà au panier ? on ne repropose pas
     const deja = Array.isArray(panierRef) && panierRef.some(l => l?.type === 'cotisation');
     if (deja) return;
 
-    // 2) récupérer un montant par défaut (plusieurs sources possibles)
+    if (hasCotPaid(Number(adherentId))) return;
+
+
+    // 1) helpers dates ultra-tolérants
+    const normalizeToDate = (v) => {
+      if (!v && v !== 0) return null;
+      if (v instanceof Date) return v;
+      if (typeof v === 'number') {
+        // seconds → ms
+        const ms = (v < 1e12 ? v * 1000 : v);
+        const d = new Date(ms);
+        return isNaN(d) ? null : d;
+      }
+      if (typeof v === 'string') {
+        const t = Date.parse(v);
+        if (!Number.isFinite(t)) return null;
+        const d = new Date(t);
+        return isNaN(d) ? null : d;
+      }
+      return null;
+    };
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0); // local time
+    const paidThisMonth = (d) => {
+      const dt = normalizeToDate(d);
+      if (!dt) return false;
+      return dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
+    };
+    const sinceISO = new Date(startOfMonth.getTime() - startOfMonth.getTimezoneOffset() * 60000).toISOString();
+    const sinceTsMs  = startOfMonth.getTime();           // ms epoch
+const sinceTsSec = Math.floor(sinceTsMs / 1000);     // s epoch
+
+
+    // 2) montant par défaut (fallbacks)
     let montantDefaut = 0;
     try {
       if (window.electronAPI?.getCotisationAmount) {
@@ -315,69 +371,129 @@ async function verifierCotisationAdherent(adherentId, nomComplet, panierRef, ref
         if (Number.isFinite(v) && v > 0) montantDefaut = v;
       }
     } catch {}
+    if (!montantDefaut) montantDefaut = 8;
 
-    if (!montantDefaut) montantDefaut = 10; // fallback safe
-
-    // 3) éventuellement vérifier statut côté main (si disponible)
-    //    -> si l’API dit "à jour", on passe; sinon on propose la cotisation
+    // 3) a-t-il déjà payé ce mois-ci ? (plusieurs APIs supportées)
     let besoinCotisation = true;
+
+    // 3.a getCotisationStatut (si dispo)
     try {
       if (window.electronAPI?.getCotisationStatut) {
         const st = await window.electronAPI.getCotisationStatut(Number(adherentId));
-        // st = { due: boolean, reason?: string, last_year?: number, amount?: number }
-        if (typeof st?.due === 'boolean') besoinCotisation = !!st.due;
+        // Priorité aux dates “réelles” plutôt qu’à due:true/false
+        if (st?.last_paid_at && paidThisMonth(st.last_paid_at)) besoinCotisation = false;
+        if (Number.isFinite(st?.last_paid_year) && Number.isFinite(st?.last_paid_month)) {
+          const y = Number(st.last_paid_year), m = Number(st.last_paid_month) - 1; // 1..12 → 0..11
+          if (y === now.getFullYear() && m === now.getMonth()) besoinCotisation = false;
+        }
+        // S’il expose juste due:true/false, on l’utilise en dernier recours
+        if (typeof st?.due === 'boolean' && besoinCotisation) besoinCotisation = !!st.due;
         if (Number.isFinite(Number(st?.amount)) && st.amount > 0) montantDefaut = Number(st.amount);
+      }
+    } catch {}
+
+    // 3.b historique ce mois-ci (listCotisations)
+try {
+  if (besoinCotisation && window.electronAPI?.listCotisations) {
+    const tries = [
+      { since: sinceISO },
+      { since: sinceTsSec },
+      { since: sinceTsMs },
+      { since_iso: sinceISO },
+      { since_ts: sinceTsSec },
+      { since_ms: sinceTsMs }
+    ];
+    for (const params of tries) {
+      try {
+        const rows = await window.electronAPI.listCotisations({ adherent_id: Number(adherentId), ...params });
+        if (Array.isArray(rows) && rows.some(r => paidThisMonth(r?.date || r?.paid_at || r?.created_at))) {
+          besoinCotisation = false;
+          markCotPaid(Number(adherentId), now); // ← MÉMO local pour éviter tout re-prompt
+          break;
+        }
+      } catch {}
+    }
+  }
+} catch {}
+
+
+    // 3.c fallback
+    try {
+      if (besoinCotisation && window.electronAPI?.getCotisationsAdherent) {
+        const last = await window.electronAPI.getCotisationsAdherent(Number(adherentId), { limit: 1 });
+        const row = Array.isArray(last) ? last[0] : null;
+        if (row && paidThisMonth(row.date || row.paid_at || row.created_at)) {
+          besoinCotisation = false;
+          // NEW
+          markCotPaid(Number(adherentId), now);
+        }
       }
     } catch {}
 
     if (!besoinCotisation) return;
 
-// 4) demander confirmation + montant via modale (min 5€) avec verrou
-if (__cotisationPromptOpen) return;
-__cotisationPromptOpen = true;
-try {
-  // Utilise ta fonction qui force un minimum
-  const montant = await promptCotisationAmount(5);
-  if (montant == null) return; // annulé
+    // 4) demander le montant (min 5 €), avec anti double-popup
+    if (window.__cotisationPromptOpen) return;
+    window.__cotisationPromptOpen = true;
+    try {
+      const ask = async () => {
+        if (typeof showPromptModal === 'function') {
+          return await showPromptModal(
+            `Ajouter la cotisation pour ${nomComplet} ? (minimum 5 €)`,
+            String(Math.max(5, montantDefaut))
+          );
+        }
+        if (typeof showTextPromptModal === 'function') {
+          return await showTextPromptModal(
+            `Ajouter la cotisation pour ${nomComplet} ? (minimum 5 €)`,
+            String(Math.max(5, montantDefaut))
+          );
+        }
+        return window.prompt(
+          `Ajouter la cotisation pour ${nomComplet} ? (minimum 5 €)`,
+          String(Math.max(5, montantDefaut))
+        );
+      };
 
-  // 5) insérer la ligne de cotisation dans le panier (type "cotisation")
-  panierRef.push({
-    id: `cotisation-${Date.now()}`,
-    type: 'cotisation',
-    nom: 'Cotisation',
-    fournisseur_nom: '—',
-    unite: '€',
-    prix: Number(montant),
-    quantite: 1,
-    remise: 0
-  });
-
-  try { localStorage.setItem('panier', JSON.stringify(panierRef)); } catch {}
-  if (typeof refreshUI === 'function') refreshUI();
-} finally {
-  __cotisationPromptOpen = false;
-}
-
-
-    // 5) insérer la ligne de cotisation dans le panier (type "cotisation")
-    panierRef.push({
-      id: `cotisation-${Date.now()}`,
-      type: 'cotisation',
-      nom: 'Cotisation',
-      fournisseur_nom: '—',
-      unite: '€',
-      prix: montant,
-      quantite: 1,
-      remise: 0
-    });
-
-    try { localStorage.setItem('panier', JSON.stringify(panierRef)); } catch {}
-    if (typeof refreshUI === 'function') refreshUI();
-
+      let saisi;
+      while (true) {
+        saisi = await ask();
+        if (saisi == null) return; // annulé
+        const montant = Math.round(Number(String(saisi).replace(',', '.')) * 100) / 100;
+        if (Number.isFinite(montant) && montant >= 5) {
+          panierRef.push({
+            id: `cotisation-${Date.now()}`,
+            type: 'cotisation',
+            nom: 'Cotisation',
+            fournisseur_nom: '—',
+            unite: '€',
+            prix: montant,
+            quantite: 1,
+            remise: 0
+          });
+          try { localStorage.setItem('panier', JSON.stringify(panierRef)); } catch {}
+          if (typeof refreshUI === 'function') refreshUI();
+          break;
+        } else {
+          // message d’erreur non bloquant et on reboucle
+          if (typeof showChoixModal === 'function') {
+            const r = await showChoixModal('Montant invalide (min 5 €). Réessayer ?', ['Réessayer', 'Annuler']);
+            if (r !== 'Réessayer') return;
+          } else {
+            alert('Montant invalide (minimum 5 €).');
+          }
+        }
+      }
+    } finally {
+      window.__cotisationPromptOpen = false;
+    }
   } catch (e) {
     console.warn('[verifierCotisationAdherent] erreur non bloquante:', e);
+  } finally {
+    window.__cotisationCheckInProgress = false;
   }
 }
+
 
 
     async function showLoadCartDialog() {
@@ -2114,14 +2230,17 @@ async function validerVente() {
       lignes
     });
 
-    // 10) Cotisation auto (si présente)
-    try {
-      if (adherentId && Number(totalCotisation) > 0) {
-        await window.electronAPI.ajouterCotisation(Number(adherentId), Number(totalCotisation));
-      }
-    } catch (e) {
-      console.error('[cotisation] ajout KO :', e);
-    }
+  // 10) Cotisation auto (si présente)
+try {
+  if (adherentId && Number(totalCotisation) > 0) {
+    await window.electronAPI.ajouterCotisation(Number(adherentId), Number(totalCotisation));
+    // NEW: évite tout re-prompt dans le mois courant, même si la DB met 1-2s à refléter
+    try { markCotPaid(Number(adherentId), new Date()); } catch {}
+  }
+} catch (e) {
+  console.error('[cotisation] ajout KO :', e);
+}
+
 
     // 11) Envoi facture uniquement si module emails ON
     const emailsOn = modules.emails; // ← normalisé
