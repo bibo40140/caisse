@@ -147,6 +147,7 @@ app.on('window-all-closed', () => {
 
 
 function getTenantHeaders() {
+  // Récupère le token déjà stocké par apiMainClient ou dans l’env
   let token = null;
   try {
     if (typeof apiMainClient?.getAuthToken === 'function') {
@@ -155,17 +156,24 @@ function getTenantHeaders() {
   } catch {}
   if (!token && process.env.API_AUTH_TOKEN) token = process.env.API_AUTH_TOKEN;
 
+  // Décode le JWT pour lire tenant_id
   const info = computeAuthInfoFromToken(token);
   const h = {};
-  // Si le token contient un tenant_id, on l’utilise
-  if (info?.tenant_id) {
+
+  // Utiliser seulement un tenant_id valide (UUID)
+  const isUUID = v => typeof v === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+
+  if (isUUID(info?.tenant_id)) {
     h['x-tenant-id'] = String(info.tenant_id);
-  } else if (process.env.TENANT_ID) {
-    // Sinon, tente un TENANT_ID forcé (ex: via .env/config)
+  } else if (isUUID(process.env.TENANT_ID)) {
+    // fallback uniquement si c’est un vrai UUID
     h['x-tenant-id'] = String(process.env.TENANT_ID);
-  }
+  } // sinon: on n’envoie rien (l’API lira le tenant du token)
+
   return h;
 }
+
 
 function getTenantHeadersFor(tenantId) {
   const h = {};
@@ -726,7 +734,6 @@ if (cfgModules.cotisations) require('./src/main/handlers/cotisations');
 if (cfgModules.imports !== false) require('./src/main/handlers/imports');
 if (cfgModules.stocks) {
   require('./src/main/handlers/stock')(ipcMain);
-  require('./src/main/handlers/receptions').registerReceptionHandlers(ipcMain);
 }
 
 const registerInventoryHandlers = require('./src/main/handlers/inventory');
@@ -815,4 +822,34 @@ safeHandle('mp:remove', async (_e, id) => {
     db.prepare(`DELETE FROM modes_paiement WHERE id = ?`).run(n);
     return { ok: true };
   } catch (e) { throw new Error(e?.message || String(e)); }
+});
+
+
+// --- Ops (pour le chip en haut à droite)
+safeHandle('ops:push-now', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+    if (typeof sync.pushOpsNow === 'function') {
+      const r = await sync.pushOpsNow();
+      return r || { ok: true };
+    }
+    return { ok: true }; // fallback si pas dispo
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('ops:pending-count', async () => {
+  try {
+    const fn =
+      sync?.opsPendingCount || sync?.pendingOpsCount || sync?.getPendingOpsCount;
+    if (typeof fn === 'function') {
+      const n = await fn();
+      return { ok: true, count: Number(n || 0) };
+    }
+    return { ok: true, count: 0 };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e), count: 0 };
+  }
 });

@@ -410,6 +410,12 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 /* =========================================================
  * SYNC (bootstrap / pull_refs / push_ops)
  * =======================================================*/
+// Helper: retourne l'id si c'est un UUID v4 plausible, sinon null (forcera uuid_generate_v4() côté SQL)
+function asUuidOrNull(x) {
+  const s = (x ?? '').toString().trim();
+  // très permissif : 8-4-4-4-12
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s) ? s : null;
+}
 
 /** Bootstrap needed (tenant-aware) */
 app.get('/sync/bootstrap_needed', authRequired, async (req, res) => {
@@ -560,14 +566,24 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
       switch (op.op_type) {
         case 'sale.created': {
-          let mpId = (p.modePaiementId ?? null);
-          if (mpId != null) {
-            const chk = await client.query(`SELECT 1 FROM modes_paiement WHERE tenant_id=$1 AND id=$2`, [tenantId, mpId]);
+          // Normalise en UUID (ou null)
+          let venteId     = asUuidOrNull(p.venteId);
+          let mpId        = asUuidOrNull(p.modePaiementId);
+          let adherentId  = asUuidOrNull(p.adherentId);
+
+          // Vérifie l’existence quand on a un UUID
+          if (mpId) {
+            const chk = await client.query(
+              `SELECT 1 FROM modes_paiement WHERE tenant_id=$1 AND id=$2`,
+              [tenantId, mpId]
+            );
             if (chk.rowCount === 0) mpId = null;
           }
-          let adherentId = (p.adherentId ?? null);
-          if (adherentId != null) {
-            const chkA = await client.query(`SELECT 1 FROM adherents WHERE tenant_id=$1 AND id=$2`, [tenantId, adherentId]);
+          if (adherentId) {
+            const chkA = await client.query(
+              `SELECT 1 FROM adherents WHERE tenant_id=$1 AND id=$2`,
+              [tenantId, adherentId]
+            );
             if (chkA.rowCount === 0) adherentId = null;
           }
 
@@ -576,7 +592,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
              VALUES (COALESCE($1, uuid_generate_v4()), $2, $3,$4,$5,$6,$7,$8,$9)
              ON CONFLICT (id) DO NOTHING`,
             [
-              p.venteId || null, tenantId,
+              venteId, tenantId,
               p.total ?? null,
               adherentId,
               mpId,
@@ -586,33 +602,53 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
               p.cotisation ?? null,
             ]
           );
-          console.log('    [+] vente header enregistrée id=', p.venteId || '(auto)');
+          console.log('    [+] vente header enregistrée id=', venteId || '(auto)');
           break;
         }
 
-        case 'sale.line_added': {
-          const sourceKey =
-            (p.ligneId != null && p.ligneId !== '')
-              ? `lv:${p.ligneId}`
-              : `sale:${p.venteId}:${p.produitId}:${Number(p.quantite)}:${Number(p.prix)}`;
 
-          const checkProd = await client.query(`SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`, [tenantId, p.produitId]);
+        case 'sale.line_added': {
+          // Normalise en UUID (obligatoires ici)
+          const venteId   = asUuidOrNull(p.venteId);
+          const produitId = asUuidOrNull(p.produitId);
+          const ligneId   = asUuidOrNull(p.ligneId);
+
+          if (!venteId)  throw new Error('invalid_vente_id_uuid');
+          if (!produitId) throw new Error('invalid_produit_id_uuid');
+
+          // sourceKey stable pour éviter doublons stock_movements
+          const sourceKey =
+            (ligneId != null)
+              ? `lv:${ligneId}`
+              : `sale:${venteId}:${produitId}:${Number(p.quantite)}:${Number(p.prix)}`;
+
+          const checkProd = await client.query(
+            `SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`,
+            [tenantId, produitId]
+          );
           if (checkProd.rowCount === 0) throw new Error('product_not_found_for_tenant');
-          const checkVente = await client.query(`SELECT 1 FROM ventes WHERE tenant_id=$1 AND id=$2`, [tenantId, p.venteId]);
+
+          const checkVente = await client.query(
+            `SELECT 1 FROM ventes WHERE tenant_id=$1 AND id=$2`,
+            [tenantId, venteId]
+          );
           if (checkVente.rowCount === 0) throw new Error('sale_not_found_for_tenant');
+
+          const quantite = Number(p.quantite || 0);
+          const prix     = Number(p.prix || 0);
 
           const chk = await client.query(
             `SELECT 1 FROM lignes_vente
              WHERE tenant_id=$1 AND vente_id=$2 AND produit_id=$3 AND quantite=$4 AND prix=$5 LIMIT 1`,
-            [tenantId, p.venteId, p.produitId, p.quantite, p.prix]
+            [tenantId, venteId, produitId, quantite, prix]
           );
           if (chk.rowCount === 0) {
             await client.query(
               `INSERT INTO lignes_vente (id, tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
                VALUES (COALESCE($1, uuid_generate_v4()), $2, $3,$4,$5,$6,$7,$8)`,
-              [p.ligneId || null, tenantId, p.venteId, p.produitId, p.quantite, p.prix, p.prixUnitaire ?? null, p.remisePercent ?? 0]
+              [ligneId || null, tenantId, venteId, produitId, quantite, prix, p.prixUnitaire ?? null, p.remisePercent ?? 0]
             );
-            console.log('    [+] ligne_vente ajoutée vente=', p.venteId, 'prod=', p.produitId, 'qte=', p.quantite);
+            console.log('    [+] ligne_vente ajoutée vente=', venteId, 'prod=', produitId, 'qte=', quantite);
           } else {
             console.log('    [=] ligne_vente déjà présente');
           }
@@ -621,9 +657,9 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
              VALUES ($1,$2,$3,'sale_line',$4)
              ON CONFLICT DO NOTHING`,
-            [tenantId, p.produitId, -Number(p.quantite || 0), sourceKey]
+            [tenantId, produitId, -quantite, sourceKey]
           );
-          console.log('    [+] stock_movements sale_line', { produit_id: p.produitId, delta: -Number(p.quantite || 0), sourceKey });
+          console.log('    [+] stock_movements sale_line', { produit_id: produitId, delta: -quantite, sourceKey });
           break;
         }
 
@@ -699,32 +735,28 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
         }
 
         case 'inventory.adjust': {
-          await client.query(
-            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
-             VALUES ($1,$2,$3,'inventory_adjust',$4)
-             ON CONFLICT DO NOTHING`,
-            [tenantId, p.produitId, Number(p.delta || 0), String(op.id)]
-          );
-          console.log('    [+] stock_movements inventory_adjust', { produit_id: p.produitId, delta: Number(p.delta || 0) });
-          break;
-        }
+  const produitId = asUuidOrNull(p.produitId);
+  const delta = Number(p.delta || 0);
 
-        case 'stock.set': {
-          const pid = String(p.productId);
-          const desired = Number(p.newStock);
-          if (pid && Number.isFinite(desired)) {
-            const currentStock = await getCurrentStock(client, tenantId, pid);
-            const delta = desired - currentStock;
-            await client.query(
-              `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
-               VALUES ($1,$2,$3,'stock_set',$4)
-               ON CONFLICT DO NOTHING`,
-              [tenantId, pid, delta, String(op.id)]
-            );
-            console.log('    [+] stock_movements stock_set', { produit_id: pid, delta });
-          }
-          break;
-        }
+  if (!produitId) {
+    console.warn('    [!] inventory.adjust ignorée — produitId non-UUID:', p.produitId);
+    break; // on passe sans casser la transaction
+  }
+  if (!Number.isFinite(delta) || delta === 0) {
+    console.warn('    [!] inventory.adjust ignorée — delta invalide:', p.delta);
+    break;
+  }
+
+  await client.query(
+    `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+     VALUES ($1,$2,$3,'inventory_adjust',$4)
+     ON CONFLICT DO NOTHING`,
+    [tenantId, produitId, delta, String(op.id)]
+  );
+  console.log('    [+] stock_movements inventory_adjust', { produit_id: produitId, delta });
+  break;
+}
+
 
         case 'product.updated': {
           const fields = [];
@@ -785,41 +817,44 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Unités
-    for (const u of unites) {
-      await client.query(
-        `INSERT INTO unites (id, tenant_id, nom)
-         VALUES (COALESCE($1, uuid_generate_v4()), $2, $3)
-         ON CONFLICT (id) DO UPDATE
-           SET nom = EXCLUDED.nom`,
-        [u.id || null, tenantId, u.nom]
-      );
-    }
+// Unités
+for (const u of unites) {
+  await client.query(
+    `INSERT INTO unites (id, tenant_id, nom)
+     VALUES (COALESCE($1, uuid_generate_v4()), $2, $3)
+     ON CONFLICT (tenant_id, nom) DO UPDATE
+       SET nom = EXCLUDED.nom`,
+    [u.id || null, tenantId, u.nom]
+  );
+}
 
-    // Familles
-    for (const f of familles) {
-      await client.query(
-        `INSERT INTO familles (id, tenant_id, nom)
-         VALUES (COALESCE($1, uuid_generate_v4()), $2, $3)
-         ON CONFLICT (id) DO UPDATE
-           SET nom = EXCLUDED.nom`,
-        [f.id || null, tenantId, f.nom]
-      );
-    }
 
-    // Catégories
-    for (const c of categories) {
-      await client.query(
-        `INSERT INTO categories (id, tenant_id, nom, famille_id)
-         VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4)
-         ON CONFLICT (id) DO UPDATE
-           SET nom = EXCLUDED.nom,
-               famille_id = COALESCE(EXCLUDED.famille_id, categories.famille_id)`,
-        [c.id || null, tenantId, c.nom, c.famille_id || null]
-      );
-    }
+// Familles
+for (const f of familles) {
+  await client.query(
+    `INSERT INTO familles (id, tenant_id, nom)
+     VALUES (COALESCE($1, uuid_generate_v4()), $2, $3)
+     ON CONFLICT (tenant_id, nom) DO UPDATE
+       SET nom = EXCLUDED.nom`,
+    [f.id || null, tenantId, f.nom]
+  );
+}
 
-    // Adhérents
+
+// Catégories
+for (const c of categories) {
+  await client.query(
+    `INSERT INTO categories (id, tenant_id, nom, famille_id)
+     VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4)
+     ON CONFLICT (tenant_id, nom) DO UPDATE
+       SET nom = EXCLUDED.nom,
+           famille_id = COALESCE(EXCLUDED.famille_id, categories.famille_id)`,
+    [c.id || null, tenantId, c.nom, c.famille_id || null]
+  );
+}
+
+
+    // ========= Adhérents =========
     for (const a of adherents) {
       await client.query(
         `INSERT INTO adherents
@@ -828,9 +863,10 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
          VALUES (COALESCE($1, uuid_generate_v4()), $2, $3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (id) DO UPDATE SET
            nom=$3, prenom=$4, email1=$5, email2=$6, telephone1=$7, telephone2=$8, adresse=$9, code_postal=$10, ville=$11,
-           nb_personnes_foyer=$12, tranche_age=$13, droit_entree=$14, date_inscription=$15, archive=$16, date_archivage=$17, date_reactivation=$18`,
+           nb_personnes_foyer=$12, tranche_age=$13, droit_entree=$14, date_inscription=$15,
+           archive=$16, date_archivage=$17, date_reactivation=$18`,
         [
-          a.id || null, tenantId,
+          asUuidOrNull(a.id), tenantId,
           a.nom || null, a.prenom || null, a.email1 || null, a.email2 || null, a.telephone1 || null, a.telephone2 || null,
           a.adresse || null, a.code_postal || null, a.ville || null,
           a.nb_personnes_foyer || null, a.tranche_age || null, a.droit_entree || null, a.date_inscription || null,
@@ -839,7 +875,7 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
       );
     }
 
-    // Fournisseurs
+    // ========= Fournisseurs (FK categorie_id) =========
     for (const f of fournisseurs) {
       await client.query(
         `INSERT INTO fournisseurs
@@ -848,14 +884,14 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
          ON CONFLICT (id) DO UPDATE SET
            nom=$3, contact=$4, email=$5, telephone=$6, adresse=$7, code_postal=$8, ville=$9, categorie_id=$10, label=$11`,
         [
-          f.id || null, tenantId,
+          asUuidOrNull(f.id), tenantId,
           f.nom, f.contact || null, f.email || null, f.telephone || null, f.adresse || null, f.code_postal || null, f.ville || null,
-          f.categorie_id || null, f.label || null
+          asUuidOrNull(f.categorie_id), f.label || null
         ]
       );
     }
 
-    // Produits
+    // ========= Produits (FK unite_id, fournisseur_id, categorie_id) =========
     for (const p of produits) {
       await client.query(
         `INSERT INTO produits
@@ -865,21 +901,24 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
            nom=$3, reference=$4, prix=$5, stock=$6, code_barre=$7,
            unite_id=$8, fournisseur_id=$9, categorie_id=$10, updated_at=now()`,
         [
-          p.id || null, tenantId,
+          asUuidOrNull(p.id), tenantId,
           p.nom, p.reference || null, Number(p.prix || 0), Number(p.stock ?? 0),
-          p.code_barre || null, p.unite_id || null, p.fournisseur_id || null, p.categorie_id || null
+          p.code_barre || null,
+          asUuidOrNull(p.unite_id),
+          asUuidOrNull(p.fournisseur_id),
+          asUuidOrNull(p.categorie_id)
         ]
       );
     }
 
-    // Modes de paiement
+    // ========= Modes de paiement =========
     for (const m of modes_paiement) {
       await client.query(
         `INSERT INTO modes_paiement (id, tenant_id, nom, taux_percent, frais_fixe, actif)
          VALUES (COALESCE($1, uuid_generate_v4()), $2, $3,$4,$5,$6)
          ON CONFLICT (id) DO UPDATE SET
            nom=$3, taux_percent=$4, frais_fixe=$5, actif=$6`,
-        [m.id || null, tenantId, m.nom, Number(m.taux_percent || 0), Number(m.frais_fixe || 0), !!m.actif]
+        [asUuidOrNull(m.id), tenantId, m.nom, Number(m.taux_percent || 0), Number(m.frais_fixe || 0), !!m.actif]
       );
     }
 

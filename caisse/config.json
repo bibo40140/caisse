@@ -1,19 +1,19 @@
 {
   "modules": {
-    "cotisations": false,
+    "email": false,
     "emails": false,
+    "stocks": true,
+    "exports": false,
+    "adherents": true,
     "prospects": false,
     "inventaire": true,
-    "adherents": true,
-    "ventes_exterieur": true,
-    "stocks": true,
-    "modes_paiement": true,
-    "fournisseurs": true,
-    "exports": false,
     "multiusers": false,
-    "email": false,
-    "receptions": true
+    "receptions": true,
+    "cotisations": true,
+    "fournisseurs": true,
+    "modes_paiement": true,
+    "ventes_exterieur": true
   },
-  "ventes_exterieur_margin_percent": 30,
+  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNWNlMDk4Zi05YjUwLTQ3ZDQtYjJmZi01OTliNmM5ZDZhMmIiLCJ1c2VyX2lkIjoiMTVjZTA5OGYtOWI1MC00N2Q0LWIyZmYtNTk5YjZjOWQ2YTJiIiwidGVuYW50X2lkIjoiN2YxMmQ0ZGUtZmRjOC00YmZhLWFlYjQtMTlmYzQ0NmE0NTlmIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJsb3JkYmlib0BnbWFpbC5jb20iLCJpc19zdXBlcl9hZG1pbiI6ZmFsc2UsImlhdCI6MTc2MjAyMjMxNywiZXhwIjoxNzYyNjI3MTE3fQ.2OFh-Hu-uo6EMOzhiPzYXvVHv9THRAiraMHuGQjX3O0",
   "ventes_ext_margin_percent": 30
 }

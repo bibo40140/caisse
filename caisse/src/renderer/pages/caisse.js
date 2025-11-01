@@ -2112,44 +2112,48 @@ async function validerVente() {
       return;
     }
 
-    // 4) Type de vente + destinataire
-    let sale_type = 'adherent';
-    let adherentId = null;
-    let adherentEmail = null;
-    let clientEmailExt = null;
-    let _prospectSelectedForSale = null;
+// 4) Type de vente + destinataire
+let sale_type = 'adherent';
+let adherentId = null;
+let adherentEmail = null;
+let clientEmailExt = null;
+let _prospectSelectedForSale = null;
 
-    if (isExt) {
-      sale_type = 'exterieur';
-      clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
-    } else if (adherentsOn) {
-      const hiddenAdh = document.getElementById('adherent-select');
-      const adhIdRaw = hiddenAdh?.value || '';
-      const adhMail = hiddenAdh?.dataset?.email || '';
+if (isExt) {
+  sale_type = 'exterieur';
+  clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
 
-      if (adhIdRaw && adhMail) {
-        sale_type = 'adherent';
-        adherentId = Number(adhIdRaw);
-        adherentEmail = adhMail;
-      } else if (prospectsOn) {
-        const hp = document.getElementById('prospect-select');
-        const prospectId = hp?.value || '';
-        const prospectEmail = hp?.dataset?.email || '';
-        if (!prospectId) {
-          alert('Merci de sélectionner un adhérent, ou bien un prospect, ou passe en mode Extérieur.');
-          return;
-        }
-        sale_type = 'prospect';
-        adherentId = null;
-        _prospectSelectedForSale = { id: Number(prospectId), email: (prospectEmail || null) };
-      } else {
-        alert('Merci de sélectionner un adhérent (ou active le module prospects / passe en Extérieur).');
-        return;
-      }
-    } else {
-      sale_type = 'exterieur';
-      clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
+} else if (adherentsOn) {
+  const hiddenAdh = document.getElementById('adherent-select');
+  const adhIdRaw  = hiddenAdh?.value || '';
+  const adhMail   = hiddenAdh?.dataset?.email || '';
+
+  if (adhIdRaw) {
+    // ✅ N’exige plus l’email pour valider une vente “Adhérent”
+    sale_type     = 'adherent';
+    adherentId    = Number(adhIdRaw);     // si un jour tes IDs passent en UUID, remplace par: String(adhIdRaw)
+    adherentEmail = adhMail || null;      // optionnel
+  } else if (prospectsOn) {
+    const hp            = document.getElementById('prospect-select');
+    const prospectId    = hp?.value || '';
+    const prospectEmail = hp?.dataset?.email || '';
+    if (!prospectId) {
+      alert('Merci de sélectionner un adhérent, ou bien un prospect, ou passe en mode Extérieur.');
+      return;
     }
+    sale_type = 'prospect';
+    adherentId = null;
+    _prospectSelectedForSale = { id: Number(prospectId), email: (prospectEmail || null) };
+  } else {
+    alert('Merci de sélectionner un adhérent (ou active le module prospects / passe en Extérieur).');
+    return;
+  }
+
+} else {
+  // cas “adherents” OFF
+  sale_type = 'exterieur';
+  clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
+}
 
     // 5) Lignes vendables (produits uniquement, id numérique)
     const lignesProduits = panier

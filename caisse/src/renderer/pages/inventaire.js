@@ -1,18 +1,7 @@
 // src/renderer/pages/inventaire.js
-// Inventaire multi-postes (via IPC -> API):
-// - Colonnes : Nom, Fournisseur, Catégorie (effective), Unité, Code-barres, Stock, Compté, Écart, Prix, Actions
-// - Recherche unique (nom / fournisseur / code-barres) façon "caisse": accents ignorés, fragments, pluriels s/x, ordre libre
-// - Saisie libre puis Validation par ligne (bouton ou Entrée). Le delta n’apparaît qu’après validation.
-// - Scan code-barres : +1 immédiat en local ET envoi "count-add" (IPC vers main, qui appelle l’API).
-// - Polling périodique du "summary" pour voir les saisies des autres postes (agrégat).
-// - Validation globale : appelle l’API `finalize` via IPC → remet à 0 tous les non saisis (snapshot serveur).
-// - 💾 Brouillon auto (localStorage).
-// - 🧊 Loaders : overlay global (init/fin) + verrou de ligne pendant la validation.
-
 (function () {
   const openProductEditor = (...args) => window.ProductEditor.openProductEditor(...args);
 
-  // ---- Busy / loaders ------------------------------------------------------
   function ensureBusyOverlay() {
     if (document.getElementById('app-busy')) return;
     const div = document.createElement('div');
@@ -51,7 +40,6 @@
     }
   }
 
-  // --- Helpers config (email_to, poll) --------------------------------------
   async function getConfig() {
     try { return await (window.electronAPI?.getConfig?.()); } catch { return {}; }
   }
@@ -59,56 +47,24 @@
     try { return await (window.getMods?.() || window.electronAPI.getModules()); } catch { return {}; }
   }
 
-  // --- Draft key & session key ----------------------------------------------
   const INV_SESSION_KEY = 'inventory_session_id';
   const DRAFT_KEY       = 'inventaire_draft_v1';
 
-  // --- Utils recherche façon "caisse" ---------------------------------------
   const normalize = (s) =>
-    (s || "")
-      .toString()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
-
+    (s || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const singularizeWord = (w) => (w.length >= 4 && (w.endsWith("s") || w.endsWith("x"))) ? w.slice(0, -1) : w;
   const singularizeStr  = (s) => normalize(s).split(/\s+/).map(singularizeWord).join(" ");
+  function byName(a, b) { const an = normalize(a.nom), bn = normalize(b.nom); return an < bn ? -1 : an > bn ? 1 : 0; }
 
-  function byName(a, b) {
-    const an = normalize(a.nom), bn = normalize(b.nom);
-    return an < bn ? -1 : an > bn ? 1 : 0;
-  }
+  function getBarcode(p){ return (p?.code_barres ?? p?.code_barre ?? p?.barcode ?? p?.code ?? p?.ean ?? "").toString(); }
+  function getUnitName(p, unitesById={}){ return p.unite_nom || unitesById[p.unite_id]?.nom || ""; }
+  function isDecimalUnit(unit){ const u=(unit||"").toLowerCase(); return /\b(kg|kilo|kilogram|g|gram|l|litre|liter|ml|cl)\b/.test(u); }
+  function parseLocaleNumber(v){ if(v===""||v===null||typeof v==="undefined") return null; return Number(String(v).replace(",", ".")); }
 
-  // --- code-barres / unités / décimaux --------------------------------------
-  function getBarcode(p) { return (p?.code_barres ?? p?.code_barre ?? p?.barcode ?? p?.code ?? p?.ean ?? "").toString(); }
-  function getUnitName(p, unitesById = {}) { return p.unite_nom || unitesById[p.unite_id]?.nom || ""; }
-  function isDecimalUnit(unitName) {
-    const u = (unitName || "").toLowerCase();
-    return /\b(kg|kilo|kilogram|g|gram|l|litre|liter|ml|cl)\b/.test(u);
-  }
-  function parseLocaleNumber(v) { if (v === "" || v === null || typeof v === "undefined") return null; return Number(String(v).replace(",", ".")); }
-  function effectiveCategory(p, fournisseursById) { return p.categorie_produit_nom || fournisseursById[p.fournisseur_id]?.categorie_nom || ""; }
-
-  // ----- fetchers (bridges existants) ---------------------------------------
-  async function fetchProduits() {
-    if (window.electronAPI?.getProduits) return await window.electronAPI.getProduits();
-    if (window.electronAPI?.produits?.list) return await window.electronAPI.produits.list();
-    throw new Error("Aucune méthode pour récupérer les produits.");
-  }
-  async function fetchFournisseurs() {
-    if (!window.electronAPI?.getFournisseurs) return [];
-    try { return await window.electronAPI.getFournisseurs(); } catch { return []; }
-  }
-  async function fetchCategoriesProduits() {
-    if (!window.electronAPI?.getCategoriesProduits) return [];
-    try { return await window.electronAPI.getCategoriesProduits(); } catch { return []; }
-  }
-  async function fetchUnites() {
-    if (!window.electronAPI?.getUnites) return [];
-    try { return await window.electronAPI.getUnites(); } catch { return []; }
-  }
+  async function fetchProduits(){ if(window.electronAPI?.getProduits) return await window.electronAPI.getProduits(); if(window.electronAPI?.produits?.list) return await window.electronAPI.produits.list(); throw new Error("Aucune méthode pour récupérer les produits."); }
+  async function fetchFournisseurs(){ if(!window.electronAPI?.getFournisseurs) return []; try{ return await window.electronAPI.getFournisseurs(); } catch{ return []; } }
+  async function fetchCategoriesProduits(){ if(!window.electronAPI?.getCategoriesProduits) return []; try{ return await window.electronAPI.getCategoriesProduits(); } catch{ return []; } }
+  async function fetchUnites(){ if(!window.electronAPI?.getUnites) return []; try{ return await window.electronAPI.getUnites(); } catch{ return []; } }
 
   function filterList(list, qRaw, fournisseursById = {}) {
     const q = (qRaw || "").trim();
@@ -136,9 +92,7 @@
       deltaCell = `${delta > 0 ? "+" : ""}${delta}`;
       rowCls = delta === 0 ? "validated delta0" : (delta > 0 ? "validated pos" : "validated neg");
     } else {
-      if (Number(st.remoteCount) > 0) {
-        deltaCell = `<span class="live-badge" title="Total compté (tous postes)">∑ ${Number(st.remoteCount)}</span>`;
-      }
+      if (Number(st.remoteCount) > 0) deltaCell = `<span class="live-badge" title="Total compté (tous postes)">∑ ${Number(st.remoteCount)}</span>`;
     }
 
     const prixVal = (typeof p.prix === "number" ? p.prix : Number(p.prix || 0));
@@ -179,13 +133,11 @@
         fetchProduits(), fetchFournisseurs(), fetchCategoriesProduits(), fetchUnites()
       ]);
 
-      // --- INIT / SESSION (via IPC) ---
       const cfg = await getConfig().catch(() => ({}));
       const pollEverySec = Number(cfg?.inventory?.poll_interval_sec || 5);
       const emailTo = cfg?.inventory?.email_to || null;
       const currentUser = 'Inventaire';
 
-      // Bandeau de statut (auth/session)
       const statusBar = document.createElement('div');
       statusBar.id = 'inv-status';
       statusBar.style.cssText = 'display:none;margin:8px 0;padding:8px;border-radius:8px;font-size:.92rem;';
@@ -199,79 +151,66 @@
       };
       const hideStatus = () => { statusBar.style.display = 'none'; };
 
+      function normalizeSessionId(raw){
+        const s = String(raw ?? '').trim();
+        if (!s || s.toLowerCase()==='nan' || s==='null' || s==='undefined') return null;
+        return s;
+      }
+
       async function tryStartInventorySession() {
         setBusy(true, 'Initialisation de la session inventaire…');
         let sessionId = null;
 
-        // 0) Si on a une session en cache, vérifier qu’elle est valide
         try {
-          const cached = localStorage.getItem(INV_SESSION_KEY);
+          const cachedRaw = localStorage.getItem(INV_SESSION_KEY);
+          const cached = normalizeSessionId(cachedRaw);
           if (cached) {
-            const test = await window.electronAPI?.inventory?.summary?.({ sessionId: cached });
-            if (test && (test.session?.id || cached)) {
-              sessionId = String(test.session?.id || cached);
-              showStatus('Session d’inventaire reprise.', 'ok');
-              return sessionId;
-            }
+            try {
+              const test = await window.electronAPI?.inventory?.summary?.({ sessionId: cached });
+              if (test && (test.session?.id || cached)) {
+                sessionId = String(test.session?.id || cached);
+                localStorage.setItem(INV_SESSION_KEY, sessionId);
+                showStatus('Session d’inventaire reprise.', 'ok');
+                return sessionId;
+              }
+            } catch {}
+          } else if (cachedRaw) {
+            localStorage.removeItem(INV_SESSION_KEY);
           }
-        } catch { /* on continue */ }
+        } catch {}
 
-        // 1) Tentative directe
         try {
           const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
           const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
-          sessionId = js?.session?.id || null;
-          if (sessionId) {
-            localStorage.setItem(INV_SESSION_KEY, String(sessionId));
-            hideStatus();
-            return sessionId;
-          }
+          sessionId = normalizeSessionId(js?.session?.id);
+          if (sessionId) { localStorage.setItem(INV_SESSION_KEY, sessionId); hideStatus(); return sessionId; }
         } catch (e) {
-          // 2) Si 401 → tenter un rétablissement d’auth si disponible
-          const msg = (e?.message || '') + ' ' + (e?.stack || '');
+          const msg = (e?.message||'') + ' ' + (e?.stack||'');
           if (/401/.test(msg) || /Missing token/i.test(msg)) {
             try {
               if (window.electronAPI?.ensureAuth) {
-                await window.electronAPI.ensureAuth(); // rafraîchir le token côté main si possible
+                await window.electronAPI.ensureAuth();
                 const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
                 const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
-                sessionId = js?.session?.id || null;
-                if (sessionId) {
-                  localStorage.setItem(INV_SESSION_KEY, String(sessionId));
-                  hideStatus();
-                  return sessionId;
-                }
+                sessionId = normalizeSessionId(js?.session?.id);
+                if (sessionId) { localStorage.setItem(INV_SESSION_KEY, sessionId); hideStatus(); return sessionId; }
               }
-            } catch { /* ignore */ }
+            } catch {}
           }
-          // 3) Dernier recours : essayer de lister/ reprendre une session ouverte si l’API expose la route
-          try {
-            if (window.electronAPI?.inventory?.listOpen) {
-              const open = await window.electronAPI.inventory.listOpen();
-              const last = Array.isArray(open) ? open.find(x => x?.status === 'open') : null;
-              if (last?.id) {
-                sessionId = String(last.id);
-                localStorage.setItem(INV_SESSION_KEY, sessionId);
-                showStatus('Session d’inventaire existante reprise.', 'ok');
-                return sessionId;
-              }
-            }
-          } catch { /* ignore */ }
-
-          // Sinon : mode local only
-          showStatus('⚠️ Non connecté à l’API inventaire (401). Mode brouillon local uniquement — la clôture et la synchro temps réel sont désactivées.', 'warn');
+          showStatus('⚠️ Non connecté à l’API inventaire. Mode brouillon local uniquement — la clôture et la synchro temps réel sont désactivées.', 'warn');
         } finally {
           setBusy(false);
         }
         return null;
       }
 
-      let sessionId = await tryStartInventorySession();
+      setBusy(true, 'Initialisation de la session inventaire…');
+      let sessionId = await Promise.race([ tryStartInventorySession(), new Promise(res => setTimeout(() => res(null), 8000)) ]);
+      setBusy(false);
 
       const fournisseursById = Object.fromEntries((fournisseurs || []).map(f => [f.id, f]));
       const unitesById = Object.fromEntries((unites || []).map(u => [u.id, u]));
 
-      // État par produit
       const state = new Map();
       for (const p of produits) {
         state.set(p.id, { system: Number(p.stock || 0), counted: null, validated: false, draft: null, prevSent: 0, remoteCount: 0 });
@@ -316,16 +255,10 @@
           .pos { color:#0a7a0a; font-weight:600; }
           .neg { color:#b00020; font-weight:600; }
           .delta0 { opacity:.7; }
-
-          /* Overlay global */
           #app-busy { display:none; position:fixed; inset:0; z-index:99999; align-items:center; justify-content:center; }
           #app-busy .busy-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.35); backdrop-filter: blur(1px); }
           #app-busy .busy-panel { position:relative; background:#fff; padding:16px 18px; border-radius:10px; min-width:280px; display:flex; gap:12px; align-items:center; box-shadow:0 10px 30px rgba(0,0,0,.25); }
-          .busy-spinner, .mini-spinner {
-            width:16px; height:16px; border-radius:50%;
-            border:2px solid rgba(0,0,0,.15); border-top-color:#444;
-            animation:spin 0.9s linear infinite; display:inline-block; vertical-align:middle;
-          }
+          .busy-spinner, .mini-spinner { width:16px; height:16px; border-radius:50%; border:2px solid rgba(0,0,0,.15); border-top-color:#444; animation:spin 0.9s linear infinite; display:inline-block; vertical-align:middle; }
           .busy-spinner { width:18px; height:18px; }
           @keyframes spin { to { transform: rotate(360deg);} }
           tr.row-busy { opacity:.6; }
@@ -337,19 +270,12 @@
       const $scroll = mount.querySelector("#inv-scroll");
       const $apply  = mount.querySelector("#inv-apply");
 
-      // Si pas de session, on grise le bouton de finalisation (évite “session introuvable”)
-      if (!sessionId) {
-        $apply.disabled = true;
-        $apply.title = "Connecte l’API (auth) pour pouvoir clôturer l’inventaire.";
-      }
+      if (!sessionId) { $apply.disabled = true; $apply.title = "Connecte l’API (auth) pour pouvoir clôturer l’inventaire."; }
 
-      // ---------- Draft helpers ----------
       const saveDraft = () => {
         try {
           const items = [];
-          for (const [id, st] of state.entries()) {
-            items.push({ id, counted: st.counted, validated: !!st.validated, draft: st.draft ?? null });
-          }
+          for (const [id, st] of state.entries()) { items.push({ id, counted: st.counted, validated: !!st.validated, draft: st.draft ?? null }); }
           const data = { at: Date.now(), search: $search?.value || "", items };
           localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
         } catch {}
@@ -358,14 +284,11 @@
 
       function loadDraft() {
         try {
-          const raw = localStorage.getItem(DRAFT_KEY);
-          if (!raw) return;
-          const data = JSON.parse(raw);
-          if (!data?.items) return;
+          const raw = localStorage.getItem(DRAFT_KEY); if (!raw) return;
+          const data = JSON.parse(raw); if (!data?.items) return;
           if ($search && typeof data.search === 'string') $search.value = data.search;
           for (const it of data.items) {
-            const st = state.get(it.id);
-            if (!st) continue;
+            const st = state.get(it.id); if (!st) continue;
             st.counted   = (it.counted === null || typeof it.counted === 'undefined') ? null : Number(it.counted);
             st.validated = !!it.validated;
             st.draft     = (typeof it.draft === 'string') ? it.draft : (st.counted !== null ? String(st.counted) : null);
@@ -373,35 +296,26 @@
           }
         } catch {}
       }
-      function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch {} }
-      // -----------------------------------
 
       function renderRows() {
         const q = $search.value || "";
         const filtered = filterList(produits, q, fournisseursById);
         const prevTop = $scroll.scrollTop;
         filtered.sort(byName);
-
-        const html = filtered.length
-          ? filtered.map((p) => rowHTML(p, state.get(p.id), fournisseursById, unitesById)).join("")
-          : `<tr><td colspan="10"><em>Aucun produit</em></td></tr>`;
-
+        const html = filtered.length ? filtered.map((p) => rowHTML(p, state.get(p.id), fournisseursById, unitesById)).join("")
+                                     : `<tr><td colspan="10"><em>Aucun produit</em></td></tr>`;
         $rows.innerHTML = html;
         $scroll.scrollTop = prevTop;
       }
 
-      // Charger un éventuel brouillon puis premier rendu
       loadDraft();
       renderRows();
 
-      // Recherche dynamique
       $search.addEventListener("input", () => { renderRows(); saveDraftDebounced(); });
 
-      // Entrée dans la recherche : si code-barres exact, +1 local + countAdd (IPC)
       $search.addEventListener("keydown", async (e) => {
         if (e.key !== "Enter") return;
-        const code = ($search.value || "").trim();
-        if (!code) return;
+        const code = ($search.value || "").trim(); if (!code) return;
         const exact = produits.find((p) => getBarcode(p) === code);
         if (exact) {
           const st = state.get(exact.id);
@@ -422,8 +336,6 @@
               st2.prevSent = Number(st2.prevSent || 0) + 1;
               state.set(exact.id, st2);
             } catch (err) {
-              console.warn('[inventaire] count-add(+1) failed', err?.message || err);
-              // Si 401 à ce moment → re-essayer une fois l’ensureAuth
               const msg = (err?.message || '') + ' ' + (err?.stack || '');
               if (/401/.test(msg) || /Missing token/i.test(msg)) {
                 try {
@@ -437,100 +349,33 @@
                   }
                 } catch { showStatus('⚠️ Auth expirée pendant le comptage. Saisie locale OK, mais non synchronisée.', 'warn'); }
               }
-            } finally {
-              $search.disabled = false;
-              $search.focus();
-              $search.select();
-            }
+            } finally { $search.disabled = false; $search.focus(); $search.select(); }
           }
         }
       });
 
-      // Saisie "Compté" -> update le draft seulement
-      $rows.addEventListener("input", (e) => {
-        const tr = e.target.closest("tr[data-id]");
-        if (!tr) return;
-        const id = Number(tr.dataset.id);
-        if (e.target.classList.contains("counted")) {
-          const st = state.get(id);
-          st.draft = e.target.value;
-          state.set(id, st);
-          saveDraftDebounced();
-        }
-      });
-
-      // Entrée dans "Compté" => validation de la ligne
-      $rows.addEventListener("keydown", (e) => {
-        if (e.key !== "Enter") return;
-        const tr = e.target.closest("tr[data-id]");
-        if (!tr) return;
-        if (e.target.classList.contains("counted")) {
-          e.preventDefault();
-          validateRow(Number(tr.dataset.id));
-        }
-      });
-
-      // Clicks sur actions
-      $rows.addEventListener("click", async (e) => {
-        const tr = e.target.closest("tr[data-id]");
-        if (!tr) return;
-        const id = Number(tr.dataset.id);
-
-        if (e.target.closest(".row-validate")) {
-          validateRow(id);
-          return;
-        }
-        if (e.target.closest(".row-edit")) {
-          await openEditModal(id);
-          return;
-        }
-        if (e.target.closest(".row-delete")) {
-          await deleteProduct(id);
-          return;
-        }
-      });
-
+      // Auto-validation sur BLUR + touche Entrée
       function validateRow(id) {
         const tr = $rows.querySelector(`tr[data-id="${id}"]`);
-        const st = state.get(id);
-        if (!st) return;
-
+        const st = state.get(id); if (!st) return;
         setRowBusy(tr, true);
 
-        // valeur "draft" si présente, sinon lire l'input
         let raw = (typeof st.draft === 'string') ? st.draft : null;
-        if (raw === null) {
-          const input = tr?.querySelector(`input.counted`);
-          raw = input ? input.value : "";
-        }
-        raw = raw.trim();
+        if (raw === null) { const input = tr?.querySelector(`input.counted`); raw = input ? input.value : ""; }
+        raw = String(raw).trim();
 
-        // contrôle selon unité
         const p = produits.find(x => x.id === id);
         const unitName = getUnitName(p, unitesById);
         const allowDecimal = isDecimalUnit(unitName);
-
         const num = parseLocaleNumber(raw);
-        if (raw !== "" && (num === null || !Number.isFinite(num))) {
-          alert("Valeur invalide. Utilise un nombre (ex: 1,25).");
-          setRowBusy(tr, false);
-          return;
-        }
-        if (!allowDecimal && num !== null && !Number.isInteger(num)) {
-          alert(`Cette unité (“${unitName || 'unité'}”) demande un entier.`);
-          setRowBusy(tr, false);
-          return;
-        }
+        if (raw !== "" && (num === null || !Number.isFinite(num))) { alert("Valeur invalide. Utilise un nombre (ex: 1,25)."); setRowBusy(tr, false); return; }
+        if (!allowDecimal && num !== null && !Number.isInteger(num)) { alert(`Cette unité (“${unitName || 'unité'}”) demande un entier.`); setRowBusy(tr, false); return; }
 
-        // champ vide → non saisi
-        if (raw === "") st.counted = null;
-        else st.counted = allowDecimal ? num : Math.trunc(num);
-
+        if (raw === "") st.counted = null; else st.counted = allowDecimal ? num : Math.trunc(num);
         st.validated = true;
         st.draft = (st.counted === null ? "" : String(st.counted));
         state.set(id, st);
 
-        // Envoi du delta cumulé depuis ce poste (via IPC)
         if (sessionId) {
           (async () => {
             try {
@@ -543,65 +388,81 @@
               }
             } catch (err) {
               console.warn('[inventaire] count-add failed for product', id, err?.message || err);
-            } finally {
-              setRowBusy(tr, false);
-            }
+            } finally { setRowBusy(tr, false); }
           })();
         } else {
           setRowBusy(tr, false);
         }
 
-        // UX
         $search.value = "";
         renderRows();
         saveDraftDebounced();
-        $search.focus();
       }
 
-      async function openEditModal(id) {
-        const p = produits.find(x => x.id === id);
-        if (!p) return;
+      // blur → auto-validate
+      $rows.addEventListener("focusout", (e) => {
+        const input = e.target.closest('input.counted');
+        if (!input) return;
+        const tr = input.closest("tr[data-id]");
+        if (!tr) return;
+        const id = Number(tr.dataset.id);
+        const st = state.get(id);
+        // Auto-validate seulement si la saisie a changé ou si non validé
+        const raw = String(input.value || '').trim();
+        if (!st.validated || raw !== (st.draft ?? '')) {
+          st.draft = raw;
+          state.set(id, st);
+          validateRow(id);
+        }
+      });
 
+      $rows.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        const tr = e.target.closest("tr[data-id]");
+        if (!tr) return;
+        if (e.target.classList.contains("counted")) {
+          e.preventDefault();
+          validateRow(Number(tr.dataset.id));
+        }
+      });
+
+      $rows.addEventListener("click", async (e) => {
+        const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+        const id = Number(tr.dataset.id);
+
+        if (e.target.closest(".row-validate")) { validateRow(id); return; }
+        if (e.target.closest(".row-edit")) { await openEditModal(id); return; }
+        if (e.target.closest(".row-delete")) { await deleteProduct(id); return; }
+      });
+
+      async function openEditModal(id) {
+        const p = produits.find(x => x.id === id); if (!p) return;
         const res = await openProductEditor(p, { title: 'Éditer le produit', allowDelete: true });
         if (!res || res.action === 'cancel') return;
-
         if (res.action === 'save') {
           try {
             await window.electronAPI.modifierProduit(res.data);
             Object.assign(p, res.data);
-            const st = state.get(id);
-            if (st) st.system = Number(p.stock || 0);
-            renderRows();
-            saveDraftDebounced();
-          } catch (err) {
-            alert('Erreur d’enregistrement : ' + (err?.message || err));
-          }
+            const st = state.get(id); if (st) st.system = Number(p.stock || 0);
+            renderRows(); saveDraftDebounced();
+          } catch (err) { alert('Erreur d’enregistrement : ' + (err?.message || err)); }
         }
-        if (res.action === 'delete') {
-          await deleteProduct(id);
-        }
+        if (res.action === 'delete') await deleteProduct(id);
       }
 
       async function deleteProduct(id) {
-        const p = produits.find(x => x.id === id);
-        if (!p) return;
-
+        const p = produits.find(x => x.id === id); if (!p) return;
         if (!confirm(`Supprimer le produit "${p.nom}" ?`)) return;
         if (!confirm(`Confirmer la suppression DÉFINITIVE de "${p.nom}" ?`)) return;
-
         try {
           await window.electronAPI.supprimerProduit(id);
           const idx = produits.findIndex(x => x.id === id);
           if (idx >= 0) produits.splice(idx, 1);
           state.delete(id);
-          renderRows();
-          saveDraftDebounced();
-        } catch (err) {
-          alert("Erreur de suppression : " + (err?.message || err));
-        }
+          renderRows(); saveDraftDebounced();
+        } catch (err) { alert("Erreur de suppression : " + (err?.message || err)); }
       }
 
-      // --- Polling summary (IPC) pour voir les saisies des autres postes ---
       async function refreshSummary() {
         if (!sessionId) return;
         try {
@@ -615,91 +476,77 @@
             const st = state.get(p.id);
             const prev = st.remoteCount;
             const next = Number(srow?.counted_total || 0);
-            if (prev !== next) {
-              st.remoteCount = next;
-              state.set(p.id, st);
-              changed = true;
-            }
+            if (prev !== next) { st.remoteCount = next; state.set(p.id, st); changed = true; }
           }
           if (changed) renderRows();
-        } catch (e) { /* silencieux */ }
+        } catch {}
       }
 
-      if (sessionId && pollEverySec > 0) {
-        refreshSummary();
-        setInterval(refreshSummary, pollEverySec * 1000);
-      }
+      if (sessionId && pollEverySec > 0) { refreshSummary(); setInterval(refreshSummary, pollEverySec * 1000); }
 
-      // ——— Evénements push depuis main (préload a whitelister ces canaux) ———
       if (window.electronEvents?.on) {
-        // quelqu’un a ajouté un comptage → on rafraîchit le summary
         window.electronEvents.on('inventory:count-updated', (_evt, payload) => {
-          if (!payload || Number(payload.sessionId) !== Number(sessionId)) return;
+          if (!payload || String(payload.sessionId) !== String(sessionId)) return;
           refreshSummary();
         });
-        // session close / change
         window.electronEvents.on('inventory:session-changed', (_evt, payload) => {
           if (payload?.session?.status === 'closed') {
-            // on nettoie et on recharge
             try { localStorage.removeItem(INV_SESSION_KEY); } catch {}
             try { localStorage.removeItem(DRAFT_KEY); } catch {}
             location.reload();
           }
         });
-        // pull global → réafficher les stocks locaux mis à jour
-        window.electronEvents.on('data:refreshed', () => {
-          location.reload();
-        });
+        window.electronEvents.on('data:refreshed', () => { location.reload(); });
       }
 
-      // Validation GLOBALE via IPC : remet à 0 tout non saisi (snapshot serveur)
-      $apply.addEventListener("click", async () => {
-        if (!sessionId) {
-          alert("Session d’inventaire introuvable (non connecté). Réessaye après reconnexion.");
-          return;
+      // ✅ avant la clôture, on valide TOUT ce qui est saisi en brouillon
+      async function validateAllPending() {
+        const ids = [];
+        for (const [id, st] of state.entries()) {
+          const raw = (typeof st.draft === 'string') ? st.draft.trim() : '';
+          if (!st.validated && raw !== '') ids.push(id);
         }
-        const ok = confirm(
-          "Clôturer l’inventaire ?\n" +
-          "Tous les produits non saisis seront remis à 0."
-        );
+        for (const id of ids) {
+          await new Promise((resolve) => { validateRow(id); setTimeout(resolve, 50); }); // petite pause pour laisser l’IPC partir
+        }
+      }
+
+      $apply.addEventListener("click", async () => {
+        if (!sessionId) { alert("Session d’inventaire introuvable (non connecté). Réessaye après reconnexion."); return; }
+
+        // force la validation de toutes les lignes saisies
+        await validateAllPending();
+
+        const ok = confirm("Clôturer l’inventaire ?\nTous les produits non saisis seront remis à 0.");
         if (!ok) return;
 
         $apply.disabled = true;
         setBusy(true, 'Clôture de l’inventaire en cours…');
 
-        // 1) Récup résumé avant clôture pour récap (nb produits inventoriés & valeur)
+        // Récap local fiable (lignes validées)
         let countedProducts = 0;
         let inventoryValue = 0;
         try {
-          const sum = await window.electronAPI.inventory.summary({ sessionId });
-          const lines = sum?.lines || [];
-          countedProducts = lines.filter(l => Number(l.counted_total || 0) !== 0).length;
-          inventoryValue = lines.reduce((acc, l) => {
-            const qty  = Number(l.counted_total || 0);
-            const pu   = Number(l.prix || 0);
-            return acc + qty * pu;
-          }, 0);
-        } catch (e) {
-          console.warn('[inventaire] summary avant finalisation indisponible:', e?.message || e);
-        }
+          for (const [id, st] of state.entries()) {
+            if (st.validated && st.draft !== '') {
+              countedProducts++;
+              const p = produits.find(pp => pp.id === id);
+              const qty = Number(st.counted ?? 0);
+              const pu = Number(p?.prix || 0);
+              inventoryValue += qty * pu;
+            }
+          }
+        } catch {}
 
         try {
-          // 2) Clôture
-          const res = await window.electronAPI.inventory.finalize({
-            sessionId,
-            user: currentUser,
-            email_to: emailTo
-          });
+          const res = await window.electronAPI.inventory.finalize({ sessionId, user: 'Inventaire', email_to: emailTo });
 
-          // 3) Pull complet pour rafraîchir les stocks locaux
-          try { await window.electronAPI.syncPullAll(); } catch (e) { /* non bloquant */ }
+          try { await window.electronAPI.syncPullAll(); } catch {}
 
-          // 4) Nettoyage local
           try { localStorage.removeItem(INV_SESSION_KEY); } catch {}
           try { localStorage.removeItem(DRAFT_KEY); } catch {}
 
-          // 5) Récap simple
-          const end   = new Date();
+          const end = new Date();
           const dateStr = end.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
           alert(
             "✅ Inventaire clôturé.\n\n" +
@@ -708,7 +555,6 @@
             `Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €`
           );
 
-          // 5-bis) Envoi mail récap (tenant-aware) **uniquement si module emails ON ET email_to défini**
           try {
             const mods = await getModules();
             const emailsOn = !!(mods?.email || mods?.emails);
@@ -721,18 +567,10 @@ Produits inventoriés : ${countedProducts}
 Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €.
 
 Session #${res?.recap?.session?.id || ''}`;
-
-              await window.electronAPI.sendInventoryRecapEmail({
-                to: emailTo,
-                subject,
-                text,
-              });
+              await window.electronAPI.sendInventoryRecapEmail({ to: emailTo, subject, text });
             }
-          } catch (e) {
-            console.warn('[inventaire] envoi email recap a échoué (ignoré):', e?.message || e);
-          }
+          } catch {}
 
-          // 6) Recharger l'écran
           location.reload();
 
         } catch (e) {
@@ -746,5 +584,4 @@ Session #${res?.recap?.session?.id || ''}`;
 
     return { renderInventaire };
   })();
-
 })();

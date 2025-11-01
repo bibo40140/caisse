@@ -1,22 +1,22 @@
 // caisse-api/middleware/auth.js
 import jwt from 'jsonwebtoken';
 
-/**
- * Récupère le token "Bearer xxx" depuis l'en-tête Authorization.
- */
+/** UUID validator (v1–v5) */
+function isUUID(v) {
+  return typeof v === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+/** Récupère le token "Bearer xxx" depuis l'en-tête Authorization. */
 function getBearerToken(req) {
   const auth = req.headers.authorization || '';
   return auth.startsWith('Bearer ') ? auth.slice(7) : null;
 }
 
-/**
- * Vérifie et normalise le JWT.
- * Retourne toujours les mêmes clés pour le code appelant.
- */
+/** Vérifie et normalise le JWT. */
 function verifyTokenOrThrow(token) {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    // On explicite l'absence de secret (mieux pour le debug)
     const err = new Error('JWT_SECRET not configured');
     err.code = 'JWT_SECRET_MISSING';
     throw err;
@@ -35,30 +35,33 @@ function verifyTokenOrThrow(token) {
 /**
  * Applique les infos d'auth sur la requête, avec support de l'impersonation super admin.
  * - Remplit req.user, req.userId, req.tenantId, req.role, req.isSuperAdmin
- * - Si super admin et header "x-tenant-id" présent => override de tenant pour agir "au nom de".
+ * - Si super admin et header "x-tenant-id" **valide (UUID)** => override de tenant.
+ * - Si le tenant du JWT n'est pas un UUID, on l'ignore (évite "invalid input syntax for type uuid").
  */
 function assignAuthContext(req, payload) {
   req.userId       = payload.user_id;
   req.role         = payload.role;
   req.isSuperAdmin = payload.is_super_admin === true;
 
-  let tenantId = payload.tenant_id ?? null;
+  // Point de départ: tenant du JWT uniquement s'il est bien formé
+  let tenantId = isUUID(payload.tenant_id) ? String(payload.tenant_id) : null;
+
+  // Impersonation autorisée uniquement si super admin + x-tenant-id est un UUID
   const overrideTenant = req.headers['x-tenant-id'];
-  if (req.isSuperAdmin && overrideTenant) {
+  if (req.isSuperAdmin && isUUID(overrideTenant)) {
     tenantId = String(overrideTenant);
   }
-   req.tenantId = tenantId;
+
+  req.tenantId = tenantId;
   req.user = {
     id: payload.user_id,
     email: payload.email,
     role: payload.role,
-    tenant_id: tenantId,         // 👈 pratique pour les routes
+    tenant_id: tenantId,
   };
 }
 
-/**
- * Middleware: auth obligatoire.
- */
+/** Middleware: auth obligatoire. */
 export function authRequired(req, res, next) {
   try {
     const token = getBearerToken(req);
@@ -66,6 +69,11 @@ export function authRequired(req, res, next) {
 
     const payload = verifyTokenOrThrow(token);
     assignAuthContext(req, payload);
+
+    // Si après tout ça, pas de tenant → on refuse (sauf routes publiques)
+    if (!req.tenantId && !req.isSuperAdmin) {
+      return res.status(400).json({ error: 'Tenant missing' });
+    }
     return next();
   } catch (e) {
     if (e.code === 'JWT_SECRET_MISSING') {
@@ -75,10 +83,7 @@ export function authRequired(req, res, next) {
   }
 }
 
-/**
- * Middleware: auth optionnelle (n’échoue pas si pas/invalid token).
- * Remplit req.user/req.tenantId/req.isSuperAdmin si token OK.
- */
+/** Middleware: auth optionnelle. */
 export function optionalAuth(req, _res, next) {
   try {
     const token = getBearerToken(req);
@@ -88,29 +93,22 @@ export function optionalAuth(req, _res, next) {
     assignAuthContext(req, payload);
     return next();
   } catch {
-    // Token invalide → on ignore et on passe la main sans contexte
     return next();
   }
 }
 
-/**
- * Garde: besoin d’un tenant (pour routes multi-tenant).
- * Autorise super admin si un x-tenant-id a été fourni (impersonation),
- * sinon 400.
- */
+/** Garde: besoin d’un tenant (pour routes multi-tenant). */
 export function tenantRequired(req, res, next) {
   if (req.tenantId) return next();
   if (req.isSuperAdmin) {
     return res.status(400).json({
-      error: 'Tenant required. Super admin: pass x-tenant-id header to impersonate a tenant.',
+      error: 'Tenant required. Super admin: pass x-tenant-id (UUID) to impersonate a tenant.',
     });
   }
   return res.status(400).json({ error: 'Tenant missing' });
 }
 
-/**
- * Garde: admin du tenant OU super admin.
- */
+/** Garde: admin du tenant OU super admin. */
 export function adminOrSuperAdmin(req, res, next) {
   if (req.isSuperAdmin) return next();
   const role = String(req.user?.role || '').toLowerCase();
@@ -118,9 +116,7 @@ export function adminOrSuperAdmin(req, res, next) {
   return res.status(403).json({ error: 'Admin required' });
 }
 
-/**
- * Garde: super admin uniquement.
- */
+/** Garde: super admin uniquement. */
 export function superAdminOnly(req, res, next) {
   if (req.isSuperAdmin) return next();
   return res.status(403).json({ error: 'Super admin required' });

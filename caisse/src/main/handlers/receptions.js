@@ -1,11 +1,9 @@
-// src/main/handlers/receptions.js
+// src/main/handlers/receptions.js (MAIN PROCESS)
 const receptionsDb = require('../db/receptions');
 
 // (optionnel) module de synchro main
 let syncMod = null;
-try {
-  syncMod = require('../sync');
-} catch { /* non bloquant */ }
+try { syncMod = require('../sync'); } catch { /* non bloquant */ }
 
 // Canaux centralisés
 const CHANNELS = {
@@ -18,9 +16,7 @@ const CHANNELS = {
 // Empêche l’enregistrement multiple
 let alreadyRegistered = false;
 
-/**
- * Normalise un tableau de lignes (items / lignes / produits…)
- */
+/** Normalise les lignes reçues depuis le renderer */
 function normalizeLignes(input) {
   if (!Array.isArray(input)) return [];
   return input
@@ -30,9 +26,8 @@ function normalizeLignes(input) {
 
       const puRaw = (l.prix_unitaire ?? l.pu ?? l.price);
       const prixUnitaire =
-        puRaw === '' || puRaw == null
-          ? null
-          : (Number.isFinite(Number(puRaw)) ? Number(puRaw) : null);
+        puRaw === '' || puRaw == null ? null
+        : (Number.isFinite(Number(puRaw)) ? Number(puRaw) : null);
 
       let stockCorrige = null;
       if (l.stockCorrige != null && l.stockCorrige !== '') {
@@ -45,16 +40,13 @@ function normalizeLignes(input) {
 
       return { produit_id: produitId, quantite, prix_unitaire: prixUnitaire, stock_corrige: stockCorrige };
     })
-    .filter(
-      (l) =>
-        Number.isFinite(l.produit_id) && l.produit_id > 0 &&
-        Number.isFinite(l.quantite)   && l.quantite > 0
+    .filter((l) =>
+      Number.isFinite(l.produit_id) && l.produit_id > 0 &&
+      Number.isFinite(l.quantite)   && l.quantite > 0
     );
 }
 
-/**
- * Normalise l’entête de réception.
- */
+/** Normalise l’entête */
 function normalizeReceptionHeader(raw = {}) {
   const fournisseur_id =
     raw.fournisseur_id ?? raw.fournisseurId ?? raw.supplier_id ?? raw.supplierId;
@@ -65,17 +57,15 @@ function normalizeReceptionHeader(raw = {}) {
 }
 
 function registerReceptionHandlers(ipcMain) {
-  // Nettoyage préventif (idempotence)
+  // Idempotence (hot reload)
   try { ipcMain.removeHandler(CHANNELS.create); } catch {}
   try { ipcMain.removeHandler(CHANNELS.createAlias); } catch {}
   try { ipcMain.removeHandler(CHANNELS.list); } catch {}
   try { ipcMain.removeHandler(CHANNELS.get); } catch {}
+  // 🔧 nettoie aussi l’ancien canal pour éviter le warning
+  try { ipcMain.removeHandler('get-receptions'); } catch {}
 
-  if (!alreadyRegistered) {
-    console.log('[handlers/receptions] registering IPC handlers');
-  } else {
-    console.log('[handlers/receptions] re-registering IPC handlers (hot reload)');
-  }
+  console.log(`[handlers/receptions] ${alreadyRegistered ? 're-registering' : 'registering'} IPC handlers`);
 
   const handleCreate = (_event, payload = {}) => {
     try {
@@ -88,13 +78,11 @@ function registerReceptionHandlers(ipcMain) {
       if (!Number.isFinite(reception.fournisseur_id) || reception.fournisseur_id <= 0) {
         throw new Error('fournisseur_id manquant ou invalide');
       }
-      if (lignes.length === 0) {
-        throw new Error('aucune ligne de réception');
-      }
+      if (lignes.length === 0) throw new Error('aucune ligne de réception');
 
       const id = receptionsDb.enregistrerReception(reception, lignes);
 
-      // Sync best-effort en arrière-plan
+      // Best-effort: trigger sync en arrière-plan
       try {
         if (syncMod && typeof syncMod.triggerBackgroundSync === 'function') {
           setImmediate(() => { syncMod.triggerBackgroundSync().catch(() => {}); });
@@ -112,15 +100,33 @@ function registerReceptionHandlers(ipcMain) {
   ipcMain.handle(CHANNELS.create, handleCreate);
   ipcMain.handle(CHANNELS.createAlias, handleCreate);
 
+  // Liste (nouveau canal)
   ipcMain.handle(CHANNELS.list, (_event, opts) => {
     try { return receptionsDb.getReceptions(opts || {}); }
     catch (e) { console.error('[ipc] receptions:list ERROR:', e?.message || e); return []; }
   });
 
+  // Détails
   ipcMain.handle(CHANNELS.get, (_event, receptionId) => {
     try { return receptionsDb.getDetailsReception(receptionId); }
     catch (e) { console.error('[ipc] receptions:get ERROR:', e?.message || e); return { header: null, lignes: [] }; }
   });
+
+  // 🧷 ALIAS legacy pour compatibilité avec ton renderer actuel
+  // Certaines vues appellent encore 'get-receptions' → renvoyer la LISTE
+  // Nom “moderne”
+  // ✅ alias legacy attendu par ta page
+  ipcMain.handle('get-receptions', (_event, opts) => {
+    try { return receptionsDb.getReceptions(opts || {}); }
+    catch (e) { console.error('[ipc] get-receptions ERROR:', e?.message || e); return []; }
+  });
+
+  // ✅ alias legacy attendu par ta page
+  ipcMain.handle('get-details-reception', (_event, receptionId) => {
+    try { return receptionsDb.getDetailsReception(receptionId); }
+    catch (e) { console.error('[ipc] get-details-reception ERROR:', e?.message || e); return { header: null, lignes: [] }; }
+  });
+
 
   alreadyRegistered = true;
 }

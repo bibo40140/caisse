@@ -1,11 +1,10 @@
-// src/main/handlers/inventory.js
+// src/main/handlers/inventory.js — v2.2 (robuste aux colonnes manquantes)
 const path = require('path');
 const fs = require('fs');
 const fetch = require('node-fetch');
-const jwt = require('jsonwebtoken');
+const { BrowserWindow } = require('electron');
 const { getDeviceId } = require('../device');
 
-// API base
 function readApiBase() {
   try {
     if (process.env.CAISSE_API_URL) return process.env.CAISSE_API_URL.replace(/\/+$/, '');
@@ -18,163 +17,271 @@ function readApiBase() {
 const API = readApiBase();
 const DEFAULT_DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
-// Token/tenant depuis apiClient/env
-let apiMainClient = null;
-try { apiMainClient = require('../apiClient'); } catch (_) {}
+console.log('[inventory] handlers v2.2 loaded — API =', API);
 
-function resolveAuthContext() {
-  let token = null;
+/* -------------------- Utils DB safe -------------------- */
+function getDb() {
+  return require('../db/db');
+}
+function listColumns(table) {
   try {
-    if (apiMainClient && typeof apiMainClient.getAuthToken === 'function') {
-      token = apiMainClient.getAuthToken();
-    }
-  } catch (_) {}
-  if (!token && process.env.API_AUTH_TOKEN) token = process.env.API_AUTH_TOKEN;
-
-  let tenantId = null;
-  if (token) {
-    try {
-      const payload = jwt.decode(token) || {};
-      if (payload && payload.tenant_id) tenantId = String(payload.tenant_id);
-    } catch (_) {}
+    const db = getDb();
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+    return new Set(rows.map(r => r.name));
+  } catch {
+    return new Set();
   }
-  if (!tenantId && process.env.TENANT_ID) tenantId = String(process.env.TENANT_ID);
-
-  return { token, tenantId };
+}
+function hasCol(cols, name) {
+  return cols.has(name);
+}
+function normCode(v) {
+  return (v == null ? '' : String(v)).replace(/\s+/g, '').trim();
+}
+function isUuidLike(s) {
+  return typeof s === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 }
 
+/* -------------------- Auth headers -------------------- */
+function resolveAuthContext() {
+  try {
+    const authState = require('../auth/state');
+    const token =
+      (typeof authState.getToken === 'function' && authState.getToken()) ||
+      authState.token || process.env.API_AUTH_TOKEN || null;
+    const tenantId =
+      (typeof authState.getTenantId === 'function' && authState.getTenantId()) ||
+      authState.tenantId || process.env.TENANT_ID || null;
+    return { token, tenantId };
+  } catch {
+    return { token: process.env.API_AUTH_TOKEN || null, tenantId: process.env.TENANT_ID || null };
+  }
+}
 function buildJsonHeaders(extra = {}) {
   const { token, tenantId } = resolveAuthContext();
-  const headers = { 'content-type': 'application/json', ...extra };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (tenantId) headers['x-tenant-id'] = tenantId;
+  const headers = { 'content-type': 'application/json', accept: 'application/json', ...extra };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (tenantId) headers['x-tenant-id'] = String(tenantId);
   return headers;
 }
 
-// fetch avec timeout
-async function fetchWithTimeout(url, init = {}, ms = 8000) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
+/* -------------------- API calls -------------------- */
+async function apiInventoryStart({ name, user, notes }) {
+  const res = await fetch(`${API}/inventory/start`, {
+    method: 'POST',
+    headers: buildJsonHeaders(),
+    body: JSON.stringify({ name, user, notes }),
+  });
+  if (!res.ok) throw new Error(`inventory:start HTTP ${res.status} ${await res.text().catch(()=> '')}`);
+  return res.json();
+}
+async function apiInventoryCountAdd({ sessionId, product_uuid, qty, user, device_id }) {
+  const sid = String(sessionId || '').trim();
+  if (!sid || sid.toLowerCase() === 'nan') throw new Error('inventory:count-add BAD_ARG sessionId');
+  const res = await fetch(`${API}/inventory/${encodeURIComponent(sid)}/count-add`, {
+    method: 'POST',
+    headers: buildJsonHeaders(),
+    body: JSON.stringify({ product_id: product_uuid, qty, user, device_id }),
+  });
+  if (!res.ok) throw new Error(`inventory:count-add HTTP ${res.status} ${await res.text().catch(()=> '')}`);
+  return res.json();
+}
+async function apiInventorySummary(sessionId) {
+  const sid = String(sessionId || '').trim();
+  if (!sid || sid.toLowerCase() === 'nan') throw new Error('inventory:summary BAD_ARG sessionId');
+  const res = await fetch(`${API}/inventory/${encodeURIComponent(sid)}/summary`, {
+    method: 'GET',
+    headers: buildJsonHeaders(),
+  });
+  if (!res.ok) throw new Error(`inventory:summary HTTP ${res.status} ${await res.text().catch(()=> '')}`);
+  const js = await res.json();
+  const lines = Array.isArray(js?.lines) ? js.lines : [];
+  return {
+    raw: js,
+    lines: lines.map(l => ({
+      remote_product_id: l.product_id ?? l.remote_product_id ?? l.remote_id ?? null,
+      barcode: normCode(l.barcode ?? l.code_barres ?? l.ean ?? l.code ?? ''),
+      counted_total: Number(l.counted_total ?? l.count ?? l.qty ?? 0),
+      price: Number(l.prix ?? l.price ?? 0),
+    })),
+  };
+}
+async function apiInventoryFinalize({ sessionId, user, email_to }) {
+  const sid = String(sessionId || '').trim();
+  if (!sid || sid.toLowerCase() === 'nan') throw new Error('inventory:finalize BAD_ARG sessionId');
+  const res = await fetch(`${API}/inventory/${encodeURIComponent(sid)}/finalize`, {
+    method: 'POST',
+    headers: buildJsonHeaders(),
+    body: JSON.stringify({ user, email_to }),
+  });
+  if (!res.ok) throw new Error(`inventory:finalize HTTP ${res.status} ${await res.text().catch(()=> '')}`);
+  return res.json();
+}
+
+/* -------------------- Mapping helpers -------------------- */
+function resolveRemoteProductUUID(localId) {
+  const db = getDb();
+  const cols = listColumns('produits');
+
+  // Colonnes UUID candidates disponibles
+  const uuidCandidates = ['remote_uuid', 'remote_id', 'neon_id', 'product_uuid', 'uuid'].filter(c => hasCol(cols, c));
+  // Colonnes code-barres disponibles
+  const barcodeCols = ['code_barres', 'code', 'ean'].filter(c => hasCol(cols, c));
+
+  // Construire dynamiquement la requête
+  const selectUuid = uuidCandidates.length
+    ? `COALESCE(${uuidCandidates.join(', ')}, NULL) AS candidate`
+    : `NULL AS candidate`;
+  const selectBarcode = barcodeCols.map(c => `COALESCE(${c}, '')`).join(', ');
+  const selectAll =
+    `SELECT ${selectUuid}` +
+    (barcodeCols.length ? `, ${barcodeCols.map(c => `COALESCE(${c}, '') AS ${c}`).join(', ')}` : '') +
+    ` FROM produits WHERE id = ?`;
+
+  let row;
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(id);
+    row = db.prepare(selectAll).get(Number(localId));
+  } catch (e) {
+    // Si la requête échoue quand même, retourner "pas d’UUID"
+    return { uuid: null, barcode: null };
   }
+  if (!row) return { uuid: null, barcode: null };
+
+  const uu = row.candidate && isUuidLike(String(row.candidate)) ? String(row.candidate) : null;
+
+  let bc = null;
+  for (const c of barcodeCols) {
+    const v = normCode(row[c]);
+    if (v) { bc = v; break; }
+  }
+  return { uuid: uu, barcode: bc };
 }
 
-// Normalisations
-function normalizeSessionId(raw) {
-  if (raw == null) return null;
-  const s = String(raw).trim();
-  return s || null;
-}
-function normalizeProductId(raw) {
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
-}
-function normalizeQty(raw) {
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
+function applySummaryToLocal(lines) {
+  const db = getDb();
+  const cols = listColumns('produits');
+
+  // Colonnes présentes
+  const uuidCols = ['remote_uuid', 'remote_id', 'neon_id', 'product_uuid', 'uuid'].filter(c => hasCol(cols, c));
+  const barcodeCols = ['code_barres', 'code', 'ean'].filter(c => hasCol(cols, c));
+
+  // SELECT dynamique
+  const selectUuid = uuidCols.length
+    ? `COALESCE(${uuidCols.join(', ')}, '') AS remote_uuid`
+    : `'' AS remote_uuid`;
+  const selectBarcodes = barcodeCols.length
+    ? `, ${barcodeCols.map(c => `COALESCE(${c}, '') AS ${c}`).join(', ')}`
+    : '';
+  const produitsQuery = `
+    SELECT id, ${selectUuid}
+    ${selectBarcodes}
+    FROM produits
+  `;
+
+  let produits = [];
+  try {
+    produits = db.prepare(produitsQuery).all();
+  } catch (e) {
+    console.warn('[inventory] applySummaryToLocal: SELECT produits failed:', e?.message || e);
+    return { matched: 0, total: 0 };
+  }
+
+  const byUuid = new Map();
+  const byBarcode = new Map();
+
+  for (const p of produits) {
+    if (p.remote_uuid && isUuidLike(String(p.remote_uuid))) byUuid.set(String(p.remote_uuid), Number(p.id));
+    for (const c of barcodeCols) {
+      const v = normCode(p[c]);
+      if (v && !byBarcode.has(v)) byBarcode.set(v, Number(p.id));
+    }
+  }
+
+  // map lines -> local ids
+  const mapped = new Map();
+  for (const l of lines) {
+    const qty = Number(l.counted_total || 0);
+    if (!Number.isFinite(qty)) continue;
+
+    let localId = null;
+    const rid = l.remote_product_id && String(l.remote_product_id);
+    if (rid && isUuidLike(rid) && byUuid.has(rid)) {
+      localId = byUuid.get(rid);
+    } else {
+      const bc = normCode(l.barcode);
+      if (bc && byBarcode.has(bc)) localId = byBarcode.get(bc);
+    }
+    if (localId) mapped.set(localId, qty);
+  }
+
+  const stmtZeroAll  = db.prepare(`UPDATE produits SET stock = 0`);
+  const stmtSetStock = db.prepare(`UPDATE produits SET stock = ? WHERE id = ?`);
+  const tx = db.transaction(() => {
+    stmtZeroAll.run();
+    for (const [id, s] of mapped.entries()) stmtSetStock.run(s, id);
+  });
+  tx();
+
+  try {
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('data:refreshed', { from: 'inventory:finalize' }));
+  } catch {}
+
+  console.log(`[inventory] stocks locaux mis à jour via summary — matched ${mapped.size}/${produits.length}`);
+  return { matched: mapped.size, total: produits.length };
 }
 
+/* -------------------- IPC -------------------- */
 module.exports = function registerInventoryHandlers(ipcMain) {
-  // Start / reopen
-  const handleStart = async (_e, payload = {}) => {
-    const name  = payload?.name  || `Inventaire ${new Date().toISOString().slice(0, 10)}`;
+  ipcMain.handle('inventory:start', async (_e, payload = {}) => {
+    const name  = payload?.name  || `Inventaire ${new Date().toISOString().slice(0,10)}`;
     const user  = payload?.user  || null;
     const notes = payload?.notes || null;
+    return apiInventoryStart({ name, user, notes });
+  });
 
-    const url = `${API}/inventory/start`;
-    try {
-      const res = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: buildJsonHeaders(),
-        body: JSON.stringify({ name, user, notes }),
-      }, 8000);
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`inventory:start HTTP ${res.status} ${txt}`);
-      }
-      return res.json();
-    } catch (e) {
-      console.error('[inventory:start] error:', e?.message || e);
-      throw e;
-    }
-  };
-
-  // count-add
-  const handleCountAdd = async (_e, payload = {}) => {
-    const sessionId = normalizeSessionId(payload?.sessionId ?? payload?.session_id ?? payload?.id);
-    const productId = normalizeProductId(payload?.product_id ?? payload?.productId ?? payload?.id);
-    const qty       = normalizeQty(payload?.qty ?? payload?.quantite ?? payload?.qte);
+  const doCountAdd = async (_e, payload = {}) => {
+    const sessionId = payload?.sessionId;
+    const qty       = Number(payload?.qty ?? payload?.quantite ?? payload?.qte);
     const user      = payload?.user || null;
     const device_id = (payload?.device_id || DEFAULT_DEVICE_ID || '').toString();
-
-    const { token, tenantId } = resolveAuthContext();
-    console.log('[inventory:count-add] sessionId=', sessionId, 'productId=', productId, 'qty=', qty, 'token?', !!token, 'tenant?', tenantId || '(none)');
-
-    if (!sessionId) throw new Error('inventory:count-add BAD_ARG sessionId');
-    if (productId == null) throw new Error('inventory:count-add BAD_ARG product_id');
-    if (qty == null) throw new Error('inventory:count-add BAD_ARG qty');
+    if (!Number.isFinite(qty)) throw new Error('inventory:count-add BAD_ARG qty');
     if (!device_id) throw new Error('inventory:count-add BAD_ARG device_id');
 
-    const url = `${API}/inventory/${encodeURIComponent(sessionId)}/count-add`;
-    const res = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: buildJsonHeaders(),
-      body: JSON.stringify({ product_id: productId, qty, user, device_id }),
-    }, 8000);
+    const localProductId = (payload?.product_id ?? payload?.productId ?? payload?.id);
+    const localNum = Number(localProductId);
+    if (!Number.isFinite(localNum)) throw new Error('inventory:count-add BAD_ARG product (local id attendu)');
 
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      console.error('[inventory:count-add] HTTP', res.status, txt);
-      throw new Error(`inventory:count-add HTTP ${res.status} ${txt}`);
+    const { uuid: remoteUUID } = resolveRemoteProductUUID(localNum);
+    if (!remoteUUID) {
+      // Pas d’UUID → on ne tente pas l’API, on explique clairement quoi faire
+      throw new Error('inventory:count-add MAPPING_MISSING — aucun remote_uuid. Lance le bootstrap des références ou renseigne remote_uuid sur ce produit.');
     }
-    return res.json();
+    return apiInventoryCountAdd({ sessionId, product_uuid: remoteUUID, qty, user, device_id });
   };
+  ipcMain.handle('inventory:countAdd', doCountAdd);
+  ipcMain.handle('inventory:count-add', doCountAdd);
 
-  // summary
-  const handleSummary = async (_e, payload = {}) => {
-    const sessionId = normalizeSessionId(payload?.sessionId ?? payload?.session_id ?? payload?.id);
-    if (!sessionId) throw new Error('inventory:summary BAD_ARG sessionId');
+  ipcMain.handle('inventory:summary', async (_e, payload = {}) => {
+    const sessionId = payload?.sessionId;
+    return (await apiInventorySummary(sessionId)).raw;
+    // (renderer fait déjà l’agrégation nécessaire)
+  });
 
-    const url = `${API}/inventory/${encodeURIComponent(sessionId)}/summary`;
-    const res = await fetchWithTimeout(url, { method: 'GET', headers: buildJsonHeaders() }, 8000);
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`inventory:summary HTTP ${res.status} ${txt}`);
+  ipcMain.handle('inventory:finalize', async (_e, payload = {}) => {
+    const sessionId = payload?.sessionId;
+    const user      = payload?.user || null;
+    const email_to  = payload?.email_to || null;
+
+    const finalizeRes = await apiInventoryFinalize({ sessionId, user, email_to });
+
+    try {
+      const sum = await apiInventorySummary(sessionId);
+      applySummaryToLocal(sum.lines || []);
+    } catch (e) {
+      console.warn('[inventory] apply from summary failed:', e?.message || e);
     }
-    return res.json();
-  };
 
-  // finalize
-  const handleFinalize = async (_e, payload = {}) => {
-    const sessionId = normalizeSessionId(payload?.sessionId ?? payload?.session_id ?? payload?.id);
-    if (!sessionId) throw new Error('inventory:finalize BAD_ARG sessionId');
-
-    const user     = payload?.user || null;
-    const email_to = payload?.email_to || null;
-
-    const url = `${API}/inventory/${encodeURIComponent(sessionId)}/finalize`;
-    const res = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: buildJsonHeaders(),
-      body: JSON.stringify({ user, email_to }),
-    }, 10000);
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(`inventory:finalize HTTP ${res.status} ${txt}`);
-    }
-    return res.json();
-  };
-
-  ipcMain.handle('inventory:start', handleStart);
-  ipcMain.handle('inventory:countAdd', handleCountAdd);
-  ipcMain.handle('inventory:summary', handleSummary);
-  ipcMain.handle('inventory:finalize', handleFinalize);
-
-  // alias rétro
-  ipcMain.handle('inventory:count-add', handleCountAdd);
+    return finalizeRes;
+  });
 };
