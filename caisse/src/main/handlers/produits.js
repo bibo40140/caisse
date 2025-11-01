@@ -1,79 +1,80 @@
 // src/main/handlers/produits.js
-const { ipcMain } = require('electron');
 const produitsDb = require('../db/produits');
-const db = require('../db/db');
-const { enqueueOp } = require('../db/ops');
-const { getDeviceId } = require('../device');
 
-const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
+/**
+ * Enregistre les handlers IPC pour les produits.
+ * À appeler depuis main.js : 
+ *   const registerProduitHandlers = require('./handlers/produits');
+ *   registerProduitHandlers();
+ */
+function registerProduitHandlers(ipcMain) {
+  // Nettoyage des anciens handlers (hot-reload/dev)
+  const channels = [
+    'get-produits',
+    'produits:list',
+    'ajouter-produit',
+    'modifier-produit',
+    'supprimer-produit',
+    'rechercher-produit-par-nom-et-fournisseur',
+  ];
+  channels.forEach((ch) => ipcMain.removeHandler(ch));
 
-ipcMain.handle('get-produits', async (_evt, opts = {}) => {
-  const produitsDb = require('../db/produits');
-  return produitsDb.getProduits(opts); // ← important : pas de SELECT “*” maison
-});
+  // Liste / recherche
+  ipcMain.handle('get-produits', async (_evt, opts = {}) => {
+    // opts peut contenir { search, limit, offset }
+    return produitsDb.getProduits(opts);
+  });
 
-ipcMain.handle('ajouter-produit', (event, produit) => {
-  produitsDb.ajouterProduit(produit);
-});
+  ipcMain.handle('produits:list', async (_evt, opts = {}) => {
+    // compat : renvoie la même chose que get-produits sans filtre
+    return produitsDb.getProduits(opts);
+  });
 
-ipcMain.handle('modifier-produit', (event, produit) => {
-  // 1) récupérer l'ancien stock avant modif
-  const id = Number(produit.id);
-  let prevRow = null;
-  try {
-    prevRow = db.prepare('SELECT stock FROM produits WHERE id = ?').get(id);
-  } catch (_) {}
-
-  // 2) appliquer la modification
-  produitsDb.modifierProduit(produit);
-
-  // 3) si le champ stock a changé → enqueue op stock.set
-  if (produit.hasOwnProperty('stock') && prevRow) {
-    const newStock = Number(produit.stock);
-    const prevStock = Number(prevRow.stock ?? 0);
-    if (Number.isFinite(newStock) && newStock !== prevStock) {
-      enqueueOp({
-        deviceId: DEVICE_ID,
-        opType: 'stock.set',
-        entityType: 'produit',
-        entityId: String(id),
-        payload: {
-          productId: id,
-          newStock,
-          previousStock: prevStock,
-          reason: 'manual_edit',
-          userId: null,
-          eventAt: new Date().toISOString()
-        }
-      });
-
-      // Optionnel : déclenche un push immédiat
-      try {
-        const { pushOpsNow } = require('../sync');
-        if (typeof pushOpsNow === 'function') {
-          pushOpsNow(DEVICE_ID).catch(() => {});
-        }
-      } catch {}
+  // Création
+  ipcMain.handle('ajouter-produit', async (_evt, produit = {}) => {
+    try {
+      const id = produitsDb.ajouterProduit(produit);
+      return { ok: true, id };
+    } catch (err) {
+      console.error('[ajouter-produit] error:', err);
+      throw new Error(err?.message || 'Erreur lors de l’ajout du produit');
     }
-  }
-});
+  });
 
-ipcMain.handle('supprimer-produit', (event, id) => {
-  return produitsDb.supprimerProduit(id);
-});
+  // Modification
+  ipcMain.handle('modifier-produit', async (_evt, produit = {}) => {
+    try {
+      const res = produitsDb.modifierProduit(produit);
+      return res || { ok: true };
+    } catch (err) {
+      console.error('[modifier-produit] error:', err);
+      throw new Error(err?.message || 'Erreur lors de la modification du produit');
+    }
+  });
 
-ipcMain.handle('supprimer-et-remplacer-produit', (event, nouveau, idExistant) => {
-  return produitsDb.supprimerEtRemplacerProduit(nouveau, idExistant);
-});
+  // Suppression
+  ipcMain.handle('supprimer-produit', async (_evt, id) => {
+    try {
+      const res = produitsDb.supprimerProduit(id);
+      return res || { ok: true };
+    } catch (err) {
+      console.error('[supprimer-produit] error:', err);
+      throw new Error(err?.message || 'Erreur lors de la suppression du produit');
+    }
+  });
 
-ipcMain.handle('rechercher-produit-par-nom-et-fournisseur', (event, nom, fournisseurId) => {
-  return produitsDb.rechercherProduitParNomEtFournisseur(nom, fournisseurId);
-});
+  // Recherche par nom + fournisseur (utilisé par la page Réceptions)
+  ipcMain.handle(
+    'rechercher-produit-par-nom-et-fournisseur',
+    async (_evt, nom, fournisseurId) => {
+      try {
+        return produitsDb.rechercherProduitParNomEtFournisseur(nom, fournisseurId);
+      } catch (err) {
+        console.error('[rechercher-produit-par-nom-et-fournisseur] error:', err);
+        throw new Error(err?.message || 'Erreur lors de la recherche du produit');
+      }
+    }
+  );
+}
 
-ipcMain.handle('produits:list', async () => {
-  // Les méthodes exactes peuvent varier : getAll / list / findAll...
-  if (typeof produitsDb.getAll === 'function')    return produitsDb.getAll();
-  if (typeof produitsDb.list === 'function')      return produitsDb.list();
-  if (typeof produitsDb.findAll === 'function')   return produitsDb.findAll();
-  throw new Error('Aucune méthode pour lister les produits dans produitsDb.');
-});
+module.exports = registerProduitHandlers;

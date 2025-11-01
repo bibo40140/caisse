@@ -32,6 +32,8 @@ async function renderCaisse() {
   // saleMode : on respecte le dernier choix tant que l'utilisateur n'a pas vidé/validé.
   // S'il n'existe pas encore, défaut = 'adherent' si dispo, sinon 'exterieur'.
   let saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : (extOn ? 'exterieur' : 'adherent'));
+  let __cotisationPromptOpen = false;
+
 
   // 🔧 Lire la marge ventes ext. (défaut 30%)
   let extMargin = 30;
@@ -209,54 +211,173 @@ async function renderCaisse() {
     }
 
 
+// ✅ Version robuste avec styles inline en fallback
+async function showChoixModal(message, options = ['OK', 'Annuler']) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    // Fallback CSS inline si la classe globale n’existe pas
+    overlay.style.cssText = `
+      position:fixed; inset:0; background:rgba(0,0,0,.35);
+      display:flex; align-items:center; justify-content:center; z-index:99999;
+    `;
 
-    async function holdCurrentCart(modules, saleMode, adherentSelectionneId, selectedProspect, panier) {
-      const ctx = currentSaleContext(modules, saleMode, adherentSelectionneId, selectedProspect);
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.cssText = `
+      background:#fff; border:1px solid #e6e6e6; border-radius:12px; width:min(420px, 92vw);
+      box-shadow:0 10px 30px rgba(0,0,0,.2); padding:14px; display:flex; flex-direction:column; gap:10px;
+    `;
+    modal.innerHTML = `
+      <h3 style="margin:0;">${message}</h3>
+      <div class="modal-actions" id="__choices" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;"></div>
+    `;
 
-      // 🏷️ Nom du ticket: si adhérent présent → "Nom Prénom", sinon on demande
-      let name = null;
-      if (ctx.sale_type === 'adherent' && ctx.adherent_id) {
-        // on a la liste "adherents" dans le scope de renderCaisse
-        const a = (Array.isArray(adherents) ? adherents : []).find(x => String(x.id) === String(ctx.adherent_id));
-        if (a) name = `${(a.nom || '').trim()} ${(a.prenom || '').trim()}`.trim() || null;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const cleanup = (val) => { try { document.body.removeChild(overlay); } catch {} resolve(val); };
+
+    const zone = modal.querySelector('#__choices');
+    options.forEach(opt => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = opt;
+      b.addEventListener('click', () => cleanup(opt));
+      zone.appendChild(b);
+    });
+
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); });
+    document.addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', esc); cleanup(null); }
+    });
+  });
+}
+
+// (facultatif mais pratique) : alias pour l’input texte
+// === Helpers manquants : modale simple + chevron datalist ===================
+async function showPromptModal(message, def = '') {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:99999;';
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.cssText = 'background:#fff;border:1px solid #e6e6e6;border-radius:12px;width:min(420px,92vw);box-shadow:0 10px 30px rgba(0,0,0,.2);padding:14px;display:flex;flex-direction:column;gap:10px;';
+    modal.innerHTML = `
+      <h3 style="margin:0 0 6px 0;">${message}</h3>
+      <input id="__prompt_input" class="ui-field" type="text" inputmode="decimal" placeholder="Montant (€)" value="${String(def).replace(/"/g,'&quot;')}">
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button id="__prompt_cancel" type="button">Annuler</button>
+        <button id="__prompt_ok" type="button">OK</button>
+      </div>`;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    const close = (val) => { try { document.body.removeChild(overlay); } catch {} resolve(val); };
+    modal.querySelector('#__prompt_cancel').onclick = () => close(null);
+    modal.querySelector('#__prompt_ok').onclick = () => close(modal.querySelector('#__prompt_input').value);
+    modal.querySelector('#__prompt_input').addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter') modal.querySelector('#__prompt_ok').click();
+      if (e.key === 'Escape') close(null);
+    });
+    setTimeout(()=> modal.querySelector('#__prompt_input').focus(), 30);
+  });
+}
+
+function wireDatalistChevron(inputId){
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  let chevron = input.parentElement?.querySelector?.('.ui-chevron');
+  if (!chevron) return;
+  chevron.style.cursor = 'pointer';
+  chevron.addEventListener('click', () => { input.focus(); input.showPicker?.(); });
+}
+
+// === Popup cotisation au choix d'un adhérent ================================
+// Appelée par ton code: await verifierCotisationAdherent(adherentId, nomComplet, panier, afficherPanier)
+async function verifierCotisationAdherent(adherentId, nomComplet, panierRef, refreshUI){
+  try {
+    // 1) si une ligne "cotisation" est déjà dans le panier → ne rien faire
+    const deja = Array.isArray(panierRef) && panierRef.some(l => l?.type === 'cotisation');
+    if (deja) return;
+
+    // 2) récupérer un montant par défaut (plusieurs sources possibles)
+    let montantDefaut = 0;
+    try {
+      if (window.electronAPI?.getCotisationAmount) {
+        const r = await window.electronAPI.getCotisationAmount();
+        const v = Number(r?.amount);
+        if (Number.isFinite(v) && v > 0) montantDefaut = v;
       }
-      if (!name) {
-        name = await showTextModal('Nom du ticket (optionnel)', '');
+      if (!montantDefaut && window.electronAPI?.getConfig) {
+        const cfg = await window.electronAPI.getConfig();
+        const v = Number(cfg?.cotisation_montant);
+        if (Number.isFinite(v) && v > 0) montantDefaut = v;
       }
+    } catch {}
 
-      const id = 'cart-' + Date.now();
-      const items = (panier || []).map(p => {
-        const prodIdNum = Number(p.id);
-        return {
-          produit_id: Number.isFinite(prodIdNum) ? prodIdNum : null, // <- plus de dépendance à p.type
-          nom: p.nom,
-          fournisseur_nom: p.fournisseur_nom || null,
-          unite: p.unite || null,
-          prix: Number(p.prix || 0),
-          quantite: Number(p.quantite || 0),
-          remise_percent: Number(p.remise || 0),
-          type: p.type || 'produit' // on marque quand même le type à l’enregistrement
-        };
-      });
+    if (!montantDefaut) montantDefaut = 10; // fallback safe
 
-      const res = await window.carts.save({
-        id,
-        name,
-        ...ctx,
-        meta: {},
-        items,
-        status: 'open'
-      });
-      if (res?.ok) {
-        currentCartId = res.id;
-        try { localStorage.setItem('currentCartId', res.id); } catch { }
-        alert('Ticket mis en attente 👍');
-        viderPanier({ skipConfirm: true });
-      } else {
-        alert('Échec mise en attente');
+    // 3) éventuellement vérifier statut côté main (si disponible)
+    //    -> si l’API dit "à jour", on passe; sinon on propose la cotisation
+    let besoinCotisation = true;
+    try {
+      if (window.electronAPI?.getCotisationStatut) {
+        const st = await window.electronAPI.getCotisationStatut(Number(adherentId));
+        // st = { due: boolean, reason?: string, last_year?: number, amount?: number }
+        if (typeof st?.due === 'boolean') besoinCotisation = !!st.due;
+        if (Number.isFinite(Number(st?.amount)) && st.amount > 0) montantDefaut = Number(st.amount);
       }
+    } catch {}
 
-    }
+    if (!besoinCotisation) return;
+
+// 4) demander confirmation + montant via modale (min 5€) avec verrou
+if (__cotisationPromptOpen) return;
+__cotisationPromptOpen = true;
+try {
+  // Utilise ta fonction qui force un minimum
+  const montant = await promptCotisationAmount(5);
+  if (montant == null) return; // annulé
+
+  // 5) insérer la ligne de cotisation dans le panier (type "cotisation")
+  panierRef.push({
+    id: `cotisation-${Date.now()}`,
+    type: 'cotisation',
+    nom: 'Cotisation',
+    fournisseur_nom: '—',
+    unite: '€',
+    prix: Number(montant),
+    quantite: 1,
+    remise: 0
+  });
+
+  try { localStorage.setItem('panier', JSON.stringify(panierRef)); } catch {}
+  if (typeof refreshUI === 'function') refreshUI();
+} finally {
+  __cotisationPromptOpen = false;
+}
+
+
+    // 5) insérer la ligne de cotisation dans le panier (type "cotisation")
+    panierRef.push({
+      id: `cotisation-${Date.now()}`,
+      type: 'cotisation',
+      nom: 'Cotisation',
+      fournisseur_nom: '—',
+      unite: '€',
+      prix: montant,
+      quantite: 1,
+      remise: 0
+    });
+
+    try { localStorage.setItem('panier', JSON.stringify(panierRef)); } catch {}
+    if (typeof refreshUI === 'function') refreshUI();
+
+  } catch (e) {
+    console.warn('[verifierCotisationAdherent] erreur non bloquante:', e);
+  }
+}
 
 
     async function showLoadCartDialog() {
@@ -695,8 +816,49 @@ async function renderCaisse() {
           return s + puApplique * Number(p.quantite || 0);
         }, 0);
 
-      return (sousTotalProduits * (taux / 100)) + fixe;
-    };
+  return (sousTotalProduits * (taux / 100)) + fixe;
+};// --- Helpers cotisation — UI (renderer) ---
+
+// Demande un montant à l'adhérent (>= 5 €). Retourne Number ou null si annulé.
+async function promptCotisationAmount(min = 5) {
+  const ask = async (msg, defVal) => {
+    if (typeof showPromptModal === 'function') {
+      return await showPromptModal(msg, defVal);
+    }
+    if (typeof showTextPromptModal === 'function') {
+      return await showTextPromptModal(msg, defVal);
+    }
+    const v = window.prompt(msg, defVal);
+    return v === null ? null : v;
+  };
+
+  while (true) {
+    const ans = await ask(`Montant de la cotisation (minimum ${min} €)`, String(min));
+    if (ans == null) return null; // annulé
+
+    const val = Math.round(Number(String(ans).replace(',', '.')) * 100) / 100;
+    if (Number.isFinite(val) && val >= min) return val;
+
+    await showAlertModal?.(`Merci d’entrer un montant valide supérieur ou égal à ${min} €.`);
+  }
+}
+
+function addCotisationToCart(montant) {
+  window.panier.push({
+    id: `cotisation-${Date.now()}`,
+    type: 'cotisation',
+    nom: 'Cotisation',
+    prix: Number(montant),
+    quantite: 1
+  });
+}
+
+// Ne propose la cotisation QUE si:
+// - modules adherents & cotisations ON
+// - statut = "actif"
+// - pas déjà au panier
+// - pas déjà à jour selon la DB
+
 
     const afficherPanier = () => {
       const div = document.getElementById('panier-zone');
@@ -1186,10 +1348,11 @@ async function renderCaisse() {
         });
       }
 
-      // 👉 Chevron de la datalist uniquement si module ON
-      if (adherentsOn) {
-        wireDatalistChevron('adherent-input');
-      }
+if (adherentsOn) {
+  try { wireDatalistChevron('adherent-input'); } catch {}
+}
+
+
 
       // 🎯 TOOLTIP tableau
       const tooltip = document.getElementById('tooltip-global');
@@ -1338,57 +1501,83 @@ async function renderCaisse() {
             }
           }
 
-          inputAdh.addEventListener('change', async () => {
-            const v = inputAdh.value.trim();
-            const a = adhIndex.get(v);
+const handleAdherentPick = async () => {
+  const v = inputAdh.value.trim();
+  const a = adhIndex.get(v);
+  console.log('[Adherent pick] valeur:', v, 'match:', a?.id);
 
-            if (!a) {
-              hiddenAdh.value = '';
-              hiddenAdh.dataset.email = '';
-              adherentSelectionneId = '';
-              localStorage.removeItem('adherentId');
-              return;
-            }
-
-            // ✅ Sélection de l'adhérent
-            hiddenAdh.value = String(a.id);
-            hiddenAdh.dataset.email = (a.email1 || a.email2 || '').trim();
-            adherentSelectionneId = a.id;
-            localStorage.setItem('adherentId', String(a.id));
-
-            // ❌ Exclusivité : on efface le prospect s’il y en avait un
-            try { selectedProspect = null; } catch { }                 // au cas où la variable globale n’existe pas encore
-            localStorage.removeItem('selectedProspect');
-            const hp = document.getElementById('prospect-select');    // hidden
-            if (hp) { hp.value = ''; hp.dataset.email = ''; }
-            const bp = document.getElementById('prospect-selected');  // badge
-            if (bp) { bp.style.display = 'none'; bp.textContent = ''; }
-
-            // Cotisation auto si module ON et mode "adherent" — SAUF statut partenaire/exempté
-const statut = String(a.statut || 'actif').toLowerCase();
-const skipCotisation = (statut === 'partenaire' || statut === 'exempté' || statut === 'exempte' || statut === 'exempte'); // tolère accents/variantes
-
-if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
-  const dejaCotisation = panier.some(p => p.type === 'cotisation');
-  if (!dejaCotisation) {
-    const nomComplet = `${a.nom} ${a.prenom}`;
-    await verifierCotisationAdherent(a.id, nomComplet, panier, afficherPanier);
+  if (!a) {
+    hiddenAdh.value = '';
+    hiddenAdh.dataset.email = '';
+    adherentSelectionneId = '';
+    localStorage.removeItem('adherentId');
+    return;
   }
-} else {
-  // On s'assure qu'aucune ligne de cotisation ne traîne si statut dispensé
-  if (skipCotisation) {
-    const idx = panier.findIndex(p => p.type === 'cotisation');
-    if (idx >= 0) {
-      panier.splice(idx, 1);
-      try { localStorage.setItem('panier', JSON.stringify(panier)); } catch {}
-      afficherPanier();
-    }
+
+  // ✅ Sélection de l'adhérent
+  hiddenAdh.value = String(a.id);
+  hiddenAdh.dataset.email = (a.email1 || a.email2 || '').trim();
+  adherentSelectionneId = a.id;
+  localStorage.setItem('adherentId', String(a.id));
+
+  // ❌ Exclusivité : on efface tout prospect sélectionné
+  try { selectedProspect = null; } catch {}
+  localStorage.removeItem('selectedProspect');
+  const hp = document.getElementById('prospect-select');    // hidden
+  if (hp) { hp.value = ''; hp.dataset.email = ''; }
+  const bp = document.getElementById('prospect-selected');  // badge
+  if (bp) { bp.style.display = 'none'; bp.textContent = ''; }
+
+  // 👈 Forcer le saleMode en "adherent" pour déclencher la logique cotisation
+  localStorage.setItem('saleMode', 'adherent');
+  const radioAdh = document.querySelector('input[name="vente-mode"][value="adherent"]');
+  if (radioAdh) radioAdh.checked = true;
+
+  // Affiche/masque les blocs correspondants
+  const adhCont  = document.getElementById('adherent-container');
+  const miniPros = document.getElementById('prospect-mini');
+  const extCont  = document.getElementById('ext-container');
+  if (adhCont)  adhCont.style.display = '';
+  if (miniPros) miniPros.style.display = '';
+  if (extCont)  extCont.style.display = 'none';
+
+  // ✅ Offrir la cotisation uniquement pour "actif"
+  const statut = String(a.statut || 'actif').toLowerCase();
+  const nonEligible = (statut === 'partenaire' || statut === 'exempté' || statut === 'exempte' || statut === 'autre');
+
+ if (!nonEligible && cotisationsOn) {
+  await verifierCotisationAdherent(
+    a.id,
+    `${a.prenom || ''} ${a.nom || ''}`.trim(),
+    panier,
+    afficherPanier
+  );
+} else if (nonEligible) {
+  const idx = panier.findIndex(p => p.type === 'cotisation');
+  if (idx >= 0) {
+    panier.splice(idx, 1);
+    try { localStorage.setItem('panier', JSON.stringify(panier)); } catch {}
+    afficherPanier();
   }
 }
 
 
-            document.getElementById('search-produit')?.focus();
-          });
+  document.getElementById('search-produit')?.focus();
+};
+
+// 🔔 IMPORTANT : écouter **input** ET **change**
+inputAdh.addEventListener('change', handleAdherentPick);
+let __adhPickBusy = false;
+const guardedHandle = async (...args) => {
+  if (__adhPickBusy) return;
+  __adhPickBusy = true;
+  try { await handleAdherentPick(...args); }
+  finally { __adhPickBusy = false; }
+};
+inputAdh.addEventListener('input', guardedHandle);
+inputAdh.addEventListener('change', guardedHandle);
+
+
         }
       }
 

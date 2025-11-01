@@ -359,60 +359,78 @@
         afficherListeProduitsFournisseur(true);
       });
 
-      const btnValider = document.getElementById("valider-reception");
-      if (btnValider) {
-        btnValider.addEventListener("click", async () => {
-          if (lignesReception.length === 0) { alert("Aucun produit ajouté."); return; }
+     const btnValider = document.getElementById("valider-reception");
+if (btnValider) {
+  btnValider.addEventListener("click", async () => {
+    if (lignesReception.length === 0) { alert("Aucun produit ajouté."); return; }
 
-          const referenceGlobale = (document.getElementById('referenceInput')?.value || '').trim() || null;
+    const referenceGlobale = (document.getElementById('referenceInput')?.value || '').trim() || null;
 
-          const groupesParFournisseur = {};
-          for (const l of lignesReception) {
-            const fid = l.produit?.fournisseur_id;
-            if (!fid) { await showAlertModal(`Un des produits n'a pas de fournisseur associé.`); return; }
-            if (!groupesParFournisseur[fid]) groupesParFournisseur[fid] = [];
-            groupesParFournisseur[fid].push(l);
-          }
+    // Regroupement par fournisseur
+    const groupesParFournisseur = {};
+    for (const l of lignesReception) {
+      const fid = l.produit?.fournisseur_id;
+      if (!fid) { await showAlertModal(`Un des produits n'a pas de fournisseur associé.`); return; }
+      if (!groupesParFournisseur[fid]) groupesParFournisseur[fid] = [];
+      groupesParFournisseur[fid].push(l);
+    }
 
-          let nbBL = 0;
-          for (const [fid, lines] of Object.entries(groupesParFournisseur)) {
-            const modules = await window.electronAPI.getModules();
-            const stocksOn = !!(modules && modules.stocks);
+    let nbBL = 0;
+    for (const [fid, lines] of Object.entries(groupesParFournisseur)) {
+      const modules = await window.electronAPI.getModules();
+      const stocksOn = !!(modules && modules.stocks);
 
-            const reception = {
-              fournisseur_id: parseInt(fid, 10),
-              fournisseurId: parseInt(fid, 10),
-              reference: referenceGlobale,
-              lignes: lines.map(l => ({
-                produit_id: l.produit.id,
-                quantite: stocksOn ? (Number(l.quantite) || 0) : 0,
-                prix_unitaire: Number(l.prix) || 0,
-                fournisseur_id: parseInt(fid, 10),
-                fournisseurId: parseInt(fid, 10),
-                reference: referenceGlobale,
-                stock_corrige: stocksOn
-                  ? ((l.stockCorrige !== '' && l.stockCorrige != null) ? Number(l.stockCorrige) : null)
-                  : null
-              }))
-            };
+      const reception = {
+        fournisseur_id: parseInt(fid, 10),
+        fournisseurId: parseInt(fid, 10),
+        reference: referenceGlobale,
+        lignes: lines.map(l => ({
+          produit_id: l.produit.id,
+          quantite: stocksOn ? (Number(l.quantite) || 0) : 0,
+          prix_unitaire: Number(l.prix) || 0,
+          fournisseur_id: parseInt(fid, 10),
+          fournisseurId: parseInt(fid, 10),
+          reference: referenceGlobale,
+          stock_corrige: stocksOn
+            ? ((l.stockCorrige !== '' && l.stockCorrige != null) ? Number(l.stockCorrige) : null)
+            : null
+        }))
+      };
 
-            const res = await window.electronAPI.enregistrerReception(reception);
+      try {
+        const res = await window.electronAPI.enregistrerReception(reception);
 
-            // ✅ accepter 3 formes de succès : true / {success:true} / id numérique
-            const ok = (res === true) || (res && res.success === true) || Number.isFinite(res);
-            if (!ok) {
-              await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${res?.error || 'inconnue'}`);
-              return;
-            }
-            nbBL++;
-          }
+        // ✅ reconnaître toutes les formes de succès renvoyées par le main:
+        //  - true
+        //  - { success: true } ou { ok: true }
+        //  - un nombre brut (id)
+        //  - { receptionId: <id> }
+        const ok =
+          res === true ||
+          (res && (res.success === true || res.ok === true)) ||
+          Number.isFinite(res) ||
+          (res && Number.isFinite(res.receptionId));
 
-          await showAlertModal(`✅ ${nbBL} bon(s) de livraison créé(s) (un par fournisseur).`);
-          localStorage.removeItem(R_LINES_KEY);
-          lignesReception = [];
-          renderReception();
-        });
+        if (!ok) {
+          const msg = (res && (res.error || res.message)) || 'Réponse inattendue du main-process';
+          await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${msg}`);
+          return;
+        }
+        nbBL++;
+      } catch (err) {
+        const msg = err?.message || err?.stack || String(err);
+        await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${msg}`);
+        return;
       }
+    }
+
+    await showAlertModal(`✅ ${nbBL} bon(s) de livraison créé(s) (un par fournisseur).`);
+    localStorage.removeItem(R_LINES_KEY);
+    lignesReception = [];
+    renderReception();
+  });
+}
+
     };
 
     await afficherInterface();

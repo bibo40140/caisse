@@ -55,7 +55,6 @@ function getProduits({ search = '', limit = 5000, offset = 0 } = {}) {
       fam.id  AS famille_effective_id,
       fam.nom AS famille_effective_nom
 
-
     FROM produits p
     LEFT JOIN unites       u      ON u.id   = p.unite_id
     LEFT JOIN fournisseurs f      ON f.id   = p.fournisseur_id
@@ -111,6 +110,69 @@ function getProduit(id) {
     LEFT JOIN familles     fam    ON fam.id    = c_eff.famille_id
     WHERE p.id = ?
   `).get(Number(id));
+}
+
+/**
+ * 🔎 Recherche par nom + fournisseur
+ * - nom: comparé en exact (trim/LOWER) puis fallback LIKE
+ * - fournisseur_id: peut être null/undefined/'' pour chercher côté "sans fournisseur"
+ *   (fournisseur_id IS NULL OU 0)
+ * Renvoie un objet produit enrichi (joins), ou null si introuvable.
+ */
+function rechercherProduitParNomEtFournisseur(nom, fournisseur_id) {
+  const nomClean = String(nom || '').trim();
+  const fid = (fournisseur_id === null || typeof fournisseur_id === 'undefined' || fournisseur_id === '')
+    ? null
+    : Number(fournisseur_id);
+
+  // 1) essai exact
+  const exact = db.prepare(`
+    SELECT
+      p.*,
+      u.nom AS unite_nom,
+      f.nom AS fournisseur_nom,
+      c_prod.nom AS categorie_nom,
+      c_eff.id  AS categorie_effective_id,
+      c_eff.nom AS categorie_effective_nom
+    FROM produits p
+    LEFT JOIN unites       u      ON u.id   = p.unite_id
+    LEFT JOIN fournisseurs f      ON f.id   = p.fournisseur_id
+    LEFT JOIN categories   c_prod ON c_prod.id = p.categorie_id
+    LEFT JOIN categories   c_eff  ON c_eff.id  = COALESCE(p.categorie_id, f.categorie_id)
+    WHERE LOWER(TRIM(p.nom)) = LOWER(TRIM(?))
+      AND (
+        (? IS NULL AND (p.fournisseur_id IS NULL OR p.fournisseur_id = 0))
+        OR p.fournisseur_id = ?
+      )
+    LIMIT 1
+  `).get(nomClean, fid, fid);
+
+  if (exact) return exact;
+
+  // 2) fallback LIKE
+  const like = db.prepare(`
+    SELECT
+      p.*,
+      u.nom AS unite_nom,
+      f.nom AS fournisseur_nom,
+      c_prod.nom AS categorie_nom,
+      c_eff.id  AS categorie_effective_id,
+      c_eff.nom AS categorie_effective_nom
+    FROM produits p
+    LEFT JOIN unites       u      ON u.id   = p.unite_id
+    LEFT JOIN fournisseurs f      ON f.id   = p.fournisseur_id
+    LEFT JOIN categories   c_prod ON c_prod.id = p.categorie_id
+    LEFT JOIN categories   c_eff  ON c_eff.id  = COALESCE(p.categorie_id, f.categorie_id)
+    WHERE LOWER(p.nom) LIKE LOWER('%' || ? || '%')
+      AND (
+        (? IS NULL AND (p.fournisseur_id IS NULL OR p.fournisseur_id = 0))
+        OR p.fournisseur_id = ?
+      )
+    ORDER BY LENGTH(p.nom) ASC
+    LIMIT 1
+  `).get(nomClean, fid, fid);
+
+  return like || null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -252,4 +314,5 @@ module.exports = {
   modifierProduit,
   supprimerProduit,
   getCategoriesProduitsEffectives,
+  rechercherProduitParNomEtFournisseur, // <<< export ajouté
 };

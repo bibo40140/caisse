@@ -679,6 +679,19 @@ registerProspectsHandlers(ipcMain);
 const { registerCategoryHandlers } = require('./src/main/handlers/categories');
 registerCategoryHandlers();
 
+const registerFournisseurHandlers = require('./src/main/handlers/fournisseurs');
+registerFournisseurHandlers();
+
+const registerProduitHandlers = require('./src/main/handlers/produits');
+registerProduitHandlers(ipcMain);
+
+const { registerReceptionHandlers } = require('./src/main/handlers/receptions');
+registerReceptionHandlers(ipcMain); 
+
+const registerCotisationsHandlers = require('./src/main/handlers/cotisations');
+registerCotisationsHandlers();
+
+
 // chargements conditionnels (synchrone)
 let cfgModules = {};
 try {

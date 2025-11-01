@@ -1,10 +1,10 @@
 {
   "modules": {
-    "cotisations": false,
+    "cotisations": true,
     "emails": false,
     "prospects": false,
     "inventaire": false,
-    "adherents": false,
+    "adherents": true,
     "ventes_exterieur": true,
     "stocks": true,
     "modes_paiement": true,
