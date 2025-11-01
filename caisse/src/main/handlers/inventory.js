@@ -107,16 +107,31 @@ async function apiInventorySummary(sessionId) {
     })),
   };
 }
-async function apiInventoryFinalize({ sessionId, user, email_to }) {
-  const sid = String(sessionId || '').trim();
-  if (!sid || sid.toLowerCase() === 'nan') throw new Error('inventory:finalize BAD_ARG sessionId');
-  const res = await fetch(`${API}/inventory/${encodeURIComponent(sid)}/finalize`, {
+async function apiInventoryFinalize(apiBase, token, sessionId, body = {}) {
+  const r = await fetch(`${apiBase}/inventory/${encodeURIComponent(sessionId)}/finalize`, {
     method: 'POST',
-    headers: buildJsonHeaders(),
-    body: JSON.stringify({ user, email_to }),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`inventory:finalize HTTP ${res.status} ${await res.text().catch(()=> '')}`);
-  return res.json();
+
+  if (r.status === 409) {
+    // Ex: {"ok":false,"error":"session_locked"}
+    let msg = '';
+    try { const j = await r.json(); msg = j?.error || ''; } catch {}
+    if (msg === 'session_locked') {
+      // 👉 Considérer comme déjà finalisé
+      return { ok: true, alreadyFinalized: true, recap: null };
+    }
+  }
+
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error(`inventory:finalize HTTP ${r.status} ${txt}`);
+  }
+  return r.json();
 }
 
 /* -------------------- Mapping helpers -------------------- */
@@ -268,20 +283,34 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     // (renderer fait déjà l’agrégation nécessaire)
   });
 
-  ipcMain.handle('inventory:finalize', async (_e, payload = {}) => {
-    const sessionId = payload?.sessionId;
-    const user      = payload?.user || null;
-    const email_to  = payload?.email_to || null;
+ipcMain.handle('inventory:finalize', async (_evt, { sessionId, user } = {}) => {
+  if (!sessionId) throw new Error('inventory:finalize BAD_ARG sessionId');
 
-    const finalizeRes = await apiInventoryFinalize({ sessionId, user, email_to });
+  try {
+    const { token } = resolveAuthContext();        // ← token courant (Bearer)
+    const out = await apiInventoryFinalize(API,    // ← use API (defined at top), not API_BASE
+      token,
+      String(sessionId),
+      { user }
+    );
 
-    try {
-      const sum = await apiInventorySummary(sessionId);
-      applySummaryToLocal(sum.lines || []);
-    } catch (e) {
-      console.warn('[inventory] apply from summary failed:', e?.message || e);
+    // Optionnel : MAJ du stock local depuis le résumé
+    // try {
+    //   const sum = await apiInventorySummary(String(sessionId));
+    //   applySummaryToLocal(sum.lines);
+    // } catch (e) {
+    //   console.warn('[inventory] applySummaryToLocal failed:', e);
+    // }
+
+    if (out?.alreadyFinalized) {
+      return { ok: true, recap: out.recap || null, alreadyFinalized: true };
     }
-
-    return finalizeRes;
-  });
+    return out;
+  } catch (e) {
+    console.error('inventory:finalize error', e);
+    throw e;
+  }
+});
 };
+
+

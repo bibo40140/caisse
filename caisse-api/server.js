@@ -321,90 +321,148 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 
   if (!sessionId) return res.status(400).json({ ok:false, error:'bad_session_id' });
 
-  try {
-    await client.query('BEGIN');
+try {
+  await client.query('BEGIN');
 
-    const st = await client.query(
-      `SELECT id, status, name, started_at FROM inventory_sessions
-       WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+  // 1) Verrouiller et lire le statut courant
+  const st = await client.query(
+    `SELECT id, status, name, started_at
+     FROM inventory_sessions
+     WHERE tenant_id=$1 AND id=$2
+     FOR UPDATE`,
+    [tenantId, sessionId]
+  );
+  if (st.rowCount === 0) {
+    await client.query('ROLLBACK');
+    return res.status(404).json({ ok:false, error:'session_not_found' });
+  }
+
+  const status = st.rows[0].status;
+
+  // 2) Si déjà "closed" → renvoyer un récap sans erreur (idempotence)
+  if (status === 'closed') {
+    await client.query('ROLLBACK');
+    const rr = await pool.query(
+      `SELECT
+         COUNT(*)::int AS lines,
+         COALESCE(SUM(delta_value),0)::numeric AS value
+       FROM inventory_adjust
+       WHERE tenant_id=$1 AND session_id=$2`,
       [tenantId, sessionId]
     );
-    if (st.rowCount === 0) { await client.query('ROLLBACK'); return res.status(404).json({ ok:false, error:'session_not_found' }); }
-    if (st.rows[0].status !== 'open') { await client.query('ROLLBACK'); return res.status(409).json({ ok:false, error:'session_locked' }); }
+    return res.json({
+      ok: true,
+      recap: {
+        session: { id: sessionId, name: st.rows[0].name, started_at: st.rows[0].started_at, ended_at: null },
+        stats:   { linesInserted: rr.rows[0].lines, countedProducts: rr.rows[0].lines, inventoryValue: Number(rr.rows[0].value) }
+      },
+      alreadyClosed: true
+    });
+  }
 
-    await client.query(`UPDATE inventory_sessions SET status='finalizing' WHERE tenant_id=$1 AND id=$2`, [tenantId, sessionId]);
-
-    const agg = await client.query(
-      `WITH summed AS (
-         SELECT product_id, SUM(qty)::numeric AS counted
-         FROM inventory_counts
-         WHERE tenant_id=$1 AND session_id=$2
-         GROUP BY product_id
-       )
-       SELECT p.id AS product_id, p.nom, p.code_barre, p.prix,
-              s.stock_start, COALESCE(sm.counted, 0) AS counted_total
-       FROM inventory_snapshot s
-       JOIN produits p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
-       LEFT JOIN summed sm ON sm.product_id = s.product_id
-       WHERE s.tenant_id=$1 AND s.session_id=$2
-       ORDER BY p.nom`,
+  // 3) Si "open" → passer à "finalizing". Si déjà "finalizing" → continuer.
+  if (status === 'open') {
+    await client.query(
+      `UPDATE inventory_sessions
+         SET status='finalizing'
+       WHERE tenant_id=$1 AND id=$2`,
       [tenantId, sessionId]
     );
+  }
 
-    let linesInserted = 0, countedProducts = 0, inventoryValue = 0;
+  // 4) Agrégat des comptages
+  const agg = await client.query(
+    `WITH summed AS (
+       SELECT product_id, SUM(qty)::numeric AS counted
+       FROM inventory_counts
+       WHERE tenant_id=$1 AND session_id=$2
+       GROUP BY product_id
+     )
+     SELECT p.id AS product_id, p.nom, p.code_barre, p.prix,
+            s.stock_start, COALESCE(sm.counted, 0) AS counted_total
+     FROM inventory_snapshot s
+     JOIN produits p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
+     LEFT JOIN summed sm ON sm.product_id = s.product_id
+     WHERE s.tenant_id=$1 AND s.session_id=$2
+     ORDER BY p.nom`,
+    [tenantId, sessionId]
+  );
 
-    for (const r of agg.rows) {
-      const pid     = String(r.product_id);
-      const start   = Number(r.stock_start);
-      const counted = Number(r.counted_total);
-      const prix    = Number(r.prix || 0);
+  let linesInserted = 0, countedProducts = 0, inventoryValue = 0;
 
-      const currentLive = await getCurrentStock(client, tenantId, pid);
-      const delta = counted - currentLive;
+  for (const r of agg.rows) {
+    const pid     = String(r.product_id);
+    const start   = Number(r.stock_start);
+    const counted = Number(r.counted_total);
+    const prix    = Number(r.prix || 0);
 
-      await client.query(
-        `INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [sessionId, tenantId, pid, start, counted, delta, null, delta * prix]
-      );
+    // Stock courant "live" (agrégé des mouvements)
+    const currentLive = await getCurrentStock(client, tenantId, pid);
+    const delta = counted - currentLive;
+
+    // 4.a INSERT inventory_adjust SANS doublon
+    // (évite dépendance à un unique index en utilisant WHERE NOT EXISTS)
+    await client.query(
+      `INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value)
+       SELECT $1,$2,$3,$4,$5,$6,$7,$8
+       WHERE NOT EXISTS (
+         SELECT 1 FROM inventory_adjust
+         WHERE session_id=$1 AND tenant_id=$2 AND product_id=$3
+       )`,
+      [sessionId, tenantId, pid, start, counted, delta, null, delta * prix]
+    );
+
+    // Compteurs pour le récap (on ne les incrémente que si la ligne n'existait pas déjà)
+    const justInserted = await client.query(
+      `SELECT 1 FROM inventory_adjust WHERE session_id=$1 AND tenant_id=$2 AND product_id=$3`,
+      [sessionId, tenantId, pid]
+    );
+    if (justInserted.rowCount > 0) {
       linesInserted++;
-
       if (counted !== 0) countedProducts++;
       inventoryValue += counted * prix;
-
-      if (delta !== 0) {
-        await client.query(
-          `INSERT INTO stock_movements(tenant_id, produit_id, delta, source, source_id)
-           VALUES ($1,$2,$3,'inventory_finalize',$4)`,
-          [tenantId, pid, delta, `inv:${sessionId}:${pid}`]
-        );
-      }
     }
 
-    const endUpd = await client.query(
-      `UPDATE inventory_sessions
-         SET status='closed', ended_at=now(), "user"=COALESCE("user",$3)
-       WHERE tenant_id=$1 AND id=$2
-       RETURNING id, name, started_at, ended_at`,
-      [tenantId, sessionId, user || null]
-    );
-
-    await client.query('COMMIT');
-
-    const sess = endUpd.rows[0];
-    const recap = {
-      session: { id: sess.id, name: sess.name, started_at: sess.started_at, ended_at: sess.ended_at },
-      stats: { linesInserted, countedProducts, inventoryValue }
-    };
-
-    res.json({ ok:true, recap });
-  } catch (e) {
-    await client.query('ROLLBACK');
-    console.error('POST /inventory/:id/finalize', e);
-    res.status(500).json({ ok:false, error:e.message });
-  } finally {
-    client.release();
+    // 4.b Mouvement de stock uniquement si delta ≠ 0 et pas déjà appliqué
+    if (delta !== 0) {
+      const sourceId = `inv:${sessionId}:${pid}`;
+      await client.query(
+        `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+         SELECT $1,$2,$3,'inventory_finalize',$4
+         WHERE NOT EXISTS (
+           SELECT 1 FROM stock_movements
+           WHERE tenant_id=$1 AND source_id=$4
+         )`,
+        [tenantId, pid, delta, sourceId]
+      );
+    }
   }
+
+  // 5) Clôture
+  const endUpd = await client.query(
+    `UPDATE inventory_sessions
+       SET status='closed', ended_at=now(), "user"=COALESCE("user",$3)
+     WHERE tenant_id=$1 AND id=$2
+     RETURNING id, name, started_at, ended_at`,
+    [tenantId, sessionId, user || null]
+  );
+
+  await client.query('COMMIT');
+
+  const sess = endUpd.rows[0];
+  const recap = {
+    session: { id: sess.id, name: sess.name, started_at: sess.started_at, ended_at: sess.ended_at },
+    stats:   { linesInserted, countedProducts, inventoryValue }
+  };
+
+  res.json({ ok: true, recap });
+} catch (e) {
+  await client.query('ROLLBACK');
+  console.error('POST /inventory/:id/finalize', e);
+  res.status(500).json({ ok:false, error:e.message });
+} finally {
+  client.release();
+}
 });
 
 /* =========================================================
