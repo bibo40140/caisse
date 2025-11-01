@@ -125,19 +125,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   validerImportProduits: (produits) => ipcRenderer.invoke('valider-import-produits', produits),
 
   /* -------------- Email (par tenant) ------------- */
-  // Ces canaux sont fournis par ./src/main/handlers/email
   emailGetSettings: () => ipcRenderer.invoke('email:getSettings'),
   emailSetSettings: (s) => ipcRenderer.invoke('email:setSettings', s),
   emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
 
   // --- Super admin: gestion ciblée d'un tenant ---
-adminGetTenantModules:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:modules:get', tenantId),
-adminSetTenantModules:   (tenantId, modules)        => ipcRenderer.invoke('admin:tenant:modules:set', { tenantId, modules }),
-adminEmailGetSettings:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:email:get', tenantId),
-adminEmailSetSettings:   (tenantId, settings)       => ipcRenderer.invoke('admin:tenant:email:set', { tenantId, settings }),
-adminEmailTestSend:      (tenantId, payload)        => ipcRenderer.invoke('admin:tenant:email:test', { tenantId, ...payload }),
-adminTenantDelete: (tenantId, hard = false) =>  ipcRenderer.invoke('admin:tenant:delete', { tenantId, hard }),
-
+  adminGetTenantModules:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:modules:get', tenantId),
+  adminSetTenantModules:   (tenantId, modules)        => ipcRenderer.invoke('admin:tenant:modules:set', { tenantId, modules }),
+  adminEmailGetSettings:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:email:get', tenantId),
+  adminEmailSetSettings:   (tenantId, settings)       => ipcRenderer.invoke('admin:tenant:email:set', { tenantId, settings }),
+  adminEmailTestSend:      (tenantId, payload)        => ipcRenderer.invoke('admin:tenant:email:test', { tenantId, ...payload }),
+  adminTenantDelete: (tenantId, hard = false) =>  ipcRenderer.invoke('admin:tenant:delete', { tenantId, hard }),
 
   /* -------------- Ventes ------------------------- */
   enregistrerVente: (data) => ipcRenderer.invoke('enregistrer-vente', data),
@@ -218,6 +216,8 @@ adminTenantDelete: (tenantId, hard = false) =>  ipcRenderer.invoke('admin:tenant
     summary:   ({ sessionId })                   => ipcRenderer.invoke('inventory:summary', { sessionId }),
     finalize:  ({ sessionId, user, email_to })   =>
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
+    // ✅ Ajout optionnel pour reprise d’une session ouverte
+    listOpen:  ()                                => ipcRenderer.invoke('inventory:list-open'),
   },
 
   /* -------------- Inventaire / produits ---------- */
@@ -235,10 +235,12 @@ adminTenantDelete: (tenantId, hard = false) =>  ipcRenderer.invoke('admin:tenant
   goMain: () => ipcRenderer.invoke('app:go-main'),
   logout: () => ipcRenderer.invoke('auth:logout'),
 
+  // ✅ Ajout pour rafraîchir / garantir l’auth côté main (utilisé par inventaire.js)
+  ensureAuth: () => ipcRenderer.invoke('auth:ensure'),
+
   // Super admin (API protège ces routes)
   adminRegisterTenant: (payload) => ipcRenderer.invoke('admin:registerTenant', payload),
   adminListTenants: () => ipcRenderer.invoke('admin:listTenants'),
-
 
   // Infos d’auth pour afficher le bouton "Tenants (Super admin)"
   getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
@@ -265,5 +267,7 @@ contextBridge.exposeInMainWorld('carts', {
     summary:   ({ sessionId })                   => ipcRenderer.invoke('inventory:summary', { sessionId }),
     finalize:  ({ sessionId, user, email_to })   =>
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
+    // ✅ même ajout ici pour cohérence
+    listOpen:  ()                                => ipcRenderer.invoke('inventory:list-open'),
   },
 });

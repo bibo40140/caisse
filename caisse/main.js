@@ -231,6 +231,28 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
   }
 });
 
+// ⇢ NOUVEAU: handler demandé par le renderer pour “assurer” l’auth
+ipcMain.handle('auth:ensure', async () => {
+  try {
+    const res = await ensureAuth();
+    if (res?.ok && res.token) {
+      setAuthToken(res.token);
+      process.env.API_AUTH_TOKEN = res.token;
+
+      // garder en cache
+      authCache.token = res.token;
+      const info = computeAuthInfoFromToken(res.token);
+      authCache.role = info.role;
+      authCache.is_super_admin = info.is_super_admin;
+      authCache.tenant_id = info.tenant_id;
+      authCache.user_id = info.user_id;
+    }
+    return res;
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
 // Après login : route vers onboarding/main
 ipcMain.handle('auth:after-login-route', async () => {
   try {
@@ -288,46 +310,38 @@ ipcMain.handle('auth:getInfo', async () => {
 });
 
 // Liste des tenants (réservé super admin côté API)
-// Helper: essaie plusieurs endpoints jusqu'à trouver la liste des tenants
 async function tryFetchTenantsMulti() {
-  // 1) Endpoint custom via config.json si présent
   let custom = '';
   try {
     const cfg = getConfig();
     if (cfg && typeof cfg.tenants_endpoint === 'string' && cfg.tenants_endpoint.trim()) {
-      custom = cfg.tenants_endpoint.trim(); // ex: "/admin/tenants/list"
+      custom = cfg.tenants_endpoint.trim();
       if (!custom.startsWith('/')) custom = '/' + custom;
     }
   } catch {}
 
   const candidates = [
     custom || null,
-    '/tenants',                    // version A
-    '/admin/tenants',              // version B
-    '/admin/tenants/list',         // version B'
-    '/tenant_settings/tenants',    // version C
-    '/api/tenants',                // version D
-    '/v1/tenants',                 // version E
+    '/tenants',
+    '/admin/tenants',
+    '/admin/tenants/list',
+    '/tenant_settings/tenants',
+    '/api/tenants',
+    '/v1/tenants',
   ].filter(Boolean);
 
   for (const path of candidates) {
     let r;
     try {
       r = await apiFetch(path, { headers: { accept: 'application/json' } });
-    } catch (e) {
-      continue; // réseau KO → essaie le suivant
-    }
+    } catch (e) { continue; }
 
     const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
-    if (!ct.includes('application/json')) {
-      // 404 HTML / page login → on continue
-      continue;
-    }
+    if (!ct.includes('application/json')) continue;
 
     let js;
     try { js = await r.json(); } catch { continue; }
 
-    // Formats possibles
     if (r.ok && Array.isArray(js?.tenants)) return { ok: true, tenants: js.tenants };
     if (r.ok && Array.isArray(js?.items))   return { ok: true, tenants: js.items };
     if (r.ok && Array.isArray(js?.data))    return { ok: true, tenants: js.data };
@@ -661,6 +675,12 @@ safeHandle('sync:pull_all', async () => {
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
+});
+
+// ⚠️ NOUVEAU: fallback pour éviter l’erreur "No handler registered for 'inventory:list-open'"
+// (si tu as un vrai handler côté inventaire, on le remplacera — ici on renvoie juste une liste vide)
+safeHandle('inventory:list-open', async () => {
+  return { ok: true, items: [] };
 });
 
 // Handlers existants (inchangés)

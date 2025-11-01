@@ -1,9 +1,9 @@
 {
   "modules": {
-    "cotisations": true,
+    "cotisations": false,
     "emails": false,
     "prospects": false,
-    "inventaire": false,
+    "inventaire": true,
     "adherents": true,
     "ventes_exterieur": true,
     "stocks": true,

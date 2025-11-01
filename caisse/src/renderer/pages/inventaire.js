@@ -185,18 +185,88 @@
       const emailTo = cfg?.inventory?.email_to || null;
       const currentUser = 'Inventaire';
 
-      let sessionId = null;
-      try {
+      // Bandeau de statut (auth/session)
+      const statusBar = document.createElement('div');
+      statusBar.id = 'inv-status';
+      statusBar.style.cssText = 'display:none;margin:8px 0;padding:8px;border-radius:8px;font-size:.92rem;';
+      mount.before(statusBar);
+      const showStatus = (msg, kind = 'warn') => {
+        statusBar.style.display = 'block';
+        statusBar.textContent = msg;
+        statusBar.style.background = kind === 'ok' ? '#e6fff2' : '#fff4e6';
+        statusBar.style.border = '1px solid ' + (kind === 'ok' ? '#b7f0cf' : '#ffd9b3');
+        statusBar.style.color = kind === 'ok' ? '#145a32' : '#7a3e00';
+      };
+      const hideStatus = () => { statusBar.style.display = 'none'; };
+
+      async function tryStartInventorySession() {
         setBusy(true, 'Initialisation de la session inventaire…');
-        const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
-        const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
-        sessionId = js?.session?.id || null;
-        if (sessionId) localStorage.setItem(INV_SESSION_KEY, String(sessionId));
-      } catch (e) {
-        console.warn('[inventaire] création/initialisation session KO:', e?.message || e);
-      } finally {
-        setBusy(false);
+        let sessionId = null;
+
+        // 0) Si on a une session en cache, vérifier qu’elle est valide
+        try {
+          const cached = localStorage.getItem(INV_SESSION_KEY);
+          if (cached) {
+            const test = await window.electronAPI?.inventory?.summary?.({ sessionId: cached });
+            if (test && (test.session?.id || cached)) {
+              sessionId = String(test.session?.id || cached);
+              showStatus('Session d’inventaire reprise.', 'ok');
+              return sessionId;
+            }
+          }
+        } catch { /* on continue */ }
+
+        // 1) Tentative directe
+        try {
+          const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
+          const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
+          sessionId = js?.session?.id || null;
+          if (sessionId) {
+            localStorage.setItem(INV_SESSION_KEY, String(sessionId));
+            hideStatus();
+            return sessionId;
+          }
+        } catch (e) {
+          // 2) Si 401 → tenter un rétablissement d’auth si disponible
+          const msg = (e?.message || '') + ' ' + (e?.stack || '');
+          if (/401/.test(msg) || /Missing token/i.test(msg)) {
+            try {
+              if (window.electronAPI?.ensureAuth) {
+                await window.electronAPI.ensureAuth(); // rafraîchir le token côté main si possible
+                const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
+                const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
+                sessionId = js?.session?.id || null;
+                if (sessionId) {
+                  localStorage.setItem(INV_SESSION_KEY, String(sessionId));
+                  hideStatus();
+                  return sessionId;
+                }
+              }
+            } catch { /* ignore */ }
+          }
+          // 3) Dernier recours : essayer de lister/ reprendre une session ouverte si l’API expose la route
+          try {
+            if (window.electronAPI?.inventory?.listOpen) {
+              const open = await window.electronAPI.inventory.listOpen();
+              const last = Array.isArray(open) ? open.find(x => x?.status === 'open') : null;
+              if (last?.id) {
+                sessionId = String(last.id);
+                localStorage.setItem(INV_SESSION_KEY, sessionId);
+                showStatus('Session d’inventaire existante reprise.', 'ok');
+                return sessionId;
+              }
+            }
+          } catch { /* ignore */ }
+
+          // Sinon : mode local only
+          showStatus('⚠️ Non connecté à l’API inventaire (401). Mode brouillon local uniquement — la clôture et la synchro temps réel sont désactivées.', 'warn');
+        } finally {
+          setBusy(false);
+        }
+        return null;
       }
+
+      let sessionId = await tryStartInventorySession();
 
       const fournisseursById = Object.fromEntries((fournisseurs || []).map(f => [f.id, f]));
       const unitesById = Object.fromEntries((unites || []).map(u => [u.id, u]));
@@ -266,6 +336,12 @@
       const $search = mount.querySelector("#inv-search");
       const $scroll = mount.querySelector("#inv-scroll");
       const $apply  = mount.querySelector("#inv-apply");
+
+      // Si pas de session, on grise le bouton de finalisation (évite “session introuvable”)
+      if (!sessionId) {
+        $apply.disabled = true;
+        $apply.title = "Connecte l’API (auth) pour pouvoir clôturer l’inventaire.";
+      }
 
       // ---------- Draft helpers ----------
       const saveDraft = () => {
@@ -347,6 +423,20 @@
               state.set(exact.id, st2);
             } catch (err) {
               console.warn('[inventaire] count-add(+1) failed', err?.message || err);
+              // Si 401 à ce moment → re-essayer une fois l’ensureAuth
+              const msg = (err?.message || '') + ' ' + (err?.stack || '');
+              if (/401/.test(msg) || /Missing token/i.test(msg)) {
+                try {
+                  if (window.electronAPI?.ensureAuth) {
+                    await window.electronAPI.ensureAuth();
+                    await window.electronAPI.inventory.countAdd({ sessionId, product_id: exact.id, qty: 1, user: currentUser });
+                    const st2b = state.get(exact.id);
+                    st2b.prevSent = Number(st2b.prevSent || 0) + 1;
+                    state.set(exact.id, st2b);
+                    hideStatus();
+                  }
+                } catch { showStatus('⚠️ Auth expirée pendant le comptage. Saisie locale OK, mais non synchronisée.', 'warn'); }
+              }
             } finally {
               $search.disabled = false;
               $search.focus();
@@ -558,7 +648,6 @@
         });
         // pull global → réafficher les stocks locaux mis à jour
         window.electronEvents.on('data:refreshed', () => {
-          // reload dur pour être sûr d’avoir les stocks rafraîchis sur cet écran
           location.reload();
         });
       }
@@ -566,7 +655,7 @@
       // Validation GLOBALE via IPC : remet à 0 tout non saisi (snapshot serveur)
       $apply.addEventListener("click", async () => {
         if (!sessionId) {
-          alert("Session d’inventaire introuvable.");
+          alert("Session d’inventaire introuvable (non connecté). Réessaye après reconnexion.");
           return;
         }
         const ok = confirm(
