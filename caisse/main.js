@@ -568,6 +568,10 @@ app.whenReady().then(async () => {
     console.warn('[config] lecture impossible:', e?.message || e);
   }
 
+   // 🛑 Ajoute ceci pour empêcher tout auto-login via les variables d'env
+  delete process.env.API_AUTH_TOKEN;
+  delete process.env.TENANT_ID;
+
   // 2) Auth (token or login via config creds)
   let auth = { ok: false };
   try {
