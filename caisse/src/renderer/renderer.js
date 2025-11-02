@@ -152,8 +152,28 @@
   });
 })();
 
-// --- Tenant brand (logo + nom) boot ---
+// --- Tenant brand (logo + nom) boot --- *** MODIFIÉ POUR TENANT ***
 (() => {
+  let __cachedTenantId = null;
+  async function getCurrentTenantId() {
+    if (__cachedTenantId) return __cachedTenantId;
+    try {
+      const info = await window.electronAPI?.getAuthInfo?.();
+      const tid =
+        info?.tenant_id || info?.tenantId || info?.tid ||
+        info?.id || info?.user?.tenant_id || info?.user?.tenantId;
+      if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
+    } catch {}
+    try {
+      const ob = await window.electronAPI?.getOnboardingStatus?.();
+      const data = ob?.data || ob || {};
+      const tid = data?.tenant_id || data?.tenantId || data?.id;
+      if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
+    } catch {}
+    __cachedTenantId = 'default';
+    return __cachedTenantId;
+  }
+
   async function setTenantLogo(urlOrData) {
     const img = document.getElementById('tenant-logo');
     if (!img) return;
@@ -173,15 +193,17 @@
   }
 
   async function loadBranding() {
-    // 0) Persistance locale (branding:get)
+    const tenantId = await getCurrentTenantId();
+
+    // 0) Persistance locale (branding:get) — par tenant
     try {
-      const r = await window.electronAPI?.brandingGet?.();
+      const r = await window.electronAPI?.brandingGet?.({ tenantId });
       if (r?.ok) {
-        const file = r.file;
+        const file = r.file || r.logoFile; // compat si field diff
         const name = r.name;
         if (file) {
           // cache-busting avec mtime
-          const src = `file://${file.replace(/\\/g, '/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+          const src = `file://${String(file).replace(/\\/g, '/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
           await setTenantLogo(src);
         }
         if (name) setTenantName(name);
@@ -197,7 +219,7 @@
       // Optionnel: persister un logo venant de l'onboarding si on n'a pas encore de fichier local
       const currentSrc = document.getElementById('tenant-logo')?.getAttribute('src');
       if (!currentSrc && data.logo_dataUrl) {
-        const saved = await window.electronAPI?.brandingSet?.({ logoDataUrl: data.logo_dataUrl });
+        const saved = await window.electronAPI?.brandingSet?.({ tenantId, logoDataUrl: data.logo_dataUrl });
         if (saved?.ok && saved.file) {
           const src = `file://${saved.file.replace(/\\/g, '/')}${saved.mtime ? `?v=${Math.floor(saved.mtime)}` : ''}`;
           await setTenantLogo(src);
@@ -216,14 +238,16 @@
 
   // Permettre une mise à jour “live” quand la page Logo enregistre
   window.__refreshTenantLogo__ = async (urlOrData) => {
+    const tenantId = await getCurrentTenantId();
     if (urlOrData) {
       await setTenantLogo(urlOrData);
     } else {
-      // recharger depuis branding:get
+      // recharger depuis branding:get (par tenant)
       try {
-        const r = await window.electronAPI?.brandingGet?.();
-        if (r?.ok && r.file) {
-          const src = `file://${r.file.replace(/\\/g, '/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+        const r = await window.electronAPI?.brandingGet?.({ tenantId });
+        if (r?.ok && (r.file || r.logoFile)) {
+          const lf = r.file || r.logoFile;
+          const src = `file://${String(lf).replace(/\\/g, '/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
           await setTenantLogo(src);
         } else {
           await setTenantLogo(null);

@@ -38,6 +38,29 @@
   function showAlertModal(msg) { alert(msg); }
 
   // ----------------------------
+  // Tenant helpers (ID courant)
+  // ----------------------------
+  let __cachedTenantId = null;
+  async function getCurrentTenantId() {
+    if (__cachedTenantId) return __cachedTenantId;
+    try {
+      const info = await window.electronAPI?.getAuthInfo?.();
+      const tid =
+        info?.tenant_id || info?.tenantId || info?.tid ||
+        info?.id || info?.user?.tenant_id || info?.user?.tenantId;
+      if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
+    } catch {}
+    try {
+      const ob = await window.electronAPI?.getOnboardingStatus?.();
+      const data = ob?.data || ob || {};
+      const tid = data?.tenant_id || data?.tenantId || data?.id;
+      if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
+    } catch {}
+    __cachedTenantId = 'default';
+    return __cachedTenantId;
+  }
+
+  // ----------------------------
   // Hooks de fallback pour le header (nom & logo)
   // ----------------------------
   (function ensureBrandingHooks(){
@@ -69,21 +92,23 @@
   })();
 
   // Applique le branding stocké (appelable au démarrage et depuis les pages)
-  async function applyBrandingFromStore() {
-    try {
-      const r = await window.electronAPI?.brandingGet?.();
-      if (!r?.ok) return;
-      if (typeof r.name === 'string') {
-        window.__refreshTenantName__?.(r.name);
-      }
-      if (r.logoFile) {
-        const src = `file://${String(r.logoFile).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
-        window.__refreshTenantLogo__?.(src);
-      } else {
-        window.__refreshTenantLogo__?.('');
-      }
-    } catch {}
-  }
+async function applyBrandingFromStore() {
+  try {
+    const tenantId = await getCurrentTenantId();
+    const r = await window.electronAPI?.brandingGet?.({ tenantId });
+    if (!r?.ok) return;
+    if (typeof r.name === 'string') {
+      window.__refreshTenantName__?.(r.name);
+    }
+    if (r.logoFile || r.file) {
+      const f = r.logoFile || r.file;
+      const src = `file://${String(f).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+      window.__refreshTenantLogo__?.(src);
+    } else {
+      window.__refreshTenantLogo__?.('');
+    }
+  } catch {}
+}
 
   // ----------------------------
   // Modules (tenant)
@@ -1505,9 +1530,11 @@
     const empty = $('#brand-empty');
     const nameInput = $('#brand-name');
 
+    const tenantId = await getCurrentTenantId();
+
     // Charger l'état actuel
     try {
-      const r = await window.electronAPI?.brandingGet?.();
+      const r = await window.electronAPI?.brandingGet?.({ tenantId });
       if (r?.ok) {
         if (typeof r.name === 'string') nameInput.value = r.name;
         if (r.logoFile) {
@@ -1541,11 +1568,12 @@
       reader.readAsDataURL(f);
     });
 
-    // ➜ Enregistre : envoie TOUJOURS name, et logo si sélectionné
+    // ➜ Enregistre : envoie TOUJOURS name, et logo si sélectionné — avec tenantId
     $('#brand-save')?.addEventListener('click', async () => {
       try {
         msg('Enregistrement…');
         const payload = {
+          tenantId,
           name: (nameInput.value ?? '').toString(),
         };
         if (selectedDataUrl) payload.logoDataUrl = selectedDataUrl;
@@ -1573,14 +1601,12 @@
       }
     });
 
-    // Suppression "soft" du logo (conserve le nom)
+    // Suppression "soft" du logo (conserve le nom) — par tenant
     $('#brand-remove')?.addEventListener('click', async () => {
       if (!confirm('Supprimer le logo ?')) return;
       try {
         msg('Suppression…');
-        // Si tu as un IPC branding:remove, préfère l’appeler ici.
-        // Sinon, on écrase par une image vide minimale.
-        const r = await window.electronAPI?.brandingSet?.({ logoDataUrl: 'data:image/png;base64,' });
+        const r = await window.electronAPI?.brandingSet?.({ tenantId, logoDataUrl: 'data:image/png;base64,' });
         if (!r?.ok) throw new Error(r?.error || 'Échec');
         window.__refreshTenantLogo__?.('');
         prev.style.display = 'none';

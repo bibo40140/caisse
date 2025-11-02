@@ -67,6 +67,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   on, off, once,
   onConfigChanged,
 
+ brandingGet: (args) => ipcRenderer.invoke('branding:get', args || {}),
+  brandingSet: (args) => ipcRenderer.invoke('branding:set', args || {}),
+
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
   getProduits:    () => ipcRenderer.invoke('get-produits'),
@@ -198,8 +201,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------------- Config / Modules --------------- */
   getConfig: () => ipcRenderer.invoke('config:get'),
 
-  // ⚠️ Déprécié — c’était des préférences locales. On les garde pour compat,
-  // mais pour l’UI Modules il faut utiliser getTenantModules / setTenantModules.
+  // ⚠️ Déprécié — compat
   updateModules: (modules) => ipcRenderer.invoke('config:update-modules', modules),
   getModules: () => ipcRenderer.invoke('get-modules'),
   setModules: (modules) => ipcRenderer.invoke('set-modules', modules),
@@ -210,12 +212,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------------- Stock (batch) ------------------ */
   ajusterStockBulk: (payload) => ipcRenderer.invoke('stock:adjust-bulk', payload),
 
+  // --- Branding (nom + logo) par tenant ---
+  // Acceptent soit un string tenantId, soit { tenantId }, soit rien (=> 'default')
+  brandingGet: (tenantArg) => {
+    const tenantId = (tenantArg && typeof tenantArg === 'object') ? tenantArg.tenantId : tenantArg;
+    return ipcRenderer.invoke('branding:get', { tenantId });
+  },
+  brandingSet: (payload) => {
+    const p = payload || {};
+    return ipcRenderer.invoke('branding:set', p);
+  },
 
-  // --- Branding (nom + logo) ---
-  brandingGet: () => ipcRenderer.invoke('branding:get'),
-  brandingSet: (payload) => ipcRenderer.invoke('branding:set', payload),
-
-
+  
   /* -------------- Prospects ---------------------- */
   listProspects: (filters) => ipcRenderer.invoke('prospects:list', filters),
   createProspect: (p) => ipcRenderer.invoke('prospects:create', p),
@@ -239,7 +247,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     summary:   ({ sessionId })                   => ipcRenderer.invoke('inventory:summary', { sessionId }),
     finalize:  ({ sessionId, user, email_to })   =>
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
-    // ✅ Ajout optionnel pour reprise d’une session ouverte
     listOpen:  ()                                => ipcRenderer.invoke('inventory:list-open'),
   },
 
@@ -258,15 +265,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   goMain: () => ipcRenderer.invoke('app:go-main'),
   logout: () => ipcRenderer.invoke('auth:logout'),
 
-  // ✅ Ajout pour rafraîchir / garantir l’auth côté main (utilisé par inventaire.js)
   ensureAuth: () => ipcRenderer.invoke('auth:ensure'),
 
-  // Super admin (API protège ces routes)
+  // Super admin
   adminRegisterTenant: (payload) => ipcRenderer.invoke('admin:registerTenant', payload),
   adminListTenants: () => ipcRenderer.invoke('admin:listTenants'),
-
-  // Infos d’auth pour afficher le bouton "Tenants (Super admin)"
-  getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
 
   // --- Modules par tenant (API) ---
   getTenantModules: () => ipcRenderer.invoke('tenant:modules:get'),
@@ -290,7 +293,6 @@ contextBridge.exposeInMainWorld('carts', {
     summary:   ({ sessionId })                   => ipcRenderer.invoke('inventory:summary', { sessionId }),
     finalize:  ({ sessionId, user, email_to })   =>
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
-    // ✅ même ajout ici pour cohérence
     listOpen:  ()                                => ipcRenderer.invoke('inventory:list-open'),
   },
 });
