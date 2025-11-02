@@ -1,8 +1,24 @@
 // src/renderer/services/syncClient.js
 (function () {
+  // Empêche l'init multiple si le script est injecté 2x (reload, double import, etc.)
+  if (window.__SYNC_CLIENT_INITED__) return;
+  window.__SYNC_CLIENT_INITED__ = true;
+
   const EL_ID = 'sync-indicator';
 
+  function cleanupExtraChips() {
+    // Supprime tout autre chip qui ne serait pas le nôtre
+    const chips = document.querySelectorAll('.sync-chip');
+    chips.forEach(chip => {
+      if (chip.id !== EL_ID) {
+        try { chip.remove(); } catch (_) {}
+      }
+    });
+  }
+
   function ensureChip() {
+    cleanupExtraChips();
+
     let el = document.getElementById(EL_ID);
     if (!el) {
       const header = document.querySelector('header') || document.body;
@@ -46,20 +62,28 @@
     }
   }
 
-  // Branche les events envoyés par le main process
+  // 🔒 Avant d’abonner, on nettoie d’éventuels anciens handlers (si ce script a déjà tourné)
+  try { window.electronEvents?.off?.('sync:state'); } catch {}
+  try { window.electronEvents?.off?.('ops:pushed'); } catch {}
+  try { window.electronEvents?.off?.('data:refreshed'); } catch {}
+  try { window.electronEvents?.off?.('data:bootstrapped'); } catch {}
+
+  // Branche les events envoyés par le main process (via preload)
   window.electronAPI?.on?.('sync:state', (_evt, data) => setChip(data?.status, data || {}));
-  window.electronAPI?.on?.('ops:pushed', (_evt, data) => {
-    // rafraîchit un poil l’UI (clignotement léger)
+  window.electronAPI?.on?.('ops:pushed', (_evt, _data) => {
     setChip('pushing', { pending: 0 });
     setTimeout(() => setChip('online', { phase: 'ops_pushed' }), 600);
   });
   window.electronAPI?.on?.('data:refreshed', () => setChip('online', { phase: 'pulled' }));
   window.electronAPI?.on?.('data:bootstrapped', () => setChip('online', { phase: 'bootstrapped' }));
 
-  // au chargement, on affiche un état neutre
-  document.addEventListener('DOMContentLoaded', () => setChip('online', { phase: 'ready' }));
+  // au chargement, on affiche un état neutre et on s'assure de n'avoir qu'un seul chip
+  document.addEventListener('DOMContentLoaded', () => {
+    cleanupExtraChips();
+    setChip('online', { phase: 'ready' });
+  });
 
-  // utilitaire pour jouer la sync depuis la console renderer si tu veux
+  // utilitaire pour dev depuis la console
   window.syncClient = window.syncClient || {};
   window.syncClient.showState = (status) => setChip(status || 'online');
 })();
