@@ -8,12 +8,12 @@
     "prospects": false,
     "inventaire": true,
     "multiusers": false,
-    "receptions": true,
+    "receptions": false,
     "cotisations": true,
     "fournisseurs": true,
     "modes_paiement": true,
     "ventes_exterieur": true
   },
   "ventes_ext_margin_percent": 30,
-  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNWNlMDk4Zi05YjUwLTQ3ZDQtYjJmZi01OTliNmM5ZDZhMmIiLCJ1c2VyX2lkIjoiMTVjZTA5OGYtOWI1MC00N2Q0LWIyZmYtNTk5YjZjOWQ2YTJiIiwidGVuYW50X2lkIjoiN2YxMmQ0ZGUtZmRjOC00YmZhLWFlYjQtMTlmYzQ0NmE0NTlmIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJsb3JkYmlib0BnbWFpbC5jb20iLCJpc19zdXBlcl9hZG1pbiI6ZmFsc2UsImlhdCI6MTc2MjA4MzY0MywiZXhwIjoxNzYyNjg4NDQzfQ.EZuVdPtI4AFZWad2E3lra4u_g5PQUfihPgZtAfix8Mo"
+  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNWNlMDk4Zi05YjUwLTQ3ZDQtYjJmZi01OTliNmM5ZDZhMmIiLCJ1c2VyX2lkIjoiMTVjZTA5OGYtOWI1MC00N2Q0LWIyZmYtNTk5YjZjOWQ2YTJiIiwidGVuYW50X2lkIjoiN2YxMmQ0ZGUtZmRjOC00YmZhLWFlYjQtMTlmYzQ0NmE0NTlmIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJsb3JkYmlib0BnbWFpbC5jb20iLCJpc19zdXBlcl9hZG1pbiI6ZmFsc2UsImlhdCI6MTc2MjA4Nzc1MSwiZXhwIjoxNzYyNjkyNTUxfQ.NA_j_Ot0ZL1eEXyH_tLb0BWbIUc7CuD4iVh3IcaXC9I"
 }

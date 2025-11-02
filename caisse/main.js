@@ -1,7 +1,24 @@
 // main.js
+
+const { resetCache: resetConfigCache, readConfig } = require('./src/main/db/config');
+
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const jwt = require('jsonwebtoken');
+
+// ===============================
+// Broadcast config/modules to UI
+// ===============================
+function broadcastConfigOnReady() {
+  try {
+    const cfg = readConfig();
+    BrowserWindow.getAllWindows().forEach(w => {
+      try { w.webContents.send('config:changed', cfg); } catch {}
+    });
+  } catch (e) {
+    console.error('[broadcastConfigOnReady] failed:', e?.message || e);
+  }
+}
 
 // === Auth & API config ===
 const { ensureAuth, getConfig } = require('./src/main/config');
@@ -84,7 +101,11 @@ function createMainWindow() {
   });
   mainWin.maximize();
   mainWin.loadFile('index.html');
-  mainWin.once('ready-to-show', () => mainWin.show());
+  mainWin.once('ready-to-show', () => {
+    mainWin.show();
+    // broadcast modules tout de suite après affichage
+    setTimeout(broadcastConfigOnReady, 150);
+  });
   mainWin.on('closed', () => { mainWin = null; });
 }
 
@@ -119,6 +140,9 @@ function createOnboardingWindow() {
     },
   });
   onboardWin.loadFile('src/renderer/onboarding.html');
+  onboardWin.once('ready-to-show', () => {
+    setTimeout(broadcastConfigOnReady, 150);
+  });
   onboardWin.on('closed', () => { onboardWin = null; });
 }
 
@@ -140,11 +164,15 @@ app.on('activate', () => {
   }
 });
 
+// Broadcast config on any new window creation (sécurise les cas de navigation interne)
+app.on('browser-window-created', () => {
+  setTimeout(broadcastConfigOnReady, 150);
+});
+
 // Quit on all closed (except mac)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
-
 
 function getTenantHeaders() {
   // Récupère le token déjà stocké par apiMainClient ou dans l’env
@@ -174,13 +202,11 @@ function getTenantHeaders() {
   return h;
 }
 
-
 function getTenantHeadersFor(tenantId) {
   const h = {};
   if (tenantId) h['x-tenant-id'] = String(tenantId);
   return h;
 }
-
 
 // ---------------------------------
 // Helpers fetch JSON sûrs
@@ -213,8 +239,6 @@ ipcMain.handle('admin:registerTenant', async (_e, payload) => {
     return { ok: false, error: e?.message || String(e) };
   }
 });
-
-
 
 // Login
 ipcMain.handle('auth:login', async (_e, { email, password }) => {
@@ -398,6 +422,8 @@ ipcMain.handle('onboarding:submit', async (_e, payload) => {
 ipcMain.handle('auth:logout', async () => {
   try {
     logout();
+    try { resetConfigCache(); } catch {}
+
     try {
       const { resetCache } = require('./src/main/db/tenantDb');
       resetCache();
@@ -457,12 +483,13 @@ ipcMain.handle('tenant:modules:set', async (_e, modules) => {
       const { writeModules } = require('./src/main/db/config');
       writeModules(payload.modules || {});
     } catch {}
+    // Broadcast immédiat après sauvegarde
+    setTimeout(broadcastConfigOnReady, 50);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
-
 
 // --- ADMIN: Modules d'un tenant ciblé ---
 ipcMain.handle('admin:tenant:modules:get', async (_e, tenantId) => {
@@ -536,6 +563,7 @@ ipcMain.handle('admin:tenant:email:test', async (_e, { tenantId, to, subject, te
     return { ok: false, error: e?.message || String(e) };
   }
 });
+
 // --- ADMIN: suppression d'un tenant (soft delete par défaut, hard avec { hard: true })
 ipcMain.handle('admin:tenant:delete', async (_e, { tenantId, hard = false }) => {
   try {
@@ -567,10 +595,6 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.warn('[config] lecture impossible:', e?.message || e);
   }
-
-   // 🛑 Ajoute ceci pour empêcher tout auto-login via les variables d'env
-  delete process.env.API_AUTH_TOKEN;
-  delete process.env.TENANT_ID;
 
   // 2) Auth (token or login via config creds)
   let auth = { ok: false };
@@ -690,7 +714,6 @@ safeHandle('sync:pull_all', async () => {
 });
 
 // ⚠️ NOUVEAU: fallback pour éviter l’erreur "No handler registered for 'inventory:list-open'"
-// (si tu as un vrai handler côté inventaire, on le remplacera — ici on renvoie juste une liste vide)
 safeHandle('inventory:list-open', async () => {
   return { ok: true, items: [] };
 });
@@ -699,7 +722,9 @@ safeHandle('inventory:list-open', async () => {
 require('./src/main/handlers/config')(ipcMain);
 require('./src/main/handlers/produits');
 require('./src/main/handlers/unites')(ipcMain);
-require('./src/main/handlers/modules');
+const registerModulesHandlers = require('./src/main/handlers/modules');
+registerModulesHandlers(); // <<< enregistre 'get-modules', 'set-modules', 'modules:save'
+
 require('./src/main/handlers/carts');
 
 const registerVentesHandlers = require('./src/main/handlers/ventes');
@@ -718,11 +743,10 @@ const registerProduitHandlers = require('./src/main/handlers/produits');
 registerProduitHandlers(ipcMain);
 
 const { registerReceptionHandlers } = require('./src/main/handlers/receptions');
-registerReceptionHandlers(ipcMain); 
+registerReceptionHandlers(ipcMain);
 
 const registerCotisationsHandlers = require('./src/main/handlers/cotisations');
 registerCotisationsHandlers();
-
 
 // chargements conditionnels (synchrone)
 let cfgModules = {};
@@ -827,7 +851,6 @@ safeHandle('mp:remove', async (_e, id) => {
     return { ok: true };
   } catch (e) { throw new Error(e?.message || String(e)); }
 });
-
 
 // --- Ops (pour le chip en haut à droite)
 safeHandle('ops:push-now', async () => {

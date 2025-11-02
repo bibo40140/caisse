@@ -16,8 +16,8 @@ function getCotisations() {
 /**
  * Récupère la dernière cotisation d’un adhérent.
  * Schéma attendu: cotisations(id, adherent_id, montant, date_paiement, mois)
- * - date_paiement: 'YYYY-MM-DD'
- * - mois: 'YYYY-MM' (optionnel mais utile)
+ * - date_paiement: 'YYYY-MM-DD' (tolère HH:MM:SS)
+ * - mois: 'YYYY-MM' (optionnel mais recommandé)
  */
 function getDerniereCotisation(adherentId) {
   return db.prepare(`
@@ -30,12 +30,12 @@ function getDerniereCotisation(adherentId) {
 }
 
 /**
- * Ton checker historique (booléen) — on le conserve pour compat
- * Règle: une cotisation payée dans le mois courant => true
+ * Checker historique (booléen) conservé pour compat.
+ * Règle: une cotisation payée dans le MOIS CIVIL courant => true
  */
 function verifierCotisationAdherent(adherentId) {
   const moisActuel = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-  // On autorise soit via la colonne 'mois', soit via strftime sur date_paiement
+  // On autorise via la colonne 'mois' OU via strftime(date_paiement)
   const r = db.prepare(`
     SELECT COUNT(*) AS n
     FROM cotisations
@@ -50,52 +50,56 @@ function verifierCotisationAdherent(adherentId) {
 
 /**
  * Nouveau: vérifie et renvoie un OBJET détaillé pour l’UI.
- * - actif: true si une cotisation existe pour le mois courant (avec option de période de grâce en jours)
+ * - actif: true si une cotisation couvre le MOIS CIVIL en cours
+ *          (calcul: fin du mois payé + graceDays >= maintenant)
  * - status: 'valide' | 'expiree' | 'absente'
- * - expire_le: fin du mois courant (ou fin du mois de la dernière cotisation) au format ISO
+ * - expire_le: dernière date du mois payé (en ISO)
  * - derniere_cotisation: la dernière ligne utile
  *
- * Remarque: ton modèle étant “par mois”, on définit l’expiration au dernier jour du mois payé.
+ * NB: Si la colonne 'mois' n’est pas renseignée, on déduit depuis 'date_paiement'.
  */
 function verifierCotisation(adherentId, opts = {}) {
-  const graceDays = Number(opts.graceDays || 0);
+  const graceDaysRaw = Number(opts.graceDays || 0);
+  const graceDays = Number.isFinite(graceDaysRaw) && graceDaysRaw > 0 ? graceDaysRaw : 0;
 
   const last = getDerniereCotisation(adherentId);
   if (!last) {
     return { actif: false, status: 'absente', expire_le: null, derniere_cotisation: null };
   }
 
-  // Détermine le mois payé de la dernière cotisation: priorité à colonne 'mois', sinon dérivé de la date
-  const moisStr = (last.mois && /^\d{4}-\d{2}$/.test(last.mois))
-    ? last.mois
-    : String(last.date || '').slice(0, 7); // 'YYYY-MM'
+  // Détermine le mois payé au format 'YYYY-MM'
+  const moisStr = (() => {
+    if (last.mois && /^\d{4}-\d{2}$/.test(last.mois)) return last.mois;
+    const d = (last.date || '').toString();
+    // d peut être 'YYYY-MM-DD' ou 'YYYY-MM-DD HH:MM:SS'
+    if (d.length >= 7 && /^\d{4}-\d{2}/.test(d)) return d.slice(0, 7);
+    return null;
+  })();
 
-  if (!/^\d{4}-\d{2}$/.test(moisStr)) {
-    // Données incomplètes → on considère non valide mais on renvoie la ligne pour debug UI
+  if (!moisStr) {
+    // Données incomplètes → non valide mais on renvoie la ligne pour debug UI
     return { actif: false, status: 'absente', expire_le: null, derniere_cotisation: last };
   }
+// Fin du mois de la cotisation (mois 0-based en JS)
+const [y, mNum] = moisStr.split('-').map(Number);
+const monthIdx = mNum - 1;                 // 0..11
+const end = new Date(Date.UTC(y, monthIdx + 1, 0)); // dernier jour du mois "moisStr"
 
-  // Fin du mois de la cotisation
-  const [y, m] = moisStr.split('-').map(Number);
-  // JS: date = 1er du mois suivant, puis -1 jour
-  const end = new Date(Date.UTC(y, m, 0)); // m = mois suivant indexé 1..12 → JS traite le débordement
-  // Période de grâce
-  const endWithGrace = new Date(end.getTime() + graceDays * 86400000);
+  const finAvecGrace = new Date(finMois.getTime() + graceDays * 86400000);
 
-  // Maintenant
   const now = new Date();
-  const actif = now <= endWithGrace;
+  const actif = now <= finAvecGrace;
 
   return {
     actif,
     status: actif ? 'valide' : 'expiree',
-    expire_le: end.toISOString(),
+    expire_le: finMois.toISOString(),
     derniere_cotisation: last,
   };
 }
 
 /**
- * Ajouter une cotisation (on remplit aussi 'mois' = 'YYYY-MM' pour accélérer les requêtes)
+ * Ajouter une cotisation (renseigne aussi 'mois' = 'YYYY-MM')
  */
 function ajouterCotisation(adherentId, montant) {
   const datePaiement = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
@@ -107,28 +111,28 @@ function ajouterCotisation(adherentId, montant) {
 }
 
 /**
- * Supprimer / Modifier — inchangés
+ * Supprimer / Modifier
  */
 function supprimerCotisation(id) {
   db.prepare(`DELETE FROM cotisations WHERE id = ?`).run(Number(id));
 }
 
 function modifierCotisation(c) {
+  const montant = Number(c.montant);
+  const date = String(c.date_paiement);
   db.prepare(`
     UPDATE cotisations
     SET montant = ?, date_paiement = ?
     WHERE id = ?
-  `).run(Number(c.montant), String(c.date_paiement), Number(c.id));
+  `).run(montant, date, Number(c.id));
 }
 
 module.exports = {
-  // existants
   getCotisations,
   ajouterCotisation,
   supprimerCotisation,
   modifierCotisation,
-  verifierCotisationAdherent,
-  // nouveaux
+  verifierCotisationAdherent, // compat booléenne
   getDerniereCotisation,
-  verifierCotisation,
+  verifierCotisation,         // logique riche pour l’UI
 };

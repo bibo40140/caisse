@@ -312,130 +312,71 @@ function wireDatalistChevron(inputId){
 
 // === Popup cotisation au choix d'un adhérent ================================
 // Appelée par ton code: await verifierCotisationAdherent(adherentId, nomComplet, panier, afficherPanier)
-// === Popup cotisation — vérif mensuelle béton ===
+// === Popup cotisation — vérif mensuelle béton (remplacement) ===============
 async function verifierCotisationAdherent(adherentId, nomComplet, panierRef, refreshUI) {
-  // 🔒 anti double déclenchement
+  // anti double déclenchement
   if (window.__cotisationCheckInProgress) return;
   window.__cotisationCheckInProgress = true;
 
   try {
-    // 0) déjà au panier ? on ne repropose pas
-    const deja = Array.isArray(panierRef) && panierRef.some(l => l?.type === 'cotisation');
-    if (deja) return;
+    // 1) si une ligne "cotisation" est déjà au panier → ne rien proposer
+    if (Array.isArray(panierRef) && panierRef.some(l => l?.type === 'cotisation')) return;
 
+    // 2) mémo local (évite le re-prompt tout le mois même si la DB met 1–2s à refléter)
     if (hasCotPaid(Number(adherentId))) return;
 
-
-    // 1) helpers dates ultra-tolérants
-    const normalizeToDate = (v) => {
-      if (!v && v !== 0) return null;
-      if (v instanceof Date) return v;
-      if (typeof v === 'number') {
-        // seconds → ms
-        const ms = (v < 1e12 ? v * 1000 : v);
-        const d = new Date(ms);
-        return isNaN(d) ? null : d;
-      }
-      if (typeof v === 'string') {
-        const t = Date.parse(v);
-        if (!Number.isFinite(t)) return null;
-        const d = new Date(t);
-        return isNaN(d) ? null : d;
-      }
-      return null;
-    };
-
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0); // local time
-    const paidThisMonth = (d) => {
-      const dt = normalizeToDate(d);
-      if (!dt) return false;
-      return dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
-    };
-    const sinceISO = new Date(startOfMonth.getTime() - startOfMonth.getTimezoneOffset() * 60000).toISOString();
-    const sinceTsMs  = startOfMonth.getTime();           // ms epoch
-const sinceTsSec = Math.floor(sinceTsMs / 1000);     // s epoch
-
-
-    // 2) montant par défaut (fallbacks)
-    let montantDefaut = 0;
+    // 3) demande au backend (handler main ‘cotisations:verifier’)
+    //    -> renvoie { actif, status, expire_le, derniere_cotisation }
+    let res = null;
     try {
-      if (window.electronAPI?.getCotisationAmount) {
-        const r = await window.electronAPI.getCotisationAmount();
-        const v = Number(r?.amount);
-        if (Number.isFinite(v) && v > 0) montantDefaut = v;
-      }
-      if (!montantDefaut && window.electronAPI?.getConfig) {
-        const cfg = await window.electronAPI.getConfig();
-        const v = Number(cfg?.cotisation_montant);
-        if (Number.isFinite(v) && v > 0) montantDefaut = v;
-      }
-    } catch {}
-    if (!montantDefaut) montantDefaut = 8;
+      res = await window.electronAPI.invoke('cotisations:verifier', {
+        adherent_id: Number(adherentId),
+        graceDays: 0,          // ajuste si tu veux une période de grâce
+      });
+    } catch (e) {
+      console.warn('[cotisations:verifier] indisponible, fallback:', e);
+    }
 
-    // 3) a-t-il déjà payé ce mois-ci ? (plusieurs APIs supportées)
-    let besoinCotisation = true;
+    // 4) si la réponse dit "actif", on mémorise et on ne propose pas
+    if (res && res.actif === true) {
+      try { markCotPaid(Number(adherentId), new Date()); } catch {}
+      return;
+    }
 
-    // 3.a getCotisationStatut (si dispo)
-    try {
-      if (window.electronAPI?.getCotisationStatut) {
-        const st = await window.electronAPI.getCotisationStatut(Number(adherentId));
-        // Priorité aux dates “réelles” plutôt qu’à due:true/false
-        if (st?.last_paid_at && paidThisMonth(st.last_paid_at)) besoinCotisation = false;
-        if (Number.isFinite(st?.last_paid_year) && Number.isFinite(st?.last_paid_month)) {
-          const y = Number(st.last_paid_year), m = Number(st.last_paid_month) - 1; // 1..12 → 0..11
-          if (y === now.getFullYear() && m === now.getMonth()) besoinCotisation = false;
-        }
-        // S’il expose juste due:true/false, on l’utilise en dernier recours
-        if (typeof st?.due === 'boolean' && besoinCotisation) besoinCotisation = !!st.due;
-        if (Number.isFinite(Number(st?.amount)) && st.amount > 0) montantDefaut = Number(st.amount);
-      }
-    } catch {}
-
-    // 3.b historique ce mois-ci (listCotisations)
-try {
-  if (besoinCotisation && window.electronAPI?.listCotisations) {
-    const tries = [
-      { since: sinceISO },
-      { since: sinceTsSec },
-      { since: sinceTsMs },
-      { since_iso: sinceISO },
-      { since_ts: sinceTsSec },
-      { since_ms: sinceTsMs }
-    ];
-    for (const params of tries) {
+    // 5) (Fallback ultime si pas de réponse) : on peut tenter un ancien helper
+    //    mais comme tes handlers sont en place, ce bloc ne devrait quasiment jamais s'exécuter.
+    if (!res) {
       try {
-        const rows = await window.electronAPI.listCotisations({ adherent_id: Number(adherentId), ...params });
-        if (Array.isArray(rows) && rows.some(r => paidThisMonth(r?.date || r?.paid_at || r?.created_at))) {
-          besoinCotisation = false;
-          markCotPaid(Number(adherentId), now); // ← MÉMO local pour éviter tout re-prompt
-          break;
+        const st = await window.electronAPI.getCotisationStatut?.(Number(adherentId));
+        if (st?.last_paid_at) {
+          const d = new Date(st.last_paid_at);
+          const now = new Date();
+          const paidThisMonth = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+          if (paidThisMonth) {
+            try { markCotPaid(Number(adherentId), now); } catch {}
+            return;
+          }
         }
       } catch {}
     }
-  }
-} catch {}
 
-
-    // 3.c fallback
-    try {
-      if (besoinCotisation && window.electronAPI?.getCotisationsAdherent) {
-        const last = await window.electronAPI.getCotisationsAdherent(Number(adherentId), { limit: 1 });
-        const row = Array.isArray(last) ? last[0] : null;
-        if (row && paidThisMonth(row.date || row.paid_at || row.created_at)) {
-          besoinCotisation = false;
-          // NEW
-          markCotPaid(Number(adherentId), now);
-        }
-      }
-    } catch {}
-
-    if (!besoinCotisation) return;
-
-    // 4) demander le montant (min 5 €), avec anti double-popup
-    if (window.__cotisationPromptOpen) return;
+    // 6) ici, l’adhérent N’EST PAS à jour → proposer la cotisation
+    if (window.__cotisationPromptOpen) return; // anti double popup
     window.__cotisationPromptOpen = true;
     try {
+      // montant par défaut
+      let montantDefaut = 8;
+      try {
+        const r = await window.electronAPI.getCotisationAmount?.();
+        const v = Number(r?.amount);
+        if (Number.isFinite(v) && v > 0) montantDefaut = v;
+        if (!v && window.electronAPI.getConfig) {
+          const cfg = await window.electronAPI.getConfig();
+          const w = Number(cfg?.cotisation_montant);
+          if (Number.isFinite(w) && w > 0) montantDefaut = w;
+        }
+      } catch {}
+
       const ask = async () => {
         if (typeof showPromptModal === 'function') {
           return await showPromptModal(
@@ -455,10 +396,10 @@ try {
         );
       };
 
-      let saisi;
       while (true) {
-        saisi = await ask();
+        const saisi = await ask();
         if (saisi == null) return; // annulé
+
         const montant = Math.round(Number(String(saisi).replace(',', '.')) * 100) / 100;
         if (Number.isFinite(montant) && montant >= 5) {
           panierRef.push({
@@ -475,7 +416,6 @@ try {
           if (typeof refreshUI === 'function') refreshUI();
           break;
         } else {
-          // message d’erreur non bloquant et on reboucle
           if (typeof showChoixModal === 'function') {
             const r = await showChoixModal('Montant invalide (min 5 €). Réessayer ?', ['Réessayer', 'Annuler']);
             if (r !== 'Réessayer') return;
@@ -487,6 +427,7 @@ try {
     } finally {
       window.__cotisationPromptOpen = false;
     }
+
   } catch (e) {
     console.warn('[verifierCotisationAdherent] erreur non bloquante:', e);
   } finally {
