@@ -18,7 +18,6 @@ body, html {
   overflow: auto; 
 }
 
-
 /* APP STRUCTURE */
 .app {
   display: flex;
@@ -74,7 +73,6 @@ header {
   min-height: 0;   
 }
 
-
 /* MODALS */
 .modal-overlay {
   position: fixed;
@@ -118,9 +116,6 @@ header {
 .modal button:hover {
   background-color: #0056b3;
 }
-
-
-
 
 @keyframes modalFadeIn {
   from { opacity: 0; transform: scale(0.95); }
@@ -203,6 +198,7 @@ button.danger:hover {
   font-size: 0.85em;
   color: #777;
 }
+
 .caisse-zone {
   display: flex;
   flex: 1;
@@ -229,7 +225,6 @@ button.danger:hover {
 .btn-cat:hover {
   background-color: #ddd;
 }
-
 
 .produit-card .fourni {
   font-size: 0.85em;
@@ -287,11 +282,10 @@ select:focus {
 
   .produits-cards {
     justify-content: center;
-	overflow-y: auto;
-	min-height: 0;
+    overflow-y: auto;
+    min-height: 0;
   }
 }
-
 
 .caisse-container {
   display: flex;
@@ -390,6 +384,7 @@ select:focus {
 .categorie-btn:hover {
   background: #ddd;
 }
+
 /* Catégories en gros boutons carrés */
 .categories-bar {
   display: flex;
@@ -431,8 +426,7 @@ select:focus {
   flex-direction: column;
   justify-content: space-between;
   overflow: hidden;
-  text-transform:uppercase;
-  
+  text-transform: uppercase;
 }
 
 .produit-card strong {
@@ -460,12 +454,11 @@ select:focus {
   text-overflow: ellipsis;
 }
 
-
-
 .produit-card:hover {
   box-shadow: 0 4px 10px rgba(0,0,0,0.1);
   transform: scale(1.03);
 }
+
 .produits-cards {
   flex: 1;
   display: grid;
@@ -476,6 +469,7 @@ select:focus {
   background: #f0f4f8;
   border-radius: 10px;
 }
+
 .caisse-zone{
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(560px, 34vw); /* min 560px, peut monter jusqu’à ~34% */
@@ -485,7 +479,6 @@ select:focus {
   overflow: hidden; /* les colonnes scrollent en interne */
 }
 
-
 /* Colonne produits */
 #produits-zone{
   overflow: auto;
@@ -493,11 +486,8 @@ select:focus {
   min-width: 0;
 }
 
-
-
-
 #panier-zone {
-	  width: auto;          /* override d’un éventuel width:33% existant */
+  width: auto;          /* override d’un éventuel width:33% existant */
   min-width: 560px;  
   background: #fff;
   border: 1px solid #ccc;
@@ -505,10 +495,8 @@ select:focus {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-   min-height: 0;
-  
+  min-height: 0;
 }
-
 
 #panier-header {
   padding: 10px;
@@ -541,7 +529,6 @@ select:focus {
   box-shadow: 0 -6px 10px rgba(0,0,0,0.03);
 }
 
-
 #panier-liste table {
   width: 100%;
   table-layout: fixed;
@@ -555,7 +542,6 @@ select:focus {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 
 .cell-produit {
   position: relative;
@@ -591,10 +577,6 @@ select:focus {
   visibility: visible;
   opacity: 1;
 }
-
-
-
-
 
 #panier-liste td {
   overflow: hidden;
@@ -662,7 +644,6 @@ select:focus {
   text-align: right;
 }
 
-
 #panier-liste th, #panier-liste td {
   padding: 6px 8px;
   text-align: left;
@@ -670,7 +651,6 @@ select:focus {
   border-bottom: 1px solid #eee;
   word-wrap: break-word;
 }
-
 
 #panier-liste ul {
   list-style: none;
@@ -694,7 +674,6 @@ select:focus {
 #panier-liste td {
   text-transform: uppercase;
 }
-
 
 .import-grid {
   display: flex;
@@ -743,7 +722,6 @@ select:focus {
   color: green;
 }
 
-
 .import-block a {
   color: #3182ce;
   font-weight: bold;
@@ -752,7 +730,6 @@ select:focus {
 .import-block a:hover {
   text-decoration: underline;
 }
-
 
 .styled-table {
   width: 100%;
@@ -784,7 +761,6 @@ select:focus {
   cursor: pointer;
 }
 
-
 /* ✅ Animation rebond rapide */
 @keyframes ajout-rebond {
   0%   { transform: scale(1); background-color: #d4edda; }
@@ -807,7 +783,6 @@ select:focus {
   100% { background-color: transparent; transform: scale(1); }
 }
 
-
 .reception-table {
   width: 100%;
   border-collapse: collapse;
@@ -819,6 +794,7 @@ select:focus {
 .reception-table th {
   background-color: #f2f2f2;
 }
+
 /* Champ : on réserve plus de place pour la grosse flèche */
 .ui-field {
   width: 100%;
@@ -838,10 +814,7 @@ select:focus {
 .ui-wrap {
   position: relative;
   display: inline-block;
-width: max-content;  /* garde la flèche collée au champ */
-  /* si jamais la flèche part au bout de la ligne, ajoute aussi :
-     width: max-content;
-  */
+  width: max-content;  /* garde la flèche collée au champ */
 }
 
 /* Flèche plus grande, cliquable, à l'intérieur du champ */
@@ -861,7 +834,6 @@ width: max-content;  /* garde la flèche collée au champ */
   cursor: pointer;
   pointer-events: auto;
 }
-
 .ui-wrap .ui-chevron:hover  { background: rgba(0,0,0,.06); }
 .ui-wrap .ui-chevron:active { background: rgba(0,0,0,.10); }
 
@@ -888,10 +860,11 @@ input[list]::-webkit-calendar-picker-indicator {
   pointer-events: none !important;
 }
 
-
-
+/* --- Sync chip (dédupliqué & cohérent) --- */
 .sync-chip {
-  display:inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
   padding: 4px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -904,20 +877,113 @@ input[list]::-webkit-calendar-picker-indicator {
 .sync-chip.is-busy   { background: #fff3cd; color: #856404; } /* jaune pâle */
 .sync-chip.is-online { background: #d4edda; color: #155724; } /* vert pâle */
 .sync-chip.is-offline{ background: #f8d7da; color: #721c24; } /* rouge pâle */
-header .sync-chip { float:right; } /* optionnel, à droite du header */
+header .sync-chip { float: right; }
 
-
-.sync-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  padding: .25rem .5rem;
-  border-radius: 12px;
-  font-size: .85rem;
-  background: #eee;
-  color: #333;
-  user-select: none;
-}
-.sync-chip.online { background: #e8fff0; color: #0a7a2a; }
+/* États alternatifs (compat) */
+.sync-chip.online  { background: #e8fff0; color: #0a7a2a; }
 .sync-chip.offline { background: #ffecec; color: #9b1c1c; }
 .sync-chip.syncing { background: #fff7e6; color: #8a5a00; }
+
+/* ==========================================================
+   >>> MODULES (grille fluide, pas de place réservée) <<<
+   Utilisé par PageParams.renderActivationModules
+========================================================== */
+.modules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.module-card {
+  border: 1px solid #e6e6e6;
+  border-radius: 12px;
+  padding: 14px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Ne réserve aucune place quand on masque un module */
+.module-card.is-hidden {
+  display: none !important;
+}
+
+.module-card .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+}
+
+.module-card .desc {
+  color: #666;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+/* Switch */
+.module-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.module-toggle input[type="checkbox"] {
+  transform: scale(1.2);
+}
+
+/* Verrou (dépendances non satisfaites) */
+.module-card.dep-locked {
+  opacity: .6;
+}
+
+/* Toolbar au-dessus de la grille */
+.modules-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.modules-toolbar input[type="search"]{
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  min-width: 240px;
+  background: #fff;
+}
+
+/* Paramètres — grille fluide sans trous */
+#page-content .params-actions{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:12px;
+  margin:8px 0 0;
+  padding:0;
+}
+
+/* Neutralise styles de liste et marges internes */
+#page-content .params-actions > *{
+  list-style:none;
+  margin:0;
+  padding:0;
+}
+
+/* Éléments masqués : aucune place */
+#page-content .params-actions .is-hidden,
+#page-content .params-actions .hidden,
+#page-content .params-actions [hidden]{
+  display:none !important;
+  visibility:hidden !important;
+}
+
+/* Boutons/liens s'étirent sur la cellule */
+#page-content .params-actions .btn,
+#page-content .params-actions button,
+#page-content .params-actions a.btn{
+  display:inline-flex;
+  width:100%;
+  justify-content:center;
+}

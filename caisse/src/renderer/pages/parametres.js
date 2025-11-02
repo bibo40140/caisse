@@ -57,27 +57,44 @@
   }
 
   function renderParametresHome() {
-    // Styles de layout uniquement (pas de styles de boutons ici)
-    if (!document.getElementById('params-menu-style')) {
-      const st = document.createElement('style');
-      st.id = 'params-menu-style';
-      st.textContent = `
-        #page-content > ul.params-menu {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-          gap: 12px;
-          list-style: none;
-          padding-left: 0;
-          margin: 0;
-        }
-        #parametres-souspage { margin-top: 20px; }
-      `;
-      document.head.appendChild(st);
+// Styles de layout uniquement (pas de styles de boutons ici)
+if (!document.getElementById('params-menu-style')) {
+  const st = document.createElement('style');
+  st.id = 'params-menu-style';
+  st.textContent = `
+    /* Le conteneur prend toute la largeur */
+    #page-content .params-actions { display:block !important; width:100% !important; }
+
+    /* Grille responsive SANS TROUS, et imposée avec !important */
+    #page-content ul.params-menu {
+      display: grid !important;
+      width: 100% !important;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) !important;
+      gap: 12px !important;
+      grid-auto-flow: row dense !important;
+      list-style: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
     }
+
+    /* Un <li> masqué ne réserve aucune place */
+    #page-content ul.params-menu > li[hidden] { display: none !important; }
+
+    /* Les boutons s'étirent dans leur cellule */
+    #page-content ul.params-menu > li > .btn {
+      display: inline-flex !important;
+      width: 100% !important;
+      justify-content: center !important;
+    }
+  `;
+  document.head.appendChild(st);
+}
 
     const content = document.getElementById('page-content');
     content.innerHTML = `
       <h2>Paramètres</h2>
+      <div class="params-actions">
+
       <ul class="params-menu">
         <li><button id="btn-param-import" class="btn">📂 Import données</button></li>
         <li><button id="btn-param-historique" class="btn">Historique des ventes</button></li>
@@ -95,6 +112,7 @@
         <li><button id="btn-param-email" class="btn">Email d’envoi</button></li>
         <li><button id="btn-param-autres" class="btn">Autres paramètres</button></li>
       </ul>
+      </div>
       <div id="parametres-souspage"></div>
     `;
 
@@ -191,15 +209,29 @@
       } catch (e) { console.error(e); alert("Impossible d'ouvrir la page Prospects."); }
     });
 
-    (async () => {
-      const mods = await getActiveModules();
-      const btnCoti = document.getElementById('btn-param-cotisations');
-      if (btnCoti) btnCoti.style.display = mods.cotisations ? '' : 'none';
-      const btnPros = document.getElementById('btn-param-prospects');
-      if (btnPros) btnPros.style.display = mods.prospects ? '' : 'none';
-      const btnModes = document.getElementById('btn-param-modes');
-      if (btnModes) btnModes.style.display = mods.modes_paiement ? '' : 'none';
-    })();
+    // Masquer proprement les entrées en fonction des modules actifs
+(async () => {
+  const mods = await getActiveModules();
+
+  // helper : masque le <li> parent (pas seulement le bouton)
+  const toggleLi = (btnId, show) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const li = btn.closest('li') || btn;
+    if (show) {
+      li.removeAttribute('hidden');
+      li.style.display = '';
+    } else {
+      li.setAttribute('hidden', '');
+      li.style.display = 'none';
+    }
+  };
+
+  toggleLi('btn-param-cotisations',  !!mods.cotisations);
+  toggleLi('btn-param-prospects',    !!mods.prospects);
+  toggleLi('btn-param-modes',        !!mods.modes_paiement);
+})();
+
 
     // Sync push/pull (boutons sans styles)
     document.getElementById('btn-sync-push')?.addEventListener('click', async () => {
