@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Connexion</title>
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self';
+                 img-src 'self' data: blob:;
+                 style-src 'self' 'unsafe-inline';
+                 font-src 'self' data:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f6f7fb; }
+    .login-wrap { max-width: 380px; margin: 40px auto; background: #fff; padding: 22px 22px 18px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 12px; font-size: 18px; }
+    .row { display: grid; gap: 8px; margin: 12px 0; }
+    input { padding: 10px; border: 1px solid #dcdcdc; border-radius: 8px; }
+    button { padding: 10px 12px; border-radius: 8px; border: 1px solid #d0d0d0; cursor: pointer; font-weight: 600; }
+    button[aria-busy="true"] { opacity: .6; pointer-events: none; }
+    .error { color: #b91c1c; margin-top: 8px; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <h1>Connexion</h1>
+    <div class="row">
+      <input id="email" type="email" placeholder="Email" autocomplete="username" />
+      <input id="password" type="password" placeholder="Mot de passe" autocomplete="current-password" />
+      <button id="btn-login">Se connecter</button>
+      <div id="err" class="error"></div>
+    </div>
+  </div>
+  <!-- JS externe, pas d’inline -->
+  <script src="./login.js" defer></script>
+</body>
+</html>

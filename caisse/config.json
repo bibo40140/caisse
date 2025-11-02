@@ -1,24 +1,19 @@
 {
-  "epicerie": "Coop'az",
   "modules": {
-    "cotisations": true,
-    "email": true,
-    "emails": true,
-    "tickets": true,
+    "email": false,
+    "emails": false,
     "stocks": true,
-    "inventaire": true,
-    "fournisseurs": true,
-    "receptions": true,
-    "exports": true,
-    "multiusers": true,
+    "exports": false,
     "adherents": true,
-    "ventes_exterieur": true,
-    "prospects": true,
-    "modes_paiement": true
+    "prospects": false,
+    "inventaire": true,
+    "multiusers": false,
+    "receptions": true,
+    "cotisations": true,
+    "fournisseurs": true,
+    "modes_paiement": true,
+    "ventes_exterieur": true
   },
-  "ventes_exterieur_margin_percent": 30,
-  "ventes_ext_margin_percent": 30,
-  "api_base_url": "http://localhost:3001",
-  "api_email": "fabien.hicauber@gmail.com",
-  "api_password": "demo1234"
+  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNWNlMDk4Zi05YjUwLTQ3ZDQtYjJmZi01OTliNmM5ZDZhMmIiLCJ1c2VyX2lkIjoiMTVjZTA5OGYtOWI1MC00N2Q0LWIyZmYtNTk5YjZjOWQ2YTJiIiwidGVuYW50X2lkIjoiN2YxMmQ0ZGUtZmRjOC00YmZhLWFlYjQtMTlmYzQ0NmE0NTlmIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJsb3JkYmlib0BnbWFpbC5jb20iLCJpc19zdXBlcl9hZG1pbiI6ZmFsc2UsImlhdCI6MTc2MjAyMjMxNywiZXhwIjoxNzYyNjI3MTE3fQ.2OFh-Hu-uo6EMOzhiPzYXvVHv9THRAiraMHuGQjX3O0",
+  "ventes_ext_margin_percent": 30
 }

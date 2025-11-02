@@ -1,24 +1,12 @@
-// src/main/sync.js
-const fetch = require('node-fetch');
-const { BrowserWindow } = require('electron');
-const fs = require('fs');
-const path = require('path');
-const db = require('./db/db');
-const b2i = (v) => (v ? 1 : 0);
+'use strict';
 
-/* -------------------------------------------------
-   API base
---------------------------------------------------*/
-function readApiBase() {
-  try {
-    if (process.env.CAISSE_API_URL) return process.env.CAISSE_API_URL;
-    const cfgPath = path.join(__dirname, '..', '..', 'config.json');
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    if (cfg && cfg.api_base_url) return cfg.api_base_url;
-  } catch (_) {}
-  return 'http://localhost:3001';
-}
-const API_URL = readApiBase();
+const { BrowserWindow } = require('electron');
+const db = require('./db/db');
+const { apiFetch } = require('./apiClient');
+
+// helpers
+const b2i = (v) => (v ? 1 : 0);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function notifyRenderer(channel, payload) {
   BrowserWindow.getAllWindows().forEach((w) => {
@@ -26,23 +14,41 @@ function notifyRenderer(channel, payload) {
   });
 }
 
-/* petites aides pour le chip */
 function setState(status, info = {}) {
-  // status: 'online' | 'offline' | 'pushing' | 'pulling' | 'idle'
   notifyRenderer('sync:state', { status, ...info, ts: Date.now() });
 }
 
-/* -------------------------------------------------
-   PULL refs depuis Neon -> Sauvegarde locale
---------------------------------------------------*/
+function extractRemoteUUID(prodObj) {
+  if (prodObj.remote_uuid && UUID_RE.test(prodObj.remote_uuid)) return prodObj.remote_uuid;
+  if (prodObj.uuid && UUID_RE.test(prodObj.uuid)) return prodObj.uuid;
+  if (prodObj.product_uuid && UUID_RE.test(prodObj.product_uuid)) return prodObj.product_uuid;
+  for (const [k, v] of Object.entries(prodObj)) {
+    if (typeof v === 'string' && /uuid$/i.test(k) && UUID_RE.test(v)) return v;
+  }
+  return null;
+}
+
+function ensureRemoteUUIDColumn() {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(produits)`).all().map(c => c.name);
+    if (!cols.includes('remote_uuid')) {
+      db.prepare(`ALTER TABLE produits ADD COLUMN remote_uuid TEXT`).run();
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_produits_remote_uuid ON produits(remote_uuid)`).run();
+      console.log('[sync] remote_uuid column added');
+    }
+  } catch (e) {
+    console.warn('[sync] ensureRemoteUUIDColumn failed:', e?.message || e);
+  }
+}
+
+/* -------------------- PULL refs -------------------- */
 async function pullRefs({ since = null } = {}) {
-  const url = new URL(`${API_URL}/sync/pull_refs`);
-  if (since) url.searchParams.set('since', since);
+  const qs = since ? `?since=${encodeURIComponent(since)}` : '';
 
   setState('pulling');
   let res;
   try {
-    res = await fetch(url.toString());
+    res = await apiFetch(`/sync/pull_refs${qs}`, { method: 'GET' });
   } catch (e) {
     setState('offline', { error: String(e) });
     throw new Error(`pull_refs network ${String(e)}`);
@@ -67,10 +73,12 @@ async function pullRefs({ since = null } = {}) {
   } = d;
 
   const upUnite = db.prepare(
-    `INSERT INTO unites (id, nom) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
+    `INSERT INTO unites (id, nom) VALUES (?, ?)
+     ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
   );
   const upFam = db.prepare(
-    `INSERT INTO familles (id, nom) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
+    `INSERT INTO familles (id, nom) VALUES (?, ?)
+     ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
   );
   const upCat = db.prepare(`
     INSERT INTO categories (id, nom, famille_id) VALUES (?, ?, ?)
@@ -97,15 +105,25 @@ async function pullRefs({ since = null } = {}) {
       adresse=excluded.adresse, code_postal=excluded.code_postal, ville=excluded.ville,
       categorie_id=excluded.categorie_id, referent_id=excluded.referent_id, label=excluded.label
   `);
+
+  ensureRemoteUUIDColumn();
   const upProd = db.prepare(`
     INSERT INTO produits
-      (id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
+      (id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at, remote_uuid)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET
-      nom=excluded.nom, reference=excluded.reference, prix=excluded.prix, stock=excluded.stock,
-      code_barre=excluded.code_barre, unite_id=excluded.unite_id, fournisseur_id=excluded.fournisseur_id,
-      categorie_id=excluded.categorie_id, updated_at=excluded.updated_at
+      nom=excluded.nom,
+      reference=excluded.reference,
+      prix=excluded.prix,
+      stock=excluded.stock,
+      code_barre=excluded.code_barre,
+      unite_id=excluded.unite_id,
+      fournisseur_id=excluded.fournisseur_id,
+      categorie_id=excluded.categorie_id,
+      updated_at=excluded.updated_at,
+      remote_uuid=COALESCE(excluded.remote_uuid, produits.remote_uuid)
   `);
+
   const upMode = db.prepare(`
     INSERT INTO modes_paiement (id, nom, taux_percent, frais_fixe, actif)
     VALUES (?,?,?,?,?)
@@ -114,31 +132,44 @@ async function pullRefs({ since = null } = {}) {
   `);
 
   const tx = db.transaction(() => {
-    for (const r of unites) upUnite.run(r.id, r.nom);
-    for (const r of familles) upFam.run(r.id, r.nom);
-    for (const r of categories) upCat.run(r.id, r.nom, r.famille_id ?? null);
+    const asInt = (v) => { const n = Number(v); return Number.isInteger(n) ? n : null; };
 
-    for (const r of adherents)
+    for (const r of unites)       { const id = asInt(r.id); if (id != null) upUnite.run(id, r.nom); }
+    for (const r of familles)     { const id = asInt(r.id); if (id != null) upFam.run(id, r.nom); }
+    for (const r of categories)   {
+      const id = asInt(r.id); if (id == null) continue;
+      const famId = asInt(r.famille_id);
+      upCat.run(id, r.nom, famId);
+    }
+    for (const r of adherents)    {
+      const id = asInt(r.id); if (id == null) continue;
       upAdh.run(
-        r.id, r.nom, r.prenom, r.email1, r.email2, r.telephone1, r.telephone2, r.adresse,
+        id, r.nom, r.prenom, r.email1, r.email2, r.telephone1, r.telephone2, r.adresse,
         r.code_postal, r.ville, r.nb_personnes_foyer, r.tranche_age, Number(r.droit_entree ?? 0),
         r.date_inscription, b2i(r.archive), r.date_archivage, r.date_reactivation
       );
-
-    for (const r of fournisseurs)
-      upFour.run(
-        r.id, r.nom, r.contact, r.email, r.telephone, r.adresse, r.code_postal, r.ville,
-        r.categorie_id ?? null, r.referent_id ?? null, r.label ?? null
-      );
-
-    for (const r of produits)
+    }
+    for (const r of fournisseurs)  {
+      const id = asInt(r.id); if (id == null) continue;
+      const catId = asInt(r.categorie_id);
+      const refId = asInt(r.referent_id);
+      upFour.run(id, r.nom, r.contact, r.email, r.telephone, r.adresse, r.code_postal, r.ville, catId, refId, r.label ?? null);
+    }
+    for (const r of produits)     {
+      const id  = asInt(r.id); if (id == null) continue;
+      const uId = asInt(r.unite_id);
+      const fId = asInt(r.fournisseur_id);
+      const cId = asInt(r.categorie_id);
+      const remoteUUID = extractRemoteUUID(r);
       upProd.run(
-        r.id, r.nom, r.reference, Number(r.prix ?? 0), Number(r.stock ?? 0),
-        r.code_barre ?? null, r.unite_id ?? null, r.fournisseur_id ?? null, r.categorie_id ?? null, r.updated_at || null
+        id, r.nom, r.reference, Number(r.prix ?? 0), Number(r.stock ?? 0),
+        r.code_barre ?? null, uId, fId, cId, r.updated_at || null, remoteUUID
       );
-
-    for (const m of modes_paiement)
-      upMode.run(m.id, m.nom, Number(m.taux_percent ?? 0), Number(m.frais_fixe ?? 0), b2i(!!m.actif));
+    }
+    for (const m of modes_paiement) {
+      const id = asInt(m.id); if (id == null) continue;
+      upMode.run(id, m.nom, Number(m.taux_percent ?? 0), Number(m.frais_fixe ?? 0), b2i(!!m.actif));
+    }
   });
   tx();
 
@@ -159,9 +190,7 @@ async function pullRefs({ since = null } = {}) {
   };
 }
 
-/* -------------------------------------------------
-   OPS queue → push vers Neon
---------------------------------------------------*/
+/* -------------------- OPS queue -------------------- */
 function takePendingOps(limit = 1000) {
   return db.prepare(`
     SELECT id, device_id, op_type, entity_type, entity_id, payload_json
@@ -185,15 +214,18 @@ async function pushOpsNow(deviceId) {
   const payload = {
     deviceId,
     ops: ops.map(o => ({
-      id: o.id, op_type: o.op_type, entity_type: o.entity_type, entity_id: o.entity_id, payload_json: o.payload_json
+      id: o.id,
+      op_type: o.op_type,
+      entity_type: o.entity_type,
+      entity_id: o.entity_id,
+      payload_json: o.payload_json
     })),
   };
 
   let res;
   try {
-    res = await fetch(`${API_URL}/sync/push_ops`, {
+    res = await apiFetch('/sync/push_ops', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
   } catch (e) {
@@ -217,7 +249,6 @@ async function pushOpsNow(deviceId) {
   try {
     await pullRefs();
   } catch (e) {
-    // pull raté mais push ok ⇒ on reste "online" avec phase erreur pull
     setState('online', { phase: 'pull_failed', error: String(e) });
   }
 
@@ -226,9 +257,7 @@ async function pushOpsNow(deviceId) {
   return { ok: true, sent: ids.length, pending: left };
 }
 
-/* -------------------------------------------------
-   BOOTSTRAP / HYDRATE
---------------------------------------------------*/
+/* -------------------- BOOTSTRAP / HYDRATE -------------------- */
 function collectLocalRefs() {
   const all = (sql) => db.prepare(sql).all();
   const unites = all(`SELECT id, nom FROM unites ORDER BY id`);
@@ -244,7 +273,7 @@ function collectLocalRefs() {
     FROM fournisseurs ORDER BY id
   `);
   const produits = all(`
-    SELECT id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at
+    SELECT id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at, remote_uuid
     FROM produits ORDER BY id
   `);
   const modes_paiement = all(`SELECT id, nom, taux_percent, frais_fixe, actif FROM modes_paiement ORDER BY id`);
@@ -254,22 +283,31 @@ function collectLocalRefs() {
 async function bootstrapIfNeeded() {
   let needed = false;
   try {
-    const r = await fetch(`${API_URL}/sync/bootstrap_needed`);
+    const r = await apiFetch('/sync/bootstrap_needed', { method: 'GET' });
     if (r.ok) {
       const j = await r.json();
       needed = !!j?.needed;
+    } else {
+      const t = await r.text().catch(() => '');
+      return { ok: false, error: `bootstrap_needed HTTP ${r.status} ${t}` };
     }
   } catch (e) {
     setState('offline', { error: String(e) });
+    return { ok: false, error: String(e) };
   }
+
   if (!needed) return { ok: true, bootstrapped: false };
 
   const refs = collectLocalRefs();
+  // sanitize any bad uuid-like fields to null
+  for (const p of (refs.produits || [])) {
+    if (p.remote_uuid && !UUID_RE.test(p.remote_uuid)) p.remote_uuid = null;
+  }
+
   let resp;
   try {
-    resp = await fetch(`${API_URL}/sync/bootstrap`, {
+    resp = await apiFetch('/sync/bootstrap', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(refs),
     });
   } catch (e) {
@@ -299,11 +337,9 @@ async function hydrateOnStartup() {
 
 async function pullAll() { return pullRefs(); }
 
-/* -------------------------------------------------
-   Auto sync périodique
---------------------------------------------------*/
+/* -------------------- Auto sync -------------------- */
 let _autoTimer = null;
-let _intervalMs = 30000; // 30s
+let _intervalMs = 30000;
 function startAutoSync(deviceId) {
   if (_autoTimer) return;
   _autoTimer = setInterval(async () => {
@@ -319,16 +355,18 @@ function startAutoSync(deviceId) {
   }, _intervalMs);
 }
 
-/* -------------------------------------------------
-   Export public
---------------------------------------------------*/
+/* -------------------- Exports -------------------- */
 async function pushBootstrapRefs() {
   const refs = collectLocalRefs();
-  const resp = await fetch(`${API_URL}/sync/bootstrap`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(refs),
-  });
+  let resp;
+  try {
+    resp = await apiFetch('/sync/bootstrap', {
+      method: 'POST',
+      body: JSON.stringify(refs),
+    });
+  } catch (e) {
+    throw new Error(`bootstrap network ${String(e)}`);
+  }
   if (!resp.ok) {
     const txt = await resp.text().catch(() => '');
     throw new Error(`bootstrap HTTP ${resp.status} ${txt}`);
@@ -340,31 +378,12 @@ async function pushBootstrapRefs() {
 }
 
 async function syncPushAll() {
-  const all = (sql) => db.prepare(sql).all();
-  const unites = all(`SELECT id, nom FROM unites ORDER BY id`);
-  const familles = all(`SELECT id, nom FROM familles ORDER BY id`);
-  const categories = all(`SELECT id, nom, famille_id FROM categories ORDER BY id`);
-  const adherents = all(`
-    SELECT id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
-           nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation
-    FROM adherents ORDER BY id
-  `);
-  const fournisseurs = all(`
-    SELECT id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label
-    FROM fournisseurs ORDER BY id
-  `);
-  const produits = all(`
-    SELECT id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at
-    FROM produits ORDER BY id
-  `);
-  const modes_paiement = all(`SELECT id, nom, taux_percent, frais_fixe, actif FROM modes_paiement ORDER BY id`);
-
+  const refs = collectLocalRefs();
   let res;
   try {
-    res = await fetch(`${API_URL}/sync/bootstrap`, {
+    res = await apiFetch('/sync/bootstrap', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ unites, familles, categories, adherents, fournisseurs, produits, modes_paiement }),
+      body: JSON.stringify(refs),
     });
   } catch (e) {
     return { ok: false, error: `Network error: ${String(e)}` };

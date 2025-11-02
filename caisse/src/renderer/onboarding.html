@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Première configuration</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
+  <style>
+    body { font-family: system-ui, sans-serif; margin:0; background:#f6f7fb; }
+    .wrap { max-width:800px; margin:20px auto; background:#fff; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.08); padding:20px; }
+    h1 { margin-top:0; }
+    fieldset { border:1px solid #eee; border-radius:10px; padding:12px; margin-bottom:16px; }
+    legend { font-weight:700; padding:0 6px; }
+    label { display:block; font-size:12px; color:#333; margin:6px 0 4px; }
+    input, select { width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:10px; }
+    button { padding:10px 14px; border-radius:8px; border:1px solid #d9d9d9; background:#10b981; color:#fff; font-weight:700; cursor:pointer; }
+    .muted { color:#777; font-size:12px; }
+    .err { color:#b91c1c; min-height:16px; font-size:12px; }
+    .logo-preview { max-height:80px; margin-top:8px; display:block; }
+    .check-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:6px; }
+    .check-grid label { display:flex; align-items:center; gap:8px; font-size:14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Première configuration</h1>
+    <p class="muted">Définissez votre mot de passe, choisissez les modules, configurez l’email et importez votre logo.</p>
+    <div class="err" id="err"></div>
+
+    <fieldset>
+      <legend>Mot de passe administrateur</legend>
+      <label>Nouveau mot de passe (facultatif)</label>
+      <input id="pwd" type="password" placeholder="Au moins 6 caractères">
+    </fieldset>
+
+    <fieldset>
+      <legend>Modules</legend>
+      <div class="check-grid">
+        <label><input type="checkbox" id="m_adherents" checked> Adhérents</label>
+        <label><input type="checkbox" id="m_cotisations" checked> Cotisations</label>
+        <label><input type="checkbox" id="m_emails" checked> Emails</label>
+        <label><input type="checkbox" id="m_stocks" checked> Stocks</label>
+        <label><input type="checkbox" id="m_inventaire" checked> Inventaire</label>
+        <label><input type="checkbox" id="m_fournisseurs" checked> Fournisseurs</label>
+        <label><input type="checkbox" id="m_exports"> Exports</label>
+        <label><input type="checkbox" id="m_multiusers"> Multi-utilisateurs</label>
+        <label><input type="checkbox" id="m_ventes_exterieur" checked> Ventes extérieures</label>
+        <label><input type="checkbox" id="m_prospects"> Prospects</label>
+        <label><input type="checkbox" id="m_modes_paiement" checked> Modes de paiement</label>
+      </div>
+      <p class="muted">Vous pourrez modifier cela plus tard dans Paramètres &gt; Modules.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Email (SMTP) — si module Emails actif</legend>
+      <div class="row">
+        <div>
+          <label>Hôte</label><input id="smtp_host" placeholder="smtp.exemple.com">
+        </div>
+        <div>
+          <label>Port</label><input id="smtp_port" type="number" placeholder="587">
+        </div>
+        <div>
+          <label>Utilisateur</label><input id="smtp_user" placeholder="noreply@exemple.com">
+        </div>
+        <div>
+          <label>Mot de passe</label><input id="smtp_pass" type="password" placeholder="••••••••">
+        </div>
+        <div>
+          <label>Expéditeur (From)</label><input id="smtp_from" placeholder="Epicerie &lt;noreply@exemple.com&gt;">
+        </div>
+        <div>
+          <label>Sécurité</label>
+          <select id="smtp_secure">
+            <option value="starttls">STARTTLS</option>
+            <option value="ssl">SSL/TLS</option>
+            <option value="none">Aucune</option>
+          </select>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Logo</legend>
+      <input id="logo" type="file" accept="image/png,image/jpeg">
+      <img id="preview" class="logo-preview" style="display:none;">
+      <p class="muted">PNG ou JPG. Il sera utilisé dans l’application (ex: facture, en-têtes).</p>
+    </fieldset>
+
+    <div class="actions">
+      <button id="btn">Valider</button>
+    </div>
+  </div>
+
+<script src="onboarding.js" defer></script>
+</body>
+</html>

@@ -1,9 +1,16 @@
 // src/main/handlers/fournisseurs.js
 const { ipcMain } = require('electron');
-const fournisseursDb = require('../db/fournisseurs');
+const {
+  getFournisseurs,
+  ajouterFournisseur,
+  modifierFournisseur,
+  supprimerFournisseur,
+  rechercherFournisseurParNom,
+  resoudreConflitFournisseur,
+} = require('../db/fournisseurs');
 
 function registerFournisseurHandlers() {
-  // Nettoie d'abord si déjà enregistrés (utile en dev/hot-reload)
+  // 🔁 Nettoyage (utile en dev/hot-reload)
   const channels = [
     'get-fournisseurs',
     'ajouter-fournisseur',
@@ -14,50 +21,61 @@ function registerFournisseurHandlers() {
   ];
   channels.forEach((ch) => ipcMain.removeHandler(ch));
 
+  // 📋 Liste
   ipcMain.handle('get-fournisseurs', async () => {
-    return fournisseursDb.getFournisseurs();
+    return getFournisseurs();
   });
 
-  ipcMain.handle('ajouter-fournisseur', async (_event, f) => {
+  // ➕ Ajouter (retourne l'objet avec id)
+  ipcMain.handle('ajouter-fournisseur', async (_event, f = {}) => {
     try {
-      fournisseursDb.ajouterFournisseur(f);
-      return { ok: true };
+      if (!f.nom || !String(f.nom).trim()) {
+        throw new Error("Champ 'nom' requis");
+      }
+      const created = ajouterFournisseur(f);
+      return { ok: true, id: created.id, fournisseur: created };
     } catch (err) {
-      console.error('ajouter-fournisseur error:', err);
-      throw new Error(err.message || 'Erreur lors de l’ajout du fournisseur');
+      console.error('[ajouter-fournisseur] error:', err);
+      throw new Error(err.message || "Erreur lors de l’ajout du fournisseur");
     }
   });
 
-  ipcMain.handle('modifier-fournisseur', async (_event, f) => {
+  // ✏️ Modifier (retourne l'objet avec id)
+  ipcMain.handle('modifier-fournisseur', async (_event, f = {}) => {
     try {
-      fournisseursDb.modifierFournisseur(f);
-      return { ok: true };
+      if (!f.id) throw new Error("Champ 'id' requis");
+      const updated = modifierFournisseur({ ...f, id: Number(f.id) });
+      return { ok: true, id: updated.id, fournisseur: updated };
     } catch (err) {
-      console.error('modifier-fournisseur error:', err);
-      throw new Error(err.message || 'Erreur lors de la modification du fournisseur');
+      console.error('[modifier-fournisseur] error:', err);
+      throw new Error(err.message || "Erreur lors de la modification du fournisseur");
     }
   });
 
+  // ❌ Supprimer
   ipcMain.handle('supprimer-fournisseur', async (_event, id) => {
     try {
-      fournisseursDb.supprimerFournisseur(id);
+      if (!id) throw new Error("Champ 'id' requis");
+      supprimerFournisseur(Number(id));
       return { ok: true };
     } catch (err) {
-      console.error('supprimer-fournisseur error:', err);
-      throw new Error(err.message || 'Erreur lors de la suppression du fournisseur');
+      console.error('[supprimer-fournisseur] error:', err);
+      throw new Error(err.message || "Erreur lors de la suppression du fournisseur");
     }
   });
 
+  // 🔍 Rechercher exact par nom
   ipcMain.handle('rechercher-fournisseur-par-nom', async (_event, nom) => {
-    return fournisseursDb.rechercherFournisseurParNom(nom);
+    return rechercherFournisseurParNom(nom);
   });
 
+  // 🔁 Résoudre conflit
   ipcMain.handle('resoudre-conflit-fournisseur', async (_event, action, nouveau, existantId) => {
     try {
-      const res = fournisseursDb.resoudreConflitFournisseur(action, nouveau, existantId);
-      return { ok: true, result: res };
+      const result = resoudreConflitFournisseur(action, nouveau, existantId);
+      return { ok: true, result };
     } catch (err) {
-      console.error('resoudre-conflit-fournisseur error:', err);
+      console.error('[resoudre-conflit-fournisseur] error:', err);
       throw new Error(err.message || 'Erreur lors de la résolution du conflit');
     }
   });

@@ -1,0 +1,140 @@
+// caisse-api/routes/inventory.js
+import express from 'express';
+import { pool } from '../db/index.js';
+import { authRequired } from '../middleware/auth.js';
+
+const router = express.Router();
+
+/**
+ * POST /inventory/start
+ * body: { name?, user?, notes? }
+ * Crée une session d’inventaire "open" pour le tenant courant.
+ *
+ * Table attendue (à adapter si besoin) :
+ *   inventory_sessions(id BIGSERIAL PK, tenant_id UUID, name TEXT, status TEXT,
+ *                     started_at TIMESTAMPTZ, started_by TEXT, notes TEXT,
+ *                     closed_at TIMESTAMPTZ)
+ */
+router.post('/inventory/start', authRequired, async (req, res) => {
+  const tenantId = req.user?.tenant_id;
+  if (!tenantId) return res.status(400).json({ error: 'tenant_id manquant' });
+
+  const { name, user = null, notes = null } = req.body || {};
+  const label = name && String(name).trim()
+    ? String(name).trim()
+    : `Inventaire ${new Date().toISOString().slice(0, 10)}`;
+
+  try {
+    const q = await pool.query(
+      `INSERT INTO inventory_sessions
+         (tenant_id, name, status, started_at, started_by, notes)
+       VALUES
+         ($1, $2, 'open', NOW(), $3, $4)
+       RETURNING id, tenant_id, name, status, started_at, started_by, notes`,
+      [tenantId, label, user, notes]
+    );
+
+    return res.json({ ok: true, session: q.rows[0] });
+  } catch (e) {
+    console.error('[POST /inventory/start] error:', e);
+    return res.status(500).json({ error: 'inventory start failed' });
+  }
+});
+
+/**
+ * POST /inventory/count
+ * body: { sessionId, product_id, qty, user? }
+ *
+ * Table attendue (même schéma que ton fichier inventory_extra.js) :
+ *   inventory_counts(id UUID PK DEFAULT gen_random_uuid(),
+ *                    session_id BIGINT, tenant_id UUID,
+ *                    product_id BIGINT, qty NUMERIC,
+ *                    user_label TEXT, created_at TIMESTAMPTZ DEFAULT now())
+ */
+router.post('/inventory/count', authRequired, async (req, res) => {
+  const tenantId = req.user?.tenant_id;
+  const { sessionId, product_id, qty, user = null } = req.body || {};
+
+  if (!tenantId || !sessionId || !product_id || !Number.isFinite(Number(qty))) {
+    return res.status(400).json({ error: 'champs requis' });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO inventory_counts (session_id, tenant_id, product_id, qty, user_label)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [Number(sessionId), tenantId, Number(product_id), Number(qty), user]
+    );
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('[POST /inventory/count] error:', e);
+    return res.status(500).json({ error: 'inventory count failed' });
+  }
+});
+
+/**
+ * POST /inventory/finalize
+ * body: { sessionId, user?, email_to? }
+ *
+ * Logique :
+ * - agrège inventory_counts pour la session
+ * - remet stock=0 pour tous les produits du tenant
+ * - applique counted par produit
+ * - ferme la session
+ * - renvoie un petit récap
+ */
+router.post('/inventory/finalize', authRequired, async (req, res) => {
+  const tenantId = req.user?.tenant_id;
+  const { sessionId } = req.body || {};
+  if (!tenantId || !sessionId) {
+    return res.status(400).json({ error: 'sessionId requis' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // agrégat par produit
+    const agg = await client.query(
+      `SELECT product_id, SUM(qty)::numeric AS counted
+       FROM inventory_counts
+       WHERE tenant_id=$1 AND session_id=$2
+       GROUP BY product_id`,
+      [tenantId, Number(sessionId)]
+    );
+
+    // Reset -> 0
+    await client.query(`UPDATE produits SET stock = 0 WHERE tenant_id=$1`, [tenantId]);
+
+    // Appliquer les comptages
+    for (const row of agg.rows) {
+      await client.query(
+        `UPDATE produits SET stock = $1 WHERE tenant_id=$2 AND id=$3`,
+        [Number(row.counted || 0), tenantId, Number(row.product_id)]
+      );
+    }
+
+    // Close session
+    await client.query(
+      `UPDATE inventory_sessions
+         SET status='closed', closed_at=NOW()
+       WHERE id=$1 AND tenant_id=$2`,
+      [Number(sessionId), tenantId]
+    );
+
+    await client.query('COMMIT');
+
+    return res.json({
+      ok: true,
+      recap: { session: { id: Number(sessionId) }, lines: agg.rows },
+    });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('[POST /inventory/finalize] error:', e);
+    return res.status(500).json({ error: 'inventory finalize failed' });
+  } finally {
+    client.release();
+  }
+});
+
+export default router;

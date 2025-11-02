@@ -6,51 +6,80 @@
   try { currentCartId = localStorage.getItem('currentCartId') || null; } catch { }
 
 
+
+
+  // — Mémo local: "cet adhérent a payé la cotisation pour AAAA-MM"
+function cotKey(adherentId, d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `cot_paid:${adherentId}:${y}-${m}`;
+}
+function markCotPaid(adherentId, d = new Date()) {
+  try { localStorage.setItem(cotKey(adherentId, d), '1'); } catch {}
+}
+function hasCotPaid(adherentId, d = new Date()) {
+  try { return localStorage.getItem(cotKey(adherentId, d)) === '1'; } catch { return false; }
+}
+
+
+
+
   // 👉 DÉFINIS ici la VRAIE fonction renderCaisse
-  async function renderCaisse() {
-    // 🔧 Lire la config modules d'abord
-    const modules = await (window.getMods?.() || window.electronAPI.getModules());
-    const adherentsOn = !!modules.adherents;
-    const cotisationsOn = !!(modules.adherents && modules.cotisations);
-    const extOn = !!modules.ventes_exterieur;
-    const prospectsOn = !!modules.prospects;
-    const modesOn = !!modules.modes_paiement;
+async function renderCaisse() {
+  // 🔧 Toujours lire les modules frais depuis electronAPI et les normaliser
+  const rawMods = await window.electronAPI.getModules();
+  const b = (v) => v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+  const modules = {
+    adherents:        b(rawMods?.adherents),
+    cotisations:      b(rawMods?.cotisations),
+    ventes_exterieur: b(rawMods?.ventes_exterieur),
+    prospects:        b(rawMods?.prospects),
+    modes_paiement:   b(rawMods?.modes_paiement),
+    emails:           b(rawMods?.emails ?? rawMods?.email),
+    stocks:           b(rawMods?.stocks),
+  };
+  console.log('[CAISSE] Modules actifs:', modules);
+
+  const adherentsOn   = modules.adherents;
+  const cotisationsOn = modules.adherents && modules.cotisations;
+  const extOn         = modules.ventes_exterieur;
+  const prospectsOn   = modules.prospects;
+  const modesOn       = modules.modes_paiement;
+
+  // saleMode : on respecte le dernier choix tant que l'utilisateur n'a pas vidé/validé.
+  // S'il n'existe pas encore, défaut = 'adherent' si dispo, sinon 'exterieur'.
+  let saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : (extOn ? 'exterieur' : 'adherent'));
+  let __cotisationPromptOpen = false;
 
 
-
-
-    // saleMode : on respecte le dernier choix tant que l'utilisateur n'a pas vidé/validé.
-    // S'il n'existe pas encore, défaut = 'adherent' si dispo, sinon 'exterieur'.
-    let saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : (extOn ? 'exterieur' : 'adherent'));
-
-    // 🔧 Lire la marge ventes ext. (défaut 30%)
-    let extMargin = 30;
-    try {
-      if (window.electronAPI.getVentesMargin) {
-        const r = await window.electronAPI.getVentesMargin();
-        const v = Number(r?.percent);
-        if (Number.isFinite(v) && v >= 0) extMargin = v;
-      } else {
-        const cfg = await window.electronAPI.getConfig();
-        const v = Number(cfg?.ventes_ext_margin_percent);
-        if (Number.isFinite(v) && v >= 0) extMargin = v;
-      }
-    } catch { }
-    const extFactor = 1 + (extMargin / 100);
-    // Libellé dynamique pour le bouton radio "Extérieur"
-    const fmtPct = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.00$/, ''));
-    const extPctLabel = `(+${fmtPct(extMargin)}%)`;
-
-    // si Extérieur OFF mais saleMode='exterieur' → on force 'adherent'
-    if (!extOn && saleMode === 'exterieur') {
-      saleMode = 'adherent';
-      localStorage.setItem('saleMode', 'adherent');
+  // 🔧 Lire la marge ventes ext. (défaut 30%)
+  let extMargin = 30;
+  try {
+    if (window.electronAPI.getVentesMargin) {
+      const r = await window.electronAPI.getVentesMargin();
+      const v = Number(r?.percent);
+      if (Number.isFinite(v) && v >= 0) extMargin = v;
+    } else {
+      const cfg = await window.electronAPI.getConfig();
+      const v = Number(cfg?.ventes_ext_margin_percent);
+      if (Number.isFinite(v) && v >= 0) extMargin = v;
     }
-    // si Adhérents OFF mais Extérieur ON et saleMode='adherent' → on force 'exterieur'
-    if (!adherentsOn && extOn && saleMode === 'adherent') {
-      saleMode = 'exterieur';
-      localStorage.setItem('saleMode', 'exterieur');
-    }
+  } catch {}
+  const extFactor = 1 + (extMargin / 100);
+  const fmtPct = (v) => (Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/\.00$/, ''));
+  const extPctLabel = `(+${fmtPct(extMargin)}%)`;
+
+  // si Extérieur OFF mais saleMode='exterieur' → on force 'adherent'
+  if (!extOn && saleMode === 'exterieur') {
+    saleMode = 'adherent';
+    localStorage.setItem('saleMode', 'adherent');
+  }
+  // si Adhérents OFF mais Extérieur ON et saleMode='adherent' → on force 'exterieur'
+  if (!adherentsOn && extOn && saleMode === 'adherent') {
+    saleMode = 'exterieur';
+    localStorage.setItem('saleMode', 'exterieur');
+  }
+
 
     const content = document.getElementById('page-content');
     const produits = await window.electronAPI.getProduits();
@@ -199,54 +228,272 @@
     }
 
 
+// ✅ Version robuste avec styles inline en fallback
+async function showChoixModal(message, options = ['OK', 'Annuler']) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    // Fallback CSS inline si la classe globale n’existe pas
+    overlay.style.cssText = `
+      position:fixed; inset:0; background:rgba(0,0,0,.35);
+      display:flex; align-items:center; justify-content:center; z-index:99999;
+    `;
 
-    async function holdCurrentCart(modules, saleMode, adherentSelectionneId, selectedProspect, panier) {
-      const ctx = currentSaleContext(modules, saleMode, adherentSelectionneId, selectedProspect);
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.cssText = `
+      background:#fff; border:1px solid #e6e6e6; border-radius:12px; width:min(420px, 92vw);
+      box-shadow:0 10px 30px rgba(0,0,0,.2); padding:14px; display:flex; flex-direction:column; gap:10px;
+    `;
+    modal.innerHTML = `
+      <h3 style="margin:0;">${message}</h3>
+      <div class="modal-actions" id="__choices" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;"></div>
+    `;
 
-      // 🏷️ Nom du ticket: si adhérent présent → "Nom Prénom", sinon on demande
-      let name = null;
-      if (ctx.sale_type === 'adherent' && ctx.adherent_id) {
-        // on a la liste "adherents" dans le scope de renderCaisse
-        const a = (Array.isArray(adherents) ? adherents : []).find(x => String(x.id) === String(ctx.adherent_id));
-        if (a) name = `${(a.nom || '').trim()} ${(a.prenom || '').trim()}`.trim() || null;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const cleanup = (val) => { try { document.body.removeChild(overlay); } catch {} resolve(val); };
+
+    const zone = modal.querySelector('#__choices');
+    options.forEach(opt => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = opt;
+      b.addEventListener('click', () => cleanup(opt));
+      zone.appendChild(b);
+    });
+
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); });
+    document.addEventListener('keydown', function esc(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', esc); cleanup(null); }
+    });
+  });
+}
+
+// (facultatif mais pratique) : alias pour l’input texte
+// === Helpers manquants : modale simple + chevron datalist ===================
+async function showPromptModal(message, def = '') {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:99999;';
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.cssText = 'background:#fff;border:1px solid #e6e6e6;border-radius:12px;width:min(420px,92vw);box-shadow:0 10px 30px rgba(0,0,0,.2);padding:14px;display:flex;flex-direction:column;gap:10px;';
+    modal.innerHTML = `
+      <h3 style="margin:0 0 6px 0;">${message}</h3>
+      <input id="__prompt_input" class="ui-field" type="text" inputmode="decimal" placeholder="Montant (€)" value="${String(def).replace(/"/g,'&quot;')}">
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button id="__prompt_cancel" type="button">Annuler</button>
+        <button id="__prompt_ok" type="button">OK</button>
+      </div>`;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    const close = (val) => { try { document.body.removeChild(overlay); } catch {} resolve(val); };
+    modal.querySelector('#__prompt_cancel').onclick = () => close(null);
+    modal.querySelector('#__prompt_ok').onclick = () => close(modal.querySelector('#__prompt_input').value);
+    modal.querySelector('#__prompt_input').addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter') modal.querySelector('#__prompt_ok').click();
+      if (e.key === 'Escape') close(null);
+    });
+    setTimeout(()=> modal.querySelector('#__prompt_input').focus(), 30);
+  });
+}
+
+function wireDatalistChevron(inputId){
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  let chevron = input.parentElement?.querySelector?.('.ui-chevron');
+  if (!chevron) return;
+  chevron.style.cursor = 'pointer';
+  chevron.addEventListener('click', () => { input.focus(); input.showPicker?.(); });
+}
+
+// === Popup cotisation au choix d'un adhérent ================================
+// Appelée par ton code: await verifierCotisationAdherent(adherentId, nomComplet, panier, afficherPanier)
+// === Popup cotisation — vérif mensuelle béton ===
+async function verifierCotisationAdherent(adherentId, nomComplet, panierRef, refreshUI) {
+  // 🔒 anti double déclenchement
+  if (window.__cotisationCheckInProgress) return;
+  window.__cotisationCheckInProgress = true;
+
+  try {
+    // 0) déjà au panier ? on ne repropose pas
+    const deja = Array.isArray(panierRef) && panierRef.some(l => l?.type === 'cotisation');
+    if (deja) return;
+
+    if (hasCotPaid(Number(adherentId))) return;
+
+
+    // 1) helpers dates ultra-tolérants
+    const normalizeToDate = (v) => {
+      if (!v && v !== 0) return null;
+      if (v instanceof Date) return v;
+      if (typeof v === 'number') {
+        // seconds → ms
+        const ms = (v < 1e12 ? v * 1000 : v);
+        const d = new Date(ms);
+        return isNaN(d) ? null : d;
       }
-      if (!name) {
-        name = await showTextModal('Nom du ticket (optionnel)', '');
+      if (typeof v === 'string') {
+        const t = Date.parse(v);
+        if (!Number.isFinite(t)) return null;
+        const d = new Date(t);
+        return isNaN(d) ? null : d;
       }
+      return null;
+    };
 
-      const id = 'cart-' + Date.now();
-      const items = (panier || []).map(p => {
-        const prodIdNum = Number(p.id);
-        return {
-          produit_id: Number.isFinite(prodIdNum) ? prodIdNum : null, // <- plus de dépendance à p.type
-          nom: p.nom,
-          fournisseur_nom: p.fournisseur_nom || null,
-          unite: p.unite || null,
-          prix: Number(p.prix || 0),
-          quantite: Number(p.quantite || 0),
-          remise_percent: Number(p.remise || 0),
-          type: p.type || 'produit' // on marque quand même le type à l’enregistrement
-        };
-      });
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0); // local time
+    const paidThisMonth = (d) => {
+      const dt = normalizeToDate(d);
+      if (!dt) return false;
+      return dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
+    };
+    const sinceISO = new Date(startOfMonth.getTime() - startOfMonth.getTimezoneOffset() * 60000).toISOString();
+    const sinceTsMs  = startOfMonth.getTime();           // ms epoch
+const sinceTsSec = Math.floor(sinceTsMs / 1000);     // s epoch
 
-      const res = await window.carts.save({
-        id,
-        name,
-        ...ctx,
-        meta: {},
-        items,
-        status: 'open'
-      });
-      if (res?.ok) {
-        currentCartId = res.id;
-        try { localStorage.setItem('currentCartId', res.id); } catch { }
-        alert('Ticket mis en attente 👍');
-        viderPanier({ skipConfirm: true });
-      } else {
-        alert('Échec mise en attente');
+
+    // 2) montant par défaut (fallbacks)
+    let montantDefaut = 0;
+    try {
+      if (window.electronAPI?.getCotisationAmount) {
+        const r = await window.electronAPI.getCotisationAmount();
+        const v = Number(r?.amount);
+        if (Number.isFinite(v) && v > 0) montantDefaut = v;
       }
+      if (!montantDefaut && window.electronAPI?.getConfig) {
+        const cfg = await window.electronAPI.getConfig();
+        const v = Number(cfg?.cotisation_montant);
+        if (Number.isFinite(v) && v > 0) montantDefaut = v;
+      }
+    } catch {}
+    if (!montantDefaut) montantDefaut = 8;
 
+    // 3) a-t-il déjà payé ce mois-ci ? (plusieurs APIs supportées)
+    let besoinCotisation = true;
+
+    // 3.a getCotisationStatut (si dispo)
+    try {
+      if (window.electronAPI?.getCotisationStatut) {
+        const st = await window.electronAPI.getCotisationStatut(Number(adherentId));
+        // Priorité aux dates “réelles” plutôt qu’à due:true/false
+        if (st?.last_paid_at && paidThisMonth(st.last_paid_at)) besoinCotisation = false;
+        if (Number.isFinite(st?.last_paid_year) && Number.isFinite(st?.last_paid_month)) {
+          const y = Number(st.last_paid_year), m = Number(st.last_paid_month) - 1; // 1..12 → 0..11
+          if (y === now.getFullYear() && m === now.getMonth()) besoinCotisation = false;
+        }
+        // S’il expose juste due:true/false, on l’utilise en dernier recours
+        if (typeof st?.due === 'boolean' && besoinCotisation) besoinCotisation = !!st.due;
+        if (Number.isFinite(Number(st?.amount)) && st.amount > 0) montantDefaut = Number(st.amount);
+      }
+    } catch {}
+
+    // 3.b historique ce mois-ci (listCotisations)
+try {
+  if (besoinCotisation && window.electronAPI?.listCotisations) {
+    const tries = [
+      { since: sinceISO },
+      { since: sinceTsSec },
+      { since: sinceTsMs },
+      { since_iso: sinceISO },
+      { since_ts: sinceTsSec },
+      { since_ms: sinceTsMs }
+    ];
+    for (const params of tries) {
+      try {
+        const rows = await window.electronAPI.listCotisations({ adherent_id: Number(adherentId), ...params });
+        if (Array.isArray(rows) && rows.some(r => paidThisMonth(r?.date || r?.paid_at || r?.created_at))) {
+          besoinCotisation = false;
+          markCotPaid(Number(adherentId), now); // ← MÉMO local pour éviter tout re-prompt
+          break;
+        }
+      } catch {}
     }
+  }
+} catch {}
+
+
+    // 3.c fallback
+    try {
+      if (besoinCotisation && window.electronAPI?.getCotisationsAdherent) {
+        const last = await window.electronAPI.getCotisationsAdherent(Number(adherentId), { limit: 1 });
+        const row = Array.isArray(last) ? last[0] : null;
+        if (row && paidThisMonth(row.date || row.paid_at || row.created_at)) {
+          besoinCotisation = false;
+          // NEW
+          markCotPaid(Number(adherentId), now);
+        }
+      }
+    } catch {}
+
+    if (!besoinCotisation) return;
+
+    // 4) demander le montant (min 5 €), avec anti double-popup
+    if (window.__cotisationPromptOpen) return;
+    window.__cotisationPromptOpen = true;
+    try {
+      const ask = async () => {
+        if (typeof showPromptModal === 'function') {
+          return await showPromptModal(
+            `Ajouter la cotisation pour ${nomComplet} ? (minimum 5 €)`,
+            String(Math.max(5, montantDefaut))
+          );
+        }
+        if (typeof showTextPromptModal === 'function') {
+          return await showTextPromptModal(
+            `Ajouter la cotisation pour ${nomComplet} ? (minimum 5 €)`,
+            String(Math.max(5, montantDefaut))
+          );
+        }
+        return window.prompt(
+          `Ajouter la cotisation pour ${nomComplet} ? (minimum 5 €)`,
+          String(Math.max(5, montantDefaut))
+        );
+      };
+
+      let saisi;
+      while (true) {
+        saisi = await ask();
+        if (saisi == null) return; // annulé
+        const montant = Math.round(Number(String(saisi).replace(',', '.')) * 100) / 100;
+        if (Number.isFinite(montant) && montant >= 5) {
+          panierRef.push({
+            id: `cotisation-${Date.now()}`,
+            type: 'cotisation',
+            nom: 'Cotisation',
+            fournisseur_nom: '—',
+            unite: '€',
+            prix: montant,
+            quantite: 1,
+            remise: 0
+          });
+          try { localStorage.setItem('panier', JSON.stringify(panierRef)); } catch {}
+          if (typeof refreshUI === 'function') refreshUI();
+          break;
+        } else {
+          // message d’erreur non bloquant et on reboucle
+          if (typeof showChoixModal === 'function') {
+            const r = await showChoixModal('Montant invalide (min 5 €). Réessayer ?', ['Réessayer', 'Annuler']);
+            if (r !== 'Réessayer') return;
+          } else {
+            alert('Montant invalide (minimum 5 €).');
+          }
+        }
+      }
+    } finally {
+      window.__cotisationPromptOpen = false;
+    }
+  } catch (e) {
+    console.warn('[verifierCotisationAdherent] erreur non bloquante:', e);
+  } finally {
+    window.__cotisationCheckInProgress = false;
+  }
+}
+
 
 
     async function showLoadCartDialog() {
@@ -685,8 +932,49 @@
           return s + puApplique * Number(p.quantite || 0);
         }, 0);
 
-      return (sousTotalProduits * (taux / 100)) + fixe;
-    };
+  return (sousTotalProduits * (taux / 100)) + fixe;
+};// --- Helpers cotisation — UI (renderer) ---
+
+// Demande un montant à l'adhérent (>= 5 €). Retourne Number ou null si annulé.
+async function promptCotisationAmount(min = 5) {
+  const ask = async (msg, defVal) => {
+    if (typeof showPromptModal === 'function') {
+      return await showPromptModal(msg, defVal);
+    }
+    if (typeof showTextPromptModal === 'function') {
+      return await showTextPromptModal(msg, defVal);
+    }
+    const v = window.prompt(msg, defVal);
+    return v === null ? null : v;
+  };
+
+  while (true) {
+    const ans = await ask(`Montant de la cotisation (minimum ${min} €)`, String(min));
+    if (ans == null) return null; // annulé
+
+    const val = Math.round(Number(String(ans).replace(',', '.')) * 100) / 100;
+    if (Number.isFinite(val) && val >= min) return val;
+
+    await showAlertModal?.(`Merci d’entrer un montant valide supérieur ou égal à ${min} €.`);
+  }
+}
+
+function addCotisationToCart(montant) {
+  window.panier.push({
+    id: `cotisation-${Date.now()}`,
+    type: 'cotisation',
+    nom: 'Cotisation',
+    prix: Number(montant),
+    quantite: 1
+  });
+}
+
+// Ne propose la cotisation QUE si:
+// - modules adherents & cotisations ON
+// - statut = "actif"
+// - pas déjà au panier
+// - pas déjà à jour selon la DB
+
 
     const afficherPanier = () => {
       const div = document.getElementById('panier-zone');
@@ -1176,10 +1464,11 @@
         });
       }
 
-      // 👉 Chevron de la datalist uniquement si module ON
-      if (adherentsOn) {
-        wireDatalistChevron('adherent-input');
-      }
+if (adherentsOn) {
+  try { wireDatalistChevron('adherent-input'); } catch {}
+}
+
+
 
       // 🎯 TOOLTIP tableau
       const tooltip = document.getElementById('tooltip-global');
@@ -1328,57 +1617,83 @@
             }
           }
 
-          inputAdh.addEventListener('change', async () => {
-            const v = inputAdh.value.trim();
-            const a = adhIndex.get(v);
+const handleAdherentPick = async () => {
+  const v = inputAdh.value.trim();
+  const a = adhIndex.get(v);
+  console.log('[Adherent pick] valeur:', v, 'match:', a?.id);
 
-            if (!a) {
-              hiddenAdh.value = '';
-              hiddenAdh.dataset.email = '';
-              adherentSelectionneId = '';
-              localStorage.removeItem('adherentId');
-              return;
-            }
-
-            // ✅ Sélection de l'adhérent
-            hiddenAdh.value = String(a.id);
-            hiddenAdh.dataset.email = (a.email1 || a.email2 || '').trim();
-            adherentSelectionneId = a.id;
-            localStorage.setItem('adherentId', String(a.id));
-
-            // ❌ Exclusivité : on efface le prospect s’il y en avait un
-            try { selectedProspect = null; } catch { }                 // au cas où la variable globale n’existe pas encore
-            localStorage.removeItem('selectedProspect');
-            const hp = document.getElementById('prospect-select');    // hidden
-            if (hp) { hp.value = ''; hp.dataset.email = ''; }
-            const bp = document.getElementById('prospect-selected');  // badge
-            if (bp) { bp.style.display = 'none'; bp.textContent = ''; }
-
-            // Cotisation auto si module ON et mode "adherent" — SAUF statut partenaire/exempté
-const statut = String(a.statut || 'actif').toLowerCase();
-const skipCotisation = (statut === 'partenaire' || statut === 'exempté' || statut === 'exempte' || statut === 'exempte'); // tolère accents/variantes
-
-if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
-  const dejaCotisation = panier.some(p => p.type === 'cotisation');
-  if (!dejaCotisation) {
-    const nomComplet = `${a.nom} ${a.prenom}`;
-    await verifierCotisationAdherent(a.id, nomComplet, panier, afficherPanier);
+  if (!a) {
+    hiddenAdh.value = '';
+    hiddenAdh.dataset.email = '';
+    adherentSelectionneId = '';
+    localStorage.removeItem('adherentId');
+    return;
   }
-} else {
-  // On s'assure qu'aucune ligne de cotisation ne traîne si statut dispensé
-  if (skipCotisation) {
-    const idx = panier.findIndex(p => p.type === 'cotisation');
-    if (idx >= 0) {
-      panier.splice(idx, 1);
-      try { localStorage.setItem('panier', JSON.stringify(panier)); } catch {}
-      afficherPanier();
-    }
+
+  // ✅ Sélection de l'adhérent
+  hiddenAdh.value = String(a.id);
+  hiddenAdh.dataset.email = (a.email1 || a.email2 || '').trim();
+  adherentSelectionneId = a.id;
+  localStorage.setItem('adherentId', String(a.id));
+
+  // ❌ Exclusivité : on efface tout prospect sélectionné
+  try { selectedProspect = null; } catch {}
+  localStorage.removeItem('selectedProspect');
+  const hp = document.getElementById('prospect-select');    // hidden
+  if (hp) { hp.value = ''; hp.dataset.email = ''; }
+  const bp = document.getElementById('prospect-selected');  // badge
+  if (bp) { bp.style.display = 'none'; bp.textContent = ''; }
+
+  // 👈 Forcer le saleMode en "adherent" pour déclencher la logique cotisation
+  localStorage.setItem('saleMode', 'adherent');
+  const radioAdh = document.querySelector('input[name="vente-mode"][value="adherent"]');
+  if (radioAdh) radioAdh.checked = true;
+
+  // Affiche/masque les blocs correspondants
+  const adhCont  = document.getElementById('adherent-container');
+  const miniPros = document.getElementById('prospect-mini');
+  const extCont  = document.getElementById('ext-container');
+  if (adhCont)  adhCont.style.display = '';
+  if (miniPros) miniPros.style.display = '';
+  if (extCont)  extCont.style.display = 'none';
+
+  // ✅ Offrir la cotisation uniquement pour "actif"
+  const statut = String(a.statut || 'actif').toLowerCase();
+  const nonEligible = (statut === 'partenaire' || statut === 'exempté' || statut === 'exempte' || statut === 'autre');
+
+ if (!nonEligible && cotisationsOn) {
+  await verifierCotisationAdherent(
+    a.id,
+    `${a.prenom || ''} ${a.nom || ''}`.trim(),
+    panier,
+    afficherPanier
+  );
+} else if (nonEligible) {
+  const idx = panier.findIndex(p => p.type === 'cotisation');
+  if (idx >= 0) {
+    panier.splice(idx, 1);
+    try { localStorage.setItem('panier', JSON.stringify(panier)); } catch {}
+    afficherPanier();
   }
 }
 
 
-            document.getElementById('search-produit')?.focus();
-          });
+  document.getElementById('search-produit')?.focus();
+};
+
+// 🔔 IMPORTANT : écouter **input** ET **change**
+inputAdh.addEventListener('change', handleAdherentPick);
+let __adhPickBusy = false;
+const guardedHandle = async (...args) => {
+  if (__adhPickBusy) return;
+  __adhPickBusy = true;
+  try { await handleAdherentPick(...args); }
+  finally { __adhPickBusy = false; }
+};
+inputAdh.addEventListener('input', guardedHandle);
+inputAdh.addEventListener('change', guardedHandle);
+
+
         }
       }
 
@@ -1741,253 +2056,259 @@ if (cotisationsOn && saleMode === 'adherent' && !skipCotisation) {
 
   }
 
-  async function validerVente() {
+async function validerVente() {
+  try {
+    // 🔧 Lire et normaliser les modules à chaque validation
+    const rawMods = await window.electronAPI.getModules();
+    const b = (v) => v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+    const modules = {
+      adherents:        b(rawMods?.adherents),
+      cotisations:      b(rawMods?.cotisations),
+      ventes_exterieur: b(rawMods?.ventes_exterieur),
+      prospects:        b(rawMods?.prospects),
+      modes_paiement:   b(rawMods?.modes_paiement),
+      emails:           b(rawMods?.emails ?? rawMods?.email),
+      stocks:           b(rawMods?.stocks),
+    };
+    console.log('[CAISSE] Modules actifs (valider):', modules);
+
+    const adherentsOn   = modules.adherents;
+    const prospectsOn   = modules.prospects;
+    const cotisationsOn = modules.adherents && modules.cotisations;
+    const extOn         = modules.ventes_exterieur;
+    const modesOn       = modules.modes_paiement;
+
+    // 1) Contexte de vente (mode + marge ext.)
+    const saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : 'exterieur');
+    const isExt = extOn && (saleMode === 'exterieur');
+
+    let extMargin = 30;
     try {
-      const modules = await (window.getMods?.() || window.electronAPI.getModules());
-      const adherentsOn = !!modules.adherents;
-      const prospectsOn = !!modules.prospects;
-      const cotisationsOn = !!(modules.adherents && modules.cotisations);
-      const extOn = !!modules.ventes_exterieur;
-      const modesOn = !!modules.modes_paiement;
-
-      // 1) Contexte de vente (mode + marge ext.)
-      const saleMode = localStorage.getItem('saleMode') || (adherentsOn ? 'adherent' : 'exterieur');
-      const isExt = extOn && (saleMode === 'exterieur');
-
-      let extMargin = 30;
-      try {
-        if (window.electronAPI.getVentesMargin) {
-          const r = await window.electronAPI.getVentesMargin();
-          const v = Number(r?.percent);
-          if (Number.isFinite(v) && v >= 0) extMargin = v;
-        } else {
-          const cfg = await window.electronAPI.getConfig();
-          const v = Number(cfg?.ventes_ext_margin_percent);
-          if (Number.isFinite(v) && v >= 0) extMargin = v;
-        }
-      } catch { }
-      const factor = isExt ? (1 + extMargin / 100) : 1;
-
-      // 2) Panier
-      const panier = Array.isArray(window.panier) ? window.panier : [];
-      if (panier.length === 0) {
-        alert('Panier vide !');
-        return;
-      }
-
-      // 3) Mode de paiement (obligatoire si module actif)
-      const selectMP = document.getElementById('mode-paiement-select');
-      const mode_paiement_id = modesOn ? (Number(selectMP?.value || 0) || null) : null;
-      const mode_paiement_label = modesOn ? (selectMP?.selectedOptions?.[0]?.textContent?.trim() || '') : '';
-      if (modesOn && !mode_paiement_id) {
-        alert('Merci de choisir un mode de paiement.');
-        return;
-      }
-
-      // 4) Type de vente + destinataire
-      let sale_type = 'adherent';
-      let adherentId = null;
-      let adherentEmail = null;
-      let clientEmailExt = null;
-      let _prospectSelectedForSale = null;
-
-      if (isExt) {
-        sale_type = 'exterieur';
-        clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
-      } else if (adherentsOn) {
-        const hiddenAdh = document.getElementById('adherent-select');
-        const adhIdRaw = hiddenAdh?.value || '';
-        const adhMail = hiddenAdh?.dataset?.email || '';
-
-        if (adhIdRaw && adhMail) {
-          sale_type = 'adherent';
-          adherentId = Number(adhIdRaw);
-          adherentEmail = adhMail;
-        } else if (prospectsOn) {
-          const hp = document.getElementById('prospect-select');
-          const prospectId = hp?.value || '';
-          const prospectEmail = hp?.dataset?.email || '';
-          if (!prospectId) {
-            alert('Merci de sélectionner un adhérent, ou bien un prospect, ou passe en mode Extérieur.');
-            return;
-          }
-          sale_type = 'prospect';
-          adherentId = null; // jamais l’ID du prospect ici
-          _prospectSelectedForSale = { id: Number(prospectId), email: (prospectEmail || null) };
-        } else {
-          alert('Merci de sélectionner un adhérent (ou active le module prospects / passe en Extérieur).');
-          return;
-        }
+      if (window.electronAPI.getVentesMargin) {
+        const r = await window.electronAPI.getVentesMargin();
+        const v = Number(r?.percent);
+        if (Number.isFinite(v) && v >= 0) extMargin = v;
       } else {
-        sale_type = 'exterieur';
-        clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
+        const cfg = await window.electronAPI.getConfig();
+        const v = Number(cfg?.ventes_ext_margin_percent);
+        if (Number.isFinite(v) && v >= 0) extMargin = v;
       }
+    } catch {}
+    const factor = isExt ? (1 + extMargin / 100) : 1;
 
-      // 5) Construire les lignes vendables (produits uniquement, id numérique)
-      const lignesProduits = panier
-        .filter(p =>
-          p &&
-          p.type !== 'cotisation' &&
-          p.type !== 'acompte' &&
-          Number.isFinite(Number(p.id))
-        );
-
-      // garde-fou : pas de lignes produits
-      if (!lignesProduits.length) {
-        console.error('[validerVente] Aucune ligne produit après filtrage, window.panier =', window.panier);
-        alert('Aucune ligne de vente (ticket vide ou lignes invalides). Rouvre le ticket ou ajoute un produit.');
-        return;
-      }
-
-      // 6) Totaux
-      const sousTotalProduits = lignesProduits.reduce((s, p) => {
-        const remise = Number(p.remise || 0);
-        const puApplique = Number(p.prix) * factor * (1 - remise / 100);
-        return s + puApplique * Number(p.quantite || 0);
-      }, 0);
-
-      const totalCotisation = (!isExt && cotisationsOn ? panier : [])
-        .filter(p => p.type === 'cotisation')
-        .reduce((s, p) => s + Number(p.prix) * Number(p.quantite || 1), 0);
-
-      const totalAcompte = panier
-        .filter(p => p.type === 'acompte')
-        .reduce((s, p) => s + Math.abs(Number(p.prix) * Number(p.quantite || 1)), 0);
-
-      let frais_paiement = 0;
-      if (modesOn) {
-        const taux = parseFloat(selectMP?.selectedOptions?.[0]?.dataset?.taux || '0');
-        const fixe = parseFloat(selectMP?.selectedOptions?.[0]?.dataset?.fixe || '0');
-        const baseNet = Math.max(0, sousTotalProduits - totalAcompte);
-        frais_paiement = Math.round(((baseNet * (taux / 100)) + fixe) * 100) / 100;
-      }
-
-      const total = Math.round((sousTotalProduits + totalCotisation - totalAcompte + frais_paiement) * 100) / 100;
-
-      // 7) Lignes DB (PU appliqué = remise + éventuel +30%)
-      const lignes = lignesProduits.map(p => {
-        const remise = Number(p.remise || 0);
-        const puOrig = Number(p.prix);
-        const puApplique = puOrig * factor * (1 - remise / 100);
-        return {
-          produit_id: Number(p.id),
-          quantite: Number(p.quantite || 0),
-          prix: Number(puApplique.toFixed(4)),       // PU appliqué
-          prix_unitaire: Number(puOrig.toFixed(4)),  // PU original
-          remise_percent: Number(remise.toFixed(4))
-        };
-      });
-
-      if (!lignes.length) {
-        console.error('[validerVente] Aucune ligne à envoyer au backend, lignesProduits =', lignesProduits);
-        alert('Aucune ligne de vente valide.');
-        return;
-      }
-      // 🔎 DEBUG - payload envoyé au main
-      const _payloadVente = {
-        total: Number(total || 0),
-        adherent_id: (sale_type === 'adherent' && Number.isFinite(Number(adherentId))) ? Number(adherentId) : null,
-        cotisation: (sale_type === 'adherent' && cotisationsOn) ? Number(totalCotisation || 0) : 0,
-        mode_paiement_id: (modesOn && Number.isFinite(Number(mode_paiement_id))) ? Number(mode_paiement_id) : null,
-        mode_paiement_label,
-        frais_paiement,
-        sale_type,
-        client_email: (sale_type === 'exterieur')
-          ? (clientEmailExt || null)
-          : (_prospectSelectedForSale?.email || adherentEmail || null),
-        lignes
-      };
-
-      console.group('[DEBUG] validerVente() - payload');
-      console.log('window.panier (au moment du clic):', window.panier);
-      console.log('lignesProduits (avant map):', lignesProduits);
-      console.log('payload.lignes (après map):', lignes);
-      console.log('payload total/cotisation/frais:', { total, totalCotisation, frais_paiement });
-      console.groupEnd();
-
-
-
-      // 8) Loader
-      showLoader('Enregistrement de la vente…');
-      const started = Date.now();
-
-      // 9) Enregistrer la vente
-      await window.electronAPI.enregistrerVente(_payloadVente);
-
-
-      // 10) Cotisation auto (si présente)
-      try {
-        if (adherentId && Number(totalCotisation) > 0) {
-          await window.electronAPI.ajouterCotisation(Number(adherentId), Number(totalCotisation));
-        }
-      } catch (e) {
-        console.error('[cotisation] ajout KO :', e);
-        // non bloquant
-      }
-
-      // 11) Envoi facture (si email + module emails)
-      const emailsOn = !!(modules.email || modules.emails);
-      const prospectEmail = _prospectSelectedForSale?.email || null;
-      const emailToSend = isExt
-        ? (clientEmailExt || null)
-        : (adherentEmail || prospectEmail || null);
-
-      if (emailsOn && emailToSend) {
-        try {
-          await window.electronAPI.envoyerFactureEmail({
-            email: emailToSend,
-            lignes: lignesProduits.map(p => {
-              const remise = Number(p.remise || 0);
-              const puOrig = Number(p.prix);
-              const puApplique = puOrig * factor * (1 - remise / 100);
-              return {
-                nom: p.nom,
-                fournisseur_nom: p.fournisseur_nom || '',
-                unite: p.unite || '',
-                quantite: p.quantite,
-                prix: Number(puApplique.toFixed(2)),
-                prix_unitaire: Number(puOrig.toFixed(2)),
-                remise_percent: Number(remise.toFixed(2))
-              };
-            }),
-            cotisation: (!isExt) ? panier.filter(p => p.type === 'cotisation') : [],
-            acompte: totalAcompte,
-            frais_paiement,
-            mode_paiement: selectMP?.selectedOptions?.[0]?.textContent || '',
-            total
-          });
-        } catch (e) {
-          console.warn('Envoi email échoué, vente quand même validée :', e);
-        }
-      }
-
-      // 12) Si la vente provenait d’un ticket → le supprimer
-      try {
-        const id = window.currentCartId || localStorage.getItem('currentCartId');
-        if (id && window.carts?.delete) {
-          await window.carts.delete(id);
-        }
-        window.currentCartId = null;
-        try { localStorage.removeItem('currentCartId'); } catch { }
-      } catch (e) {
-        console.warn('[carts] suppression du ticket après vente — échec non bloquant:', e);
-      }
-
-      // 13) UX : garder le loader visible au moins 1s, reset UI
-      const elapsed = Date.now() - started;
-      if (elapsed < 1000) await new Promise(res => setTimeout(res, 1000 - elapsed));
-      hideLoader();
-
-      alert('Vente enregistrée ✅');
-      viderPanier({ skipConfirm: true });
-      document.getElementById('search-produit')?.focus();
-
-    } catch (err) {
-      console.error('Erreur validerVente:', err);
-      try { hideLoader(); } catch { }
-      alert('Erreur pendant la validation de la vente. Consulte la console.');
+    // 2) Panier
+    const panier = Array.isArray(window.panier) ? window.panier : [];
+    if (panier.length === 0) {
+      alert('Panier vide !');
+      return;
     }
+
+    // 3) Mode de paiement (obligatoire si module actif)
+    const selectMP = document.getElementById('mode-paiement-select');
+    const mode_paiement_id = modesOn ? (Number(selectMP?.value || 0) || null) : null;
+    const mode_paiement_label = modesOn ? (selectMP?.selectedOptions?.[0]?.textContent?.trim() || '') : '';
+    if (modesOn && !mode_paiement_id) {
+      alert('Merci de choisir un mode de paiement.');
+      return;
+    }
+
+// 4) Type de vente + destinataire
+let sale_type = 'adherent';
+let adherentId = null;
+let adherentEmail = null;
+let clientEmailExt = null;
+let _prospectSelectedForSale = null;
+
+if (isExt) {
+  sale_type = 'exterieur';
+  clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
+
+} else if (adherentsOn) {
+  const hiddenAdh = document.getElementById('adherent-select');
+  const adhIdRaw  = hiddenAdh?.value || '';
+  const adhMail   = hiddenAdh?.dataset?.email || '';
+
+  if (adhIdRaw) {
+    // ✅ N’exige plus l’email pour valider une vente “Adhérent”
+    sale_type     = 'adherent';
+    adherentId    = Number(adhIdRaw);     // si un jour tes IDs passent en UUID, remplace par: String(adhIdRaw)
+    adherentEmail = adhMail || null;      // optionnel
+  } else if (prospectsOn) {
+    const hp            = document.getElementById('prospect-select');
+    const prospectId    = hp?.value || '';
+    const prospectEmail = hp?.dataset?.email || '';
+    if (!prospectId) {
+      alert('Merci de sélectionner un adhérent, ou bien un prospect, ou passe en mode Extérieur.');
+      return;
+    }
+    sale_type = 'prospect';
+    adherentId = null;
+    _prospectSelectedForSale = { id: Number(prospectId), email: (prospectEmail || null) };
+  } else {
+    alert('Merci de sélectionner un adhérent (ou active le module prospects / passe en Extérieur).');
+    return;
   }
+
+} else {
+  // cas “adherents” OFF
+  sale_type = 'exterieur';
+  clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
+}
+
+    // 5) Lignes vendables (produits uniquement, id numérique)
+    const lignesProduits = panier
+      .filter(p =>
+        p &&
+        p.type !== 'cotisation' &&
+        p.type !== 'acompte' &&
+        Number.isFinite(Number(p.id))
+      );
+
+    if (!lignesProduits.length) {
+      console.error('[validerVente] Aucune ligne produit après filtrage, window.panier =', window.panier);
+      alert('Aucune ligne de vente (ticket vide ou lignes invalides). Rouvre le ticket ou ajoute un produit.');
+      return;
+    }
+
+    // 6) Totaux
+    const sousTotalProduits = lignesProduits.reduce((s, p) => {
+      const remise = Number(p.remise || 0);
+      const puApplique = Number(p.prix) * factor * (1 - remise / 100);
+      return s + puApplique * Number(p.quantite || 0);
+    }, 0);
+
+    const totalCotisation = (!isExt && cotisationsOn ? panier : [])
+      .filter(p => p.type === 'cotisation')
+      .reduce((s, p) => s + Number(p.prix) * Number(p.quantite || 1), 0);
+
+    const totalAcompte = panier
+      .filter(p => p.type === 'acompte')
+      .reduce((s, p) => s + Math.abs(Number(p.prix) * Number(p.quantite || 1)), 0);
+
+    let frais_paiement = 0;
+    if (modesOn) {
+      const taux = parseFloat(selectMP?.selectedOptions?.[0]?.dataset?.taux || '0');
+      const fixe = parseFloat(selectMP?.selectedOptions?.[0]?.dataset?.fixe || '0');
+      const baseNet = Math.max(0, sousTotalProduits - totalAcompte);
+      frais_paiement = Math.round(((baseNet * (taux / 100)) + fixe) * 100) / 100;
+    }
+
+    const total = Math.round((sousTotalProduits + totalCotisation - totalAcompte + frais_paiement) * 100) / 100;
+
+    // 7) Lignes DB (PU appliqué = remise + éventuelle marge extérieur)
+    const lignes = lignesProduits.map(p => {
+      const remise = Number(p.remise || 0);
+      const puOrig = Number(p.prix);
+      const puApplique = puOrig * factor * (1 - remise / 100);
+      return {
+        produit_id: Number(p.id),
+        quantite: Number(p.quantite || 0),
+        prix: Number(puApplique.toFixed(4)),       // PU appliqué
+        prix_unitaire: Number(puOrig.toFixed(4)),  // PU original
+        remise_percent: Number(remise.toFixed(4))
+      };
+    });
+
+    if (!lignes.length) {
+      console.error('[validerVente] Aucune ligne à envoyer au backend, lignesProduits =', lignesProduits);
+      alert('Aucune ligne de vente valide.');
+      return;
+    }
+
+    // 8) Loader
+    showLoader('Enregistrement de la vente…');
+    const started = Date.now();
+
+    // 9) Enregistrer la vente
+    await window.electronAPI.enregistrerVente({
+      total: Number(total || 0),
+      adherent_id: (sale_type === 'adherent' && Number.isFinite(Number(adherentId))) ? Number(adherentId) : null,
+      cotisation: (sale_type === 'adherent' && cotisationsOn) ? Number(totalCotisation || 0) : 0,
+      mode_paiement_id: (modesOn && Number.isFinite(Number(mode_paiement_id))) ? Number(mode_paiement_id) : null,
+      mode_paiement_label,
+      frais_paiement,
+      sale_type,
+      client_email: (sale_type === 'exterieur')
+        ? (clientEmailExt || null)
+        : (_prospectSelectedForSale?.email || adherentEmail || null),
+      lignes
+    });
+
+  // 10) Cotisation auto (si présente)
+try {
+  if (adherentId && Number(totalCotisation) > 0) {
+    await window.electronAPI.ajouterCotisation(Number(adherentId), Number(totalCotisation));
+    // NEW: évite tout re-prompt dans le mois courant, même si la DB met 1-2s à refléter
+    try { markCotPaid(Number(adherentId), new Date()); } catch {}
+  }
+} catch (e) {
+  console.error('[cotisation] ajout KO :', e);
+}
+
+
+    // 11) Envoi facture uniquement si module emails ON
+    const emailsOn = modules.emails; // ← normalisé
+    const prospectEmail = _prospectSelectedForSale?.email || null;
+    const emailToSend = isExt
+      ? (clientEmailExt || null)
+      : (adherentEmail || prospectEmail || null);
+
+    if (emailsOn && emailToSend) {
+      try {
+        await window.electronAPI.envoyerFactureEmail({
+          email: emailToSend,
+          lignes: lignesProduits.map(p => {
+            const remise = Number(p.remise || 0);
+            const puOrig = Number(p.prix);
+            const puApplique = puOrig * factor * (1 - remise / 100);
+            return {
+              nom: p.nom,
+              fournisseur_nom: p.fournisseur_nom || '',
+              unite: p.unite || '',
+              quantite: p.quantite,
+              prix: Number(puApplique.toFixed(2)),
+              prix_unitaire: Number(puOrig.toFixed(2)),
+              remise_percent: Number(remise.toFixed(2))
+            };
+          }),
+          cotisation: (!isExt) ? panier.filter(p => p.type === 'cotisation') : [],
+          acompte: totalAcompte,
+          frais_paiement,
+          mode_paiement: selectMP?.selectedOptions?.[0]?.textContent || '',
+          total
+        });
+      } catch (e) {
+        console.warn('Envoi email échoué, vente quand même validée :', e);
+      }
+    }
+
+    // 12) Si la vente provenait d’un ticket → le supprimer
+    try {
+      const id = window.currentCartId || localStorage.getItem('currentCartId');
+      if (id && window.carts?.delete) {
+        await window.carts.delete(id);
+      }
+      window.currentCartId = null;
+      try { localStorage.removeItem('currentCartId'); } catch {}
+    } catch (e) {
+      console.warn('[carts] suppression du ticket après vente — échec non bloquant:', e);
+    }
+
+    // 13) UX : garder le loader visible au moins 1s, reset UI
+    const elapsed = Date.now() - started;
+    if (elapsed < 1000) await new Promise(res => setTimeout(res, 1000 - elapsed));
+    hideLoader();
+
+    alert('Vente enregistrée ✅');
+    viderPanier({ skipConfirm: true });
+    document.getElementById('search-produit')?.focus();
+
+  } catch (err) {
+    console.error('Erreur validerVente:', err);
+    try { hideLoader(); } catch {}
+    alert('Erreur pendant la validation de la vente. Consulte la console.');
+  }
+}
 
 
   // ❗ Export : on expose aussi window.renderCaisse car le routeur l'appelle
