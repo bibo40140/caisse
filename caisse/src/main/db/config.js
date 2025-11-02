@@ -14,13 +14,37 @@ function safeParse(raw) {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
-/** Lecture brute disque (sans cache) */
+/** Écrit le JSON sur disque (helper interne) */
+function _write(json) {
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(json, null, 2), 'utf8');
+}
+
+/** Supprime les secrets (token/tenant) d’un objet config (mutation) */
+function _stripSecrets(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if ('auth_token' in obj) delete obj.auth_token;
+  if ('tenant_id' in obj)  delete obj.tenant_id;
+  return obj;
+}
+
+/** Lecture brute disque (sans cache) + purge immédiate des secrets si présents */
 function readConfigFromDisk() {
-  if (!fs.existsSync(CONFIG_PATH)) return { modules: {}, ventes_exterieur_margin_percent: DEFAULT_MARGIN };
-  const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-  const json = safeParse(raw) || {};
-  // Défauts minimums
+  let json = { modules: {}, ventes_exterieur_margin_percent: DEFAULT_MARGIN };
+
+  if (fs.existsSync(CONFIG_PATH)) {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    json = { ...json, ...(safeParse(raw) || {}) };
+  }
+
   if (!json.modules) json.modules = {};
+
+  // 🔒 purge secrets à la lecture + ré-écriture si nécessaire
+  const hadSecrets = 'auth_token' in json || 'tenant_id' in json;
+  _stripSecrets(json);
+  if (hadSecrets) {
+    try { _write(json); } catch {}
+  }
+
   return json;
 }
 
@@ -42,11 +66,10 @@ function writeConfig(partial = {}) {
     modules: { ...(current.modules || {}), ...(partial.modules || {}) },
   };
 
-  // ⚠️ Ne jamais enregistrer ces champs dans le fichier
-  if ('auth_token' in next) delete next.auth_token;
-  if ('tenant_id' in next) delete next.tenant_id;
+  // 🔒 ne jamais écrire ces champs
+  _stripSecrets(next);
 
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2), 'utf8');
+  _write(next);
   _cache = next;
   return _cache;
 }
@@ -56,12 +79,9 @@ function writeModules(modulesMap = {}) {
   return writeConfig({ modules: modulesMap });
 }
 
-/** Récupère la marge “ventes extérieur” (%)
- *  Tolère les deux clés: ventes_exterieur_margin_percent (nouvelle) et ventes_ext_margin_percent (ancienne)
- */
+/** Récupère la marge “ventes extérieur” (%) */
 function getVentesExterieurMargin() {
   const cfg = readConfig();
-  // priorité à la nouvelle clé
   let raw = cfg.ventes_exterieur_margin_percent;
   if (raw === undefined) raw = cfg.ventes_ext_margin_percent; // rétro-compat
   const num = Number(raw);
@@ -81,6 +101,36 @@ function resetCache() {
   _cache = null;
 }
 
+/** 🔧 utilitaires : suppression explicite des secrets + réécriture disque */
+function removeAuthToken() {
+  const cfg = readConfig();
+  const had = 'auth_token' in cfg;
+  if (had) delete cfg.auth_token;
+  _write(cfg);
+  _cache = cfg;
+  return had;
+}
+function removeTenantId() {
+  const cfg = readConfig();
+  const had = 'tenant_id' in cfg;
+  if (had) delete cfg.tenant_id;
+  _write(cfg);
+  _cache = cfg;
+  return had;
+}
+
+/** 🔧 scrub global (utilisé au démarrage) */
+function scrubSecrets() {
+  const cfg = readConfig();
+  const had = ('auth_token' in cfg) || ('tenant_id' in cfg);
+  if (had) {
+    _stripSecrets(cfg);
+    _write(cfg);
+    _cache = cfg;
+  }
+  return had;
+}
+
 module.exports = {
   CONFIG_PATH,
   readConfig,
@@ -89,4 +139,7 @@ module.exports = {
   getVentesExterieurMargin,
   setVentesExterieurMargin,
   resetCache,
+  removeAuthToken,
+  removeTenantId,
+  scrubSecrets,
 };

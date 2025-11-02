@@ -1,6 +1,7 @@
 // main.js
 
-const { resetCache: resetConfigCache, readConfig } = require('./src/main/db/config');
+const { resetCache: resetConfigCache, readConfig, removeAuthToken, scrubSecrets } = require('./src/main/db/config');
+
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
@@ -106,6 +107,8 @@ function createMainWindow() {
     // broadcast modules tout de suite après affichage
     setTimeout(broadcastConfigOnReady, 150);
   });
+  // sécurité: si la page recharge, on renvoie la config
+  mainWin.webContents.on('did-finish-load', () => setTimeout(broadcastConfigOnReady, 50));
   mainWin.on('closed', () => { mainWin = null; });
 }
 
@@ -123,6 +126,10 @@ function createLoginWindow() {
     },
   });
   loginWin.loadFile('src/renderer/login.html');
+  loginWin.once('ready-to-show', () => {
+    setTimeout(broadcastConfigOnReady, 150);
+  });
+  loginWin.webContents.on('did-finish-load', () => setTimeout(broadcastConfigOnReady, 50));
   loginWin.on('closed', () => { loginWin = null; });
 }
 
@@ -143,6 +150,7 @@ function createOnboardingWindow() {
   onboardWin.once('ready-to-show', () => {
     setTimeout(broadcastConfigOnReady, 150);
   });
+  onboardWin.webContents.on('did-finish-load', () => setTimeout(broadcastConfigOnReady, 50));
   onboardWin.on('closed', () => { onboardWin = null; });
 }
 
@@ -422,7 +430,10 @@ ipcMain.handle('onboarding:submit', async (_e, payload) => {
 ipcMain.handle('auth:logout', async () => {
   try {
     logout();
-    try { resetConfigCache(); } catch {}
+
+    // Purge disque & env → évite l’auto-login au prochain démarrage
+    try { removeAuthToken && removeAuthToken(); } catch {}
+    try { resetConfigOnLogout(); } catch {}
 
     try {
       const { resetCache } = require('./src/main/db/tenantDb');
@@ -445,6 +456,13 @@ ipcMain.handle('auth:logout', async () => {
     return { ok: false, error: e?.message || String(e) };
   }
 });
+
+// petite aide: centralise purge env+cache config
+function resetConfigOnLogout() {
+  try { resetConfigCache(); } catch {}
+  delete process.env.API_AUTH_TOKEN;
+  delete process.env.TENANT_ID;
+}
 
 ipcMain.handle('app:go-main', async () => {
   ensureEmailHandlers();
@@ -587,6 +605,11 @@ const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
+// 🔒 Purge défensive des secrets dans config.json
+try {
+  const removed = scrubSecrets();
+  if (removed) console.log('[config] Secrets purgés depuis config.json (auth_token/tenant_id).');
+} catch {}
 
   // 1) Config → API base
   try {
@@ -595,6 +618,16 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.warn('[config] lecture impossible:', e?.message || e);
   }
+
+  // 👉 Option pour forcer l'écran de login (ne pas auto-reprendre un token)
+  try {
+    if (process.env.FORCE_LOGIN === '1') {
+      removeAuthToken && removeAuthToken();
+      delete process.env.API_AUTH_TOKEN;
+      delete process.env.TENANT_ID;
+      console.log('[auth] FORCE_LOGIN=1 → token purgé, on affichera la page de login.');
+    }
+  } catch {}
 
   // 2) Auth (token or login via config creds)
   let auth = { ok: false };

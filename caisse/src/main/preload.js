@@ -5,6 +5,9 @@ const { contextBridge, ipcRenderer } = require('electron');
    Allow-list des events écoutables côté renderer
 -------------------------------------------------- */
 const ALLOWED_EVENTS = new Set([
+  // ✅ modules/config
+  'config:changed',
+
   // sync + chip
   'sync:state',          // { status, pending, lastError? }
   'ops:pushed',          // { count }
@@ -43,12 +46,26 @@ function off(channel, listener) {
 contextBridge.exposeInMainWorld('electronEvents', { on, off, once });
 
 /* -------------------------------------------------
+   Helper dédié pour la config (évite les doublons)
+-------------------------------------------------- */
+function onConfigChanged(cb) {
+  // on nettoie d'abord pour éviter les abonnements multiples au hot-reload
+  ipcRenderer.removeAllListeners('config:changed');
+  const handler = (_e, cfg) => {
+    try { cb(cfg); } catch {}
+  };
+  ipcRenderer.on('config:changed', handler);
+  return () => ipcRenderer.removeListener('config:changed', handler);
+}
+
+/* -------------------------------------------------
    API principale (IPC invoke)
    ⚠️ Alignée avec les handlers déclarés dans main.js
 -------------------------------------------------- */
 contextBridge.exposeInMainWorld('electronAPI', {
-  /* -------- Events (utilisés par le chip) -------- */
+  /* -------- Events (utilisés par le chip et config) -------- */
   on, off, once,
+  onConfigChanged,
 
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),

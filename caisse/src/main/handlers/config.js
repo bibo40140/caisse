@@ -1,8 +1,10 @@
 // src/main/handlers/config.js
+'use strict';
+
 const { ipcMain, BrowserWindow } = require('electron');
 const { readConfig, writeConfig } = require('../db/config');
 
-// ✅ Clés autorisées (étendues pour ne plus couper des modules à l'init)
+// ✅ Clés autorisées (étendues pour éviter de couper des modules à l'init)
 const ALLOWED_MODULE_KEYS = [
   'adherents',
   'cotisations',
@@ -30,33 +32,36 @@ function broadcastConfig(cfg) {
   }
 }
 
-// mêmes règles que modules.js pour éviter les divergences
+// ⚙️ Normalisation identique à handlers/modules.js (pour éviter les divergences)
 function normalizeModules(current = {}, incoming = {}) {
   const next = { ...current, ...incoming };
 
-  // défauts
+  // Valeurs par défaut
   if (typeof next.ventes_exterieur !== 'boolean') next.ventes_exterieur = false;
 
-  // emails ⇆ email
+  // Harmonisation email ⇄ emails
   if (typeof next.emails === 'boolean' && typeof next.email !== 'boolean') next.email = next.emails;
   if (typeof next.email  === 'boolean' && typeof next.emails !== 'boolean') next.emails = next.email;
 
-  // dépendances
+  // Dépendances métier
   if (!next.adherents) {
     next.cotisations = false;
     next.prospects   = false;
+    next.emails      = false;
+    next.email       = false;
   }
   if (!next.fournisseurs) {
     next.receptions = false;
   }
-  // UI réceptions pilotée par stocks (règle projet)
+
+  // Règle projet : réceptions suit stocks
   next.receptions = !!next.stocks;
 
   return next;
 }
 
 module.exports = function registerConfigHandlers(ipcMainInstance = ipcMain) {
-  // ménage (reload dev)
+  // Ménage (utile en reload dev)
   try { ipcMainInstance.removeHandler('config:get'); } catch {}
   try { ipcMainInstance.removeHandler('config:update-modules'); } catch {}
   try { ipcMainInstance.removeHandler('config:get-ventes-margin'); } catch {}
@@ -67,12 +72,13 @@ module.exports = function registerConfigHandlers(ipcMainInstance = ipcMain) {
     return readConfig();
   });
 
-  // Mettre à jour les modules (sanitise + normalise + deps + broadcast)
+  // Mettre à jour les modules (sanitize + normalize + deps + broadcast)
   ipcMainInstance.handle('config:update-modules', async (_e, modules) => {
     if (!modules || typeof modules !== 'object') {
       throw new Error('Modules invalides');
     }
-    // garder uniquement les clés autorisées + valider booléens
+
+    // Garder uniquement les clés autorisées et s’assurer que ce sont des booléens
     const sanitized = {};
     for (const [k, v] of Object.entries(modules)) {
       if (!ALLOWED_MODULE_KEYS.includes(k)) continue;
@@ -92,21 +98,27 @@ module.exports = function registerConfigHandlers(ipcMainInstance = ipcMain) {
     return { status: 'ok', config: saved };
   });
 
-  // Lire la marge ventes extérieures
+  // Lire la marge ventes extérieures (compat nouvelle/ancienne clé)
   ipcMainInstance.handle('config:get-ventes-margin', async () => {
     const cfg = readConfig();
-    let percent = Number(cfg.ventes_ext_margin_percent);
+    let percent = Number(
+      cfg.ventes_exterieur_margin_percent !== undefined
+        ? cfg.ventes_exterieur_margin_percent
+        : cfg.ventes_ext_margin_percent // rétro-compat
+    );
     if (!Number.isFinite(percent) || percent < 0) percent = 30;
     return { percent };
   });
 
-  // Écrire la marge ventes extérieures
+  // Écrire la marge ventes extérieures (clé actuelle)
   ipcMainInstance.handle('config:set-ventes-margin', async (_e, percent) => {
     let p = Number(percent);
     if (!Number.isFinite(p) || p < 0) throw new Error('Pourcentage invalide');
     if (p > 1000) p = 1000; // garde-fou
-    const updated = writeConfig({ ventes_ext_margin_percent: p });
+
+    const updated = writeConfig({ ventes_exterieur_margin_percent: p });
     broadcastConfig(updated);
-    return { status: 'ok', percent: updated.ventes_ext_margin_percent };
+
+    return { status: 'ok', percent: updated.ventes_exterieur_margin_percent };
   });
 };
