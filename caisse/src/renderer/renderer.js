@@ -76,6 +76,37 @@
     chip.className = 'sync-chip ' + (cls || '');
   }
 
+
+  // --- Logout button wiring ---
+(function wireLogoutButton() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('btn-logout');
+    if (!btn) return;
+
+    // Évite les multiples listeners si reload
+    const fresh = btn.cloneNode(true);
+    btn.replaceWith(fresh);
+
+    fresh.addEventListener('click', async () => {
+      try {
+        fresh.disabled = true;
+        const old = fresh.textContent;
+        fresh.textContent = 'Déconnexion…';
+        const res = await window.electronAPI.logout();
+        if (!res || res.ok !== true) {
+          throw new Error(res?.error || 'Déconnexion impossible');
+        }
+        // Le main fermera la fenêtre et ouvrira la page de login.
+      } catch (e) {
+        console.error('[logout] error:', e);
+        alert('Échec de la déconnexion : ' + (e?.message || e));
+        fresh.disabled = false;
+        fresh.textContent = 'Se déconnecter';
+      }
+    });
+  });
+})();
+
   async function doManualSync() {
     const chip = document.getElementById('sync-indicator');
     if (!chip || chip.dataset.busy === '1') return;
