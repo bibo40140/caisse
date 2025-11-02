@@ -20,8 +20,27 @@ function setState(status, info = {}) {
   notifyRenderer('sync:state', { status, ...info, ts: Date.now() });
 }
 
+/* ========== Utils schéma local ========== */
+function tableCols(table) {
+  try {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+    const set = new Set(rows.map(r => r.name));
+    return { set, rows };
+  } catch {
+    return { set: new Set(), rows: [] };
+  }
+}
+function hasCol(table, col) {
+  return tableCols(table).set.has(col);
+}
+function asIntOrNull(v) {
+  const n = Number(v);
+  return Number.isInteger(n) ? n : null;
+}
+
 /* -------------------------------------------------
    PULL refs depuis Neon -> Sauvegarde locale
+   (correspondance par code_barre puis reference)
 --------------------------------------------------*/
 async function pullRefs({ since = null } = {}) {
   const qs = since ? `?since=${encodeURIComponent(since)}` : '';
@@ -53,6 +72,7 @@ async function pullRefs({ since = null } = {}) {
     modes_paiement = [],
   } = d;
 
+  /* ---- Upserts simples (id ENTIER local) ---- */
   const upUnite = db.prepare(
     `INSERT INTO unites (id, nom) VALUES (?, ?)
      ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
@@ -86,15 +106,6 @@ async function pullRefs({ since = null } = {}) {
       adresse=excluded.adresse, code_postal=excluded.code_postal, ville=excluded.ville,
       categorie_id=excluded.categorie_id, referent_id=excluded.referent_id, label=excluded.label
   `);
-  const upProd = db.prepare(`
-    INSERT INTO produits
-      (id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET
-      nom=excluded.nom, reference=excluded.reference, prix=excluded.prix, stock=excluded.stock,
-      code_barre=excluded.code_barre, unite_id=excluded.unite_id, fournisseur_id=excluded.fournisseur_id,
-      categorie_id=excluded.categorie_id, updated_at=excluded.updated_at
-  `);
   const upMode = db.prepare(`
     INSERT INTO modes_paiement (id, nom, taux_percent, frais_fixe, actif)
     VALUES (?,?,?,?,?)
@@ -102,16 +113,49 @@ async function pullRefs({ since = null } = {}) {
       nom=excluded.nom, taux_percent=excluded.taux_percent, frais_fixe=excluded.frais_fixe, actif=excluded.actif
   `);
 
+  /* ---- Produits : correspondance par code_barre / reference + remote_uuid ---- */
+  const produitsHasRemote = hasCol('produits', 'remote_uuid');
+  const produitsHasUpdatedAt = hasCol('produits', 'updated_at');
+
+  // requêtes utilitaires
+  const selProdByBarcode = db.prepare(`SELECT id FROM produits WHERE REPLACE(COALESCE(code_barre,''),' ','') = REPLACE(COALESCE(?,''),' ','') LIMIT 1`);
+  const selProdByReference = db.prepare(`SELECT id FROM produits WHERE reference = ? LIMIT 1`);
+  const updProdCore = db.prepare(`
+    UPDATE produits
+       SET nom = COALESCE(?, nom),
+           reference = COALESCE(?, reference),
+           prix = COALESCE(?, prix),
+           stock = COALESCE(?, stock),
+           code_barre = COALESCE(?, code_barre)
+     WHERE id = ?
+  `);
+  const updProdRemoteUuid = produitsHasRemote
+    ? db.prepare(`UPDATE produits SET remote_uuid = ? WHERE id = ?`)
+    : null;
+  const updProdUpdatedAt = produitsHasUpdatedAt
+    ? db.prepare(`UPDATE produits SET updated_at = ? WHERE id = ?`)
+    : null;
+
+  const insProdBaseColumns = (() => {
+    const cols = ['nom','reference','prix','stock','code_barre'];
+    if (produitsHasRemote) cols.push('remote_uuid');
+    if (produitsHasUpdatedAt) cols.push('updated_at');
+    const placeholders = cols.map(() => '?').join(',');
+    return { cols, placeholders };
+  })();
+
+  const insProd = db.prepare(`
+    INSERT INTO produits (${insProdBaseColumns.cols.join(',')})
+    VALUES (${insProdBaseColumns.placeholders})
+  `);
+
   const tx = db.transaction(() => {
-    const asInt = (v) => {
-      const n = Number(v);
-      return Number.isInteger(n) ? n : null;
-    };
+    const asInt = asIntOrNull;
 
     // Unités
     for (const r of unites) {
       const id = asInt(r.id);
-      if (id == null) continue; // évite "datatype mismatch"
+      if (id == null) continue;
       upUnite.run(id, r.nom);
     }
 
@@ -126,8 +170,7 @@ async function pullRefs({ since = null } = {}) {
     for (const r of categories) {
       const id = asInt(r.id);
       if (id == null) continue;
-      const famId = asInt(r.famille_id);
-      upCat.run(id, r.nom, famId);
+      upCat.run(id, r.nom, asInt(r.famille_id));
     }
 
     // Adhérents
@@ -145,25 +188,57 @@ async function pullRefs({ since = null } = {}) {
     for (const r of fournisseurs) {
       const id = asInt(r.id);
       if (id == null) continue;
-      const catId = asInt(r.categorie_id);
-      const refId = asInt(r.referent_id);
       upFour.run(
         id, r.nom, r.contact, r.email, r.telephone, r.adresse, r.code_postal, r.ville,
-        catId, refId, r.label ?? null
+        asInt(r.categorie_id), asInt(r.referent_id), r.label ?? null
       );
     }
 
-    // Produits
+    // Produits (match par code_barre puis reference)
     for (const r of produits) {
-      const id  = asInt(r.id);
-      if (id == null) continue;
-      const uId = asInt(r.unite_id);
-      const fId = asInt(r.fournisseur_id);
-      const cId = asInt(r.categorie_id);
-      upProd.run(
-        id, r.nom, r.reference, Number(r.prix ?? 0), Number(r.stock ?? 0),
-        r.code_barre ?? null, uId, fId, cId, r.updated_at || null
-      );
+      const remoteUUID = r.id || null;        // UUID côté Neon
+      const codeBarre  = r.code_barre || null;
+      const reference  = r.reference || null;
+
+      let localId = null;
+      if (codeBarre) {
+        const hit = selProdByBarcode.get(codeBarre);
+        if (hit && hit.id != null) localId = hit.id;
+      }
+      if (localId == null && reference) {
+        const hit2 = selProdByReference.get(reference);
+        if (hit2 && hit2.id != null) localId = hit2.id;
+      }
+
+      if (localId != null) {
+        // Mise à jour
+        updProdCore.run(
+          r.nom ?? null,
+          reference ?? null,
+          Number(r.prix ?? 0),
+          Number(r.stock ?? 0),
+          codeBarre ?? null,
+          localId
+        );
+        if (produitsHasRemote && remoteUUID) {
+          try { updProdRemoteUuid.run(remoteUUID, localId); } catch {}
+        }
+        if (produitsHasUpdatedAt) {
+          try { updProdUpdatedAt.run(r.updated_at || null, localId); } catch {}
+        }
+      } else {
+        // Insertion (sans FK, on n’écrit PAS unite_id/fournisseur_id/categorie_id ici)
+        const values = [
+          r.nom ?? null,
+          reference ?? null,
+          Number(r.prix ?? 0),
+          Number(r.stock ?? 0),
+          codeBarre ?? null,
+        ];
+        if (produitsHasRemote) values.push(remoteUUID);
+        if (produitsHasUpdatedAt) values.push(r.updated_at || null);
+        try { insProd.run(...values); } catch { /* ex: contraintes locales → on ignore */ }
+      }
     }
 
     // Modes de paiement
@@ -253,7 +328,6 @@ async function pushOpsNow(deviceId) {
   try {
     await pullRefs();
   } catch (e) {
-    // pull raté mais push ok ⇒ on reste "online" avec phase erreur pull
     setState('online', { phase: 'pull_failed', error: String(e) });
   }
 
@@ -266,7 +340,18 @@ async function pushOpsNow(deviceId) {
    BOOTSTRAP / HYDRATE
 --------------------------------------------------*/
 function collectLocalRefs() {
+  // Nettoyage FK côté payload : si une FK pointe vers un id inexistant, on l’envoie en NULL.
+  const exists = (table, id) => {
+    const n = asIntOrNull(id);
+    if (n == null) return false;
+    try {
+      const r = db.prepare(`SELECT 1 FROM ${table} WHERE id = ? LIMIT 1`).get(n);
+      return !!r;
+    } catch { return false; }
+  };
+
   const all = (sql) => db.prepare(sql).all();
+
   const unites = all(`SELECT id, nom FROM unites ORDER BY id`);
   const familles = all(`SELECT id, nom FROM familles ORDER BY id`);
   const categories = all(`SELECT id, nom, famille_id FROM categories ORDER BY id`);
@@ -278,11 +363,22 @@ function collectLocalRefs() {
   const fournisseurs = all(`
     SELECT id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label
     FROM fournisseurs ORDER BY id
-  `);
+  `).map(f => ({
+    ...f,
+    categorie_id: exists('categories', f.categorie_id) ? f.categorie_id : null,
+    referent_id: exists('adherents', f.referent_id) ? f.referent_id : null,
+  }));
+
   const produits = all(`
     SELECT id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at
     FROM produits ORDER BY id
-  `);
+  `).map(p => ({
+    ...p,
+    unite_id: exists('unites', p.unite_id) ? p.unite_id : null,
+    fournisseur_id: exists('fournisseurs', p.fournisseur_id) ? p.fournisseur_id : null,
+    categorie_id: exists('categories', p.categorie_id) ? p.categorie_id : null,
+  }));
+
   const modes_paiement = all(`SELECT id, nom, taux_percent, frais_fixe, actif FROM modes_paiement ORDER BY id`);
   return { unites, familles, categories, adherents, fournisseurs, produits, modes_paiement };
 }
