@@ -210,6 +210,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------------- Stock (batch) ------------------ */
   ajusterStockBulk: (payload) => ipcRenderer.invoke('stock:adjust-bulk', payload),
 
+
+  // --- Branding (nom + logo) ---
+  brandingGet: () => ipcRenderer.invoke('branding:get'),
+  brandingSet: (payload) => ipcRenderer.invoke('branding:set', payload),
+
+
   /* -------------- Prospects ---------------------- */
   listProspects: (filters) => ipcRenderer.invoke('prospects:list', filters),
   createProspect: (p) => ipcRenderer.invoke('prospects:create', p),

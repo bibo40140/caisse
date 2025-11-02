@@ -2,10 +2,12 @@
 
 const { resetCache: resetConfigCache, readConfig, removeAuthToken, scrubSecrets } = require('./src/main/db/config');
 
-
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const jwt = require('jsonwebtoken');
+
+// ✅ On centralise l’IPC branding dans src/main/branding.js
+const { registerBrandingIpc } = require('./src/main/branding');
 
 // ===============================
 // Broadcast config/modules to UI
@@ -40,20 +42,8 @@ const authCache = {
   user_id: null,
 };
 
-// --- garde-fou pour handlers email
-let _emailHandlersRegistered = false;
-function ensureEmailHandlers() {
-  if (_emailHandlersRegistered) return;
-  try {
-    const registerEmailHandlers = require('./src/main/handlers/email');
-    registerEmailHandlers();
-    _emailHandlersRegistered = true;
-    console.log('[main] email handlers registered');
-  } catch (e) {
-    // Ne pas faire planter l’app si le module n’existe pas encore
-    console.error('[main] email handlers registration failed:', e?.message || e);
-  }
-}
+// ❌ SUPPRIMÉ : re-déclaration de readConfig/writeConfig et tout le code "branding:*" inline
+//   -> on utilise maintenant exclusivement src/main/branding.js
 
 function computeAuthInfoFromToken(token) {
   if (!token) return { role: 'user', is_super_admin: false, tenant_id: null, user_id: null, email: null };
@@ -464,6 +454,9 @@ function resetConfigOnLogout() {
   delete process.env.TENANT_ID;
 }
 
+// ✅ Enregistre UNE FOIS les handlers branding (idempotent dans branding.js)
+registerBrandingIpc();
+
 ipcMain.handle('app:go-main', async () => {
   ensureEmailHandlers();
   if (onboardWin) { onboardWin.close(); onboardWin = null; }
@@ -605,11 +598,11 @@ const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
-// 🔒 Purge défensive des secrets dans config.json
-try {
-  const removed = scrubSecrets();
-  if (removed) console.log('[config] Secrets purgés depuis config.json (auth_token/tenant_id).');
-} catch {}
+  // 🔒 Purge défensive des secrets dans config.json
+  try {
+    const removed = scrubSecrets();
+    if (removed) console.log('[config] Secrets purgés depuis config.json (auth_token/tenant_id).');
+  } catch {}
 
   // 1) Config → API base
   try {
@@ -707,6 +700,21 @@ try {
     createMainWindow();
   }
 });
+
+// --- garde-fou pour handlers email
+let _emailHandlersRegistered = false;
+function ensureEmailHandlers() {
+  if (_emailHandlersRegistered) return;
+  try {
+    const registerEmailHandlers = require('./src/main/handlers/email');
+    registerEmailHandlers();
+    _emailHandlersRegistered = true;
+    console.log('[main] email handlers registered');
+  } catch (e) {
+    // Ne pas faire planter l’app si le module n’existe pas encore
+    console.error('[main] email handlers registration failed:', e?.message || e);
+  }
+}
 
 // ---------------------------------
 // IPC utilitaires + handlers existants

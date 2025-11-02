@@ -1,5 +1,8 @@
 // src/renderer/pages/parametres.js
 (() => {
+  // ----------------------------
+  // Helpers UI
+  // ----------------------------
   function showBusy(message = 'Veuillez patienter…') {
     let overlay = document.getElementById('busy-overlay');
     if (!overlay) {
@@ -34,7 +37,9 @@
   }
   function showAlertModal(msg) { alert(msg); }
 
-  // --- Modules (tenant) ---
+  // ----------------------------
+  // Modules (tenant)
+  // ----------------------------
   async function getActiveModules() {
     try {
       if (window.electronAPI?.getTenantModules) {
@@ -56,65 +61,69 @@
     if (window.electronAPI?.setModules) { try { await window.electronAPI.setModules(modules); } catch {} }
   }
 
+  // ----------------------------
+  // Accueil Paramètres (sans identité)
+  // ----------------------------
   function renderParametresHome() {
-// Styles de layout uniquement (pas de styles de boutons ici)
-if (!document.getElementById('params-menu-style')) {
-  const st = document.createElement('style');
-  st.id = 'params-menu-style';
-  st.textContent = `
-    /* Le conteneur prend toute la largeur */
-    #page-content .params-actions { display:block !important; width:100% !important; }
+    // Styles de layout uniquement (pas de styles de boutons ici)
+    if (!document.getElementById('params-menu-style')) {
+      const st = document.createElement('style');
+      st.id = 'params-menu-style';
+      st.textContent = `
+        /* Le conteneur prend toute la largeur */
+        #page-content .params-actions { display:block !important; width:100% !important; }
 
-    /* Grille responsive SANS TROUS, et imposée avec !important */
-    #page-content ul.params-menu {
-      display: grid !important;
-      width: 100% !important;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) !important;
-      gap: 12px !important;
-      grid-auto-flow: row dense !important;
-      list-style: none !important;
-      padding: 0 !important;
-      margin: 0 !important;
+        /* Grille responsive SANS TROUS, et imposée avec !important */
+        #page-content ul.params-menu {
+          display: grid !important;
+          width: 100% !important;
+          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) !important;
+          gap: 12px !important;
+          grid-auto-flow: row dense !important;
+          list-style: none !important;
+          padding: 0 !important;
+          margin: 0 !important;
+        }
+
+        /* Un <li> masqué ne réserve aucune place */
+        #page-content ul.params-menu > li[hidden] { display: none !important; }
+
+        /* Les boutons s'étirent dans leur cellule */
+        #page-content ul.params-menu > li > .btn {
+          display: inline-flex !important;
+          width: 100% !important;
+          justify-content: center !important;
+        }
+      `;
+      document.head.appendChild(st);
     }
-
-    /* Un <li> masqué ne réserve aucune place */
-    #page-content ul.params-menu > li[hidden] { display: none !important; }
-
-    /* Les boutons s'étirent dans leur cellule */
-    #page-content ul.params-menu > li > .btn {
-      display: inline-flex !important;
-      width: 100% !important;
-      justify-content: center !important;
-    }
-  `;
-  document.head.appendChild(st);
-}
 
     const content = document.getElementById('page-content');
     content.innerHTML = `
       <h2>Paramètres</h2>
+
+      <!-- ⚠️ Identité retirée : on gère le logo dans "Logo" -->
       <div class="params-actions">
-
-      <ul class="params-menu">
-        <li><button id="btn-param-import" class="btn">📂 Import données</button></li>
-        <li><button id="btn-param-historique" class="btn">Historique des ventes</button></li>
-        <li><button id="btn-param-cotisations" class="btn">Cotisations</button></li>
-        <li><button id="btn-param-historiquerecetpion" class="btn">Historique réception</button></li>
-        <li><button id="btn-param-inv-histo" class="btn">Historique des inventaires</button></li>
-        <li><button id="btn-param-categories" class="btn">Gérer les catégories</button></li>
-        <li><button id="btn-param-unites" class="btn">Unités</button></li>
-        <li><button id="btn-param-modes" class="btn">Modes de paiement</button></li>
-        <li><button id="btn-param-modules" class="btn">Modules</button></li>
-        <li><button id="btn-param-prospects" class="btn">Prospects</button></li>
-        <li><button id="btn-sync-push" class="btn">Push produits (local → Neon)</button></li>
-        <li><button id="btn-sync-pull" class="btn">Pull produits (Neon → local)</button></li>
-        <li><button id="btn-tenants-admin" class="btn" style="display:none;">Tenants (Super admin)</button></li>
-        <li><button id="btn-param-email" class="btn">Email d’envoi</button></li>
-        <li><button id="btn-param-logo" class="btn">Logo</button></li>
-
-        <li><button id="btn-param-autres" class="btn">Autres paramètres</button></li>
-      </ul>
+        <ul class="params-menu">
+          <li><button id="btn-param-import" class="btn">📂 Import données</button></li>
+          <li><button id="btn-param-historique" class="btn">Historique des ventes</button></li>
+          <li><button id="btn-param-cotisations" class="btn">Cotisations</button></li>
+          <li><button id="btn-param-historiquerecetpion" class="btn">Historique réception</button></li>
+          <li><button id="btn-param-inv-histo" class="btn">Historique des inventaires</button></li>
+          <li><button id="btn-param-categories" class="btn">Gérer les catégories</button></li>
+          <li><button id="btn-param-unites" class="btn">Unités</button></li>
+          <li><button id="btn-param-modes" class="btn">Modes de paiement</button></li>
+          <li><button id="btn-param-modules" class="btn">Modules</button></li>
+          <li><button id="btn-param-prospects" class="btn">Prospects</button></li>
+          <li><button id="btn-sync-push" class="btn">Push produits (local → Neon)</button></li>
+          <li><button id="btn-sync-pull" class="btn">Pull produits (Neon → local)</button></li>
+          <li><button id="btn-tenants-admin" class="btn" style="display:none;">Tenants (Super admin)</button></li>
+          <li><button id="btn-param-email" class="btn">Email d’envoi</button></li>
+          <li><button id="btn-param-logo" class="btn">Logo</button></li>
+          <li><button id="btn-param-autres" class="btn">Autres paramètres</button></li>
+        </ul>
       </div>
+
       <div id="parametres-souspage"></div>
     `;
 
@@ -135,7 +144,7 @@ if (!document.getElementById('params-menu-style')) {
       btnTen.style.display = isSuper ? '' : 'none';
       if (isSuper && !btnTen.__bound) { btnTen.addEventListener('click', renderTenantsAdmin); btnTen.__bound = true; }
     }
-    async function detectSuperAdmin() {
+    (async function detectSuperAdmin() {
       try {
         if (window.electronAPI?.getAuthInfo) {
           const info = await window.electronAPI.getAuthInfo();
@@ -146,8 +155,7 @@ if (!document.getElementById('params-menu-style')) {
         const tok = window.ApiClient?.getToken?.() || localStorage.getItem('auth_token') || localStorage.getItem('mt_token') || localStorage.getItem('jwt');
         if (tok) { const payload = decodeJwtPayload(tok); showTenantButtonIfSuper(payload); }
       } catch {}
-    }
-    detectSuperAdmin();
+    })();
 
     // Voyant réseau/sync (layout only)
     (function ensureSyncStatusBadge(){
@@ -186,7 +194,7 @@ if (!document.getElementById('params-menu-style')) {
 
     // Connexion API (chargement silencieux)
     (async function setupMtAuthUI(){
-      try { await loadScriptOnce('src/renderer/lib/apiClient.js'); detectSuperAdmin(); } catch {}
+      try { await loadScriptOnce('src/renderer/lib/apiClient.js'); } catch {}
     })();
 
     // Boutons → sous-pages
@@ -202,7 +210,7 @@ if (!document.getElementById('params-menu-style')) {
     document.getElementById('btn-param-autres')         ?.addEventListener('click', () => window.renderGestionParametres?.());
     document.getElementById('btn-param-email')          ?.addEventListener('click', () => renderEmailSettings());
     document.getElementById('btn-param-logo')
-  ?.addEventListener('click', () => renderTenantLogoSettings());
+      ?.addEventListener('click', () => window.PageParams.renderTenantBrandingSettings());
 
     document.getElementById('btn-param-prospects')?.addEventListener('click', async () => {
       try {
@@ -214,29 +222,20 @@ if (!document.getElementById('params-menu-style')) {
       } catch (e) { console.error(e); alert("Impossible d'ouvrir la page Prospects."); }
     });
 
-    // Masquer proprement les entrées en fonction des modules actifs
-(async () => {
-  const mods = await getActiveModules();
-
-  // helper : masque le <li> parent (pas seulement le bouton)
-  const toggleLi = (btnId, show) => {
-    const btn = document.getElementById(btnId);
-    if (!btn) return;
-    const li = btn.closest('li') || btn;
-    if (show) {
-      li.removeAttribute('hidden');
-      li.style.display = '';
-    } else {
-      li.setAttribute('hidden', '');
-      li.style.display = 'none';
-    }
-  };
-
-  toggleLi('btn-param-cotisations',  !!mods.cotisations);
-  toggleLi('btn-param-prospects',    !!mods.prospects);
-  toggleLi('btn-param-modes',        !!mods.modes_paiement);
-})();
-
+    // Masquer propres entrées en fonction des modules actifs
+    (async () => {
+      const mods = await getActiveModules();
+      const toggleLi = (btnId, show) => {
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        const li = btn.closest('li') || btn;
+        if (show) { li.removeAttribute('hidden'); li.style.display = ''; }
+        else { li.setAttribute('hidden', ''); li.style.display = 'none'; }
+      };
+      toggleLi('btn-param-cotisations',  !!mods.cotisations);
+      toggleLi('btn-param-prospects',    !!mods.prospects);
+      toggleLi('btn-param-modes',        !!mods.modes_paiement);
+    })();
 
     // Sync push/pull (boutons sans styles)
     document.getElementById('btn-sync-push')?.addEventListener('click', async () => {
@@ -312,9 +311,9 @@ if (!document.getElementById('params-menu-style')) {
     });
   }
 
-  // ----------------------------------------
+  // ----------------------------
   // Utils
-  // ----------------------------------------
+  // ----------------------------
   function loadScriptOnce(src) {
     return new Promise((resolve, reject) => {
       if (document.querySelector(`script[data-dyn="${src}"]`)) return resolve();
@@ -338,7 +337,9 @@ if (!document.getElementById('params-menu-style')) {
     } catch { return ''; }
   }
 
-  // --- Catégories (mise en page sans toucher aux boutons) ---
+  // ----------------------------
+  // Catégories
+  // ----------------------------
   async function renderGestionCategories() {
     const el = document.getElementById('parametres-souspage');
     if (!el) return;
@@ -544,6 +545,9 @@ if (!document.getElementById('params-menu-style')) {
     });
   }
 
+  // ----------------------------
+  // Unités
+  // ----------------------------
   async function renderGestionUnites() {
     const container = document.getElementById('parametres-souspage');
     const unites = await window.electronAPI.getUnites();
@@ -614,6 +618,9 @@ if (!document.getElementById('params-menu-style')) {
     });
   }
 
+  // ----------------------------
+  // Historique des ventes
+  // ----------------------------
   async function renderHistoriqueFactures() {
     const container = document.getElementById('page-content');
     if (!container) return;
@@ -781,6 +788,9 @@ if (!document.getElementById('params-menu-style')) {
     });
   }
 
+  // ----------------------------
+  // Modes de paiement
+  // ----------------------------
   async function renderGestionModesPaiement() {
     const container = document.getElementById('parametres-souspage');
     const modes = await window.electronAPI.getModesPaiementAdmin();
@@ -857,6 +867,9 @@ if (!document.getElementById('params-menu-style')) {
     });
   }
 
+  // ----------------------------
+  // Activation des modules
+  // ----------------------------
   async function renderActivationModules() {
     const container = document.getElementById('page-content');
     if (!container) return;
@@ -1038,6 +1051,9 @@ if (!document.getElementById('params-menu-style')) {
     });
   }
 
+  // ----------------------------
+  // Historique inventaires
+  // ----------------------------
   async function renderHistoriqueInventaires() {
     const container = document.getElementById('parametres-souspage') || document.getElementById('page-content');
     const apiBase = await getApiBaseFromConfig();
@@ -1100,12 +1116,113 @@ if (!document.getElementById('params-menu-style')) {
       hideBusy();
     }
   }
+  async function fetchInventorySummary(apiBase, sessionId) {
+    const r = await fetch(`${apiBase}/inventory/${sessionId}/summary`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const js = await r.json();
+    if (!js?.ok) throw new Error(js?.error || 'Réponse invalide');
+    return js;
+  }
+  async function showInventoryDetailModal(apiBase, sessionId) {
+    showBusy('Chargement du détail…');
+    try {
+      const js = await fetchInventorySummary(apiBase, sessionId);
+      const lines = js.lines || [];
+      const sess  = js.session || {};
+      const date  = sess.started_at ? new Date(sess.started_at).toLocaleString() : '—';
 
+      const invValue = lines.reduce((acc, r) => acc + Number(r.counted_total || 0) * Number(r.prix || 0), 0);
+      const counted  = lines.filter(r => Number(r.counted_total || 0) !== 0).length;
+
+      const wrap = document.createElement('div');
+      wrap.className = 'modal-backdrop';
+      wrap.innerHTML = `
+        <div class="modal" style="background:#fff; border-radius:10px; padding:14px; max-width:95vw; max-height:90vh; overflow:auto;">
+          <h3 style="margin-top:0;">Inventaire #${sessionId} — ${sess.name || ''}</h3>
+          <div style="margin-bottom:8px; color:#555;">
+            Date : <strong>${date}</strong> — Produits inventoriés : <strong>${counted}</strong> — Valeur : <strong>${formatEUR(invValue)}</strong>
+          </div>
+          <table style="width:100%; border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th>Produit</th><th>Code</th><th>Stock initial</th><th>Compté</th><th>Écart</th><th>Prix</th><th>Valeur comptée</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lines.map(r => {
+                const start = Number(r.stock_start || 0);
+                const counted = Number(r.counted_total || 0);
+                const delta = counted - start;
+                const price = Number(r.prix || 0);
+                const val = counted * price;
+                return `
+                  <tr>
+                    <td>${r.nom || ''}</td>
+                    <td>${r.code_barre || ''}</td>
+                    <td>${start}</td>
+                    <td>${counted}</td>
+                    <td>${delta > 0 ? '+' : ''}${delta}</td>
+                    <td>${formatEUR(price)}</td>
+                    <td>${formatEUR(val)}</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+          <div style="text-align:right; margin-top:10px;">
+            <button class="btn modal-close">Fermer</button>
+          </div>
+        </div>
+        <style>.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:9999; }</style>
+      `;
+      document.body.appendChild(wrap);
+      wrap.querySelector('.modal-close').addEventListener('click', () => wrap.remove());
+      wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
+    } catch (e) {
+      alert('Erreur: ' + (e?.message || e));
+    } finally {
+      hideBusy();
+    }
+  }
+  function toCSV(rows) {
+    const esc = (v) => { const s = String(v ?? ''); return (/[",;\n]/.test(s)) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const header = ['product_id','nom','code_barre','stock_start','counted_total','ecart','prix','valeur_comptee'];
+    const body = rows.map(r => {
+      const start = Number(r.stock_start || 0);
+      const counted = Number(r.counted_total || 0);
+      const delta = counted - start;
+      const price = Number(r.prix || 0);
+      const val = counted * price;
+      return [ r.product_id, r.nom || '', r.code_barre || '', start, counted, delta, price.toFixed(2), val.toFixed(2) ].map(esc).join(';');
+    });
+    return [header.join(';'), ...body].join('\n');
+  }
+  async function exportInventoryCSV(apiBase, sessionId) {
+    showBusy('Préparation du CSV…');
+    try {
+      const js = await fetchInventorySummary(apiBase, sessionId);
+      const csv = toCSV(js.lines || []);
+      const name = (js.session?.name || `inventaire-${sessionId}`).replace(/[^\w\-]+/g, '_');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${name}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('Export CSV impossible : ' + (e?.message || e));
+    } finally {
+      hideBusy();
+    }
+  }
+
+  // ----------------------------
+  // Réglages e-mail (général)
+  // ----------------------------
   async function renderEmailSettings() {
     const host = document.getElementById('parametres-souspage') || document.getElementById('page-content');
     if (!host) return;
 
-    // Mise en page uniquement (pas de styles de boutons)
     if (!document.getElementById('email-settings-style')) {
       const st = document.createElement('style');
       st.id = 'email-settings-style';
@@ -1246,7 +1363,7 @@ if (!document.getElementById('params-menu-style')) {
     }
     applyProviderUI();
 
-    els.save.addEventListener('click', async () => {
+    els.save.addEventListener('click', () => (async () => {
       try {
         setMsg(els.saveMsg, 'Enregistrement…', true);
         const payload = {
@@ -1265,7 +1382,7 @@ if (!document.getElementById('params-menu-style')) {
       } catch (e) {
         setMsg(els.saveMsg, e?.message || String(e), false);
       }
-    });
+    })());
 
     els.testBtn.addEventListener('click', async () => {
       const to = els.testTo.value.trim();
@@ -1283,208 +1400,144 @@ if (!document.getElementById('params-menu-style')) {
     });
   }
 
-  async function renderTenantLogoSettings() {
-  const host = document.getElementById('parametres-souspage') || document.getElementById('page-content');
-  if (!host) return;
+  // ----------------------------
+  // Logo & Nom (branding IPC)
+  // ----------------------------
+  async function renderTenantBrandingSettings() {
+    const host = document.getElementById('parametres-souspage') || document.getElementById('page-content');
+    if (!host) return;
 
-  // Minimal scoped styles
-  if (!document.getElementById('logo-settings-style')) {
-    const st = document.createElement('style');
-    st.id = 'logo-settings-style';
-    st.textContent = `
-      .logo-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.05); max-width:760px; }
-      .logo-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-      .logo-box { width:220px; height:90px; border:1px dashed #cbd5e1; border-radius:10px; display:flex; align-items:center; justify-content:center; background:#f8fafc; }
-      .logo-box img { max-width:100%; max-height:100%; object-fit:contain; }
-      .muted { color:#6b7280; font-size:12px; }
-    `;
-    document.head.appendChild(st);
-  }
+    // Styles locaux
+    if (!document.getElementById('logo-settings-style')) {
+      const st = document.createElement('style');
+      st.id = 'logo-settings-style';
+      st.textContent = `
+        .logo-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.05); max-width:760px; }
+        .logo-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+        .logo-box { width:220px; height:90px; border:1px dashed #cbd5e1; border-radius:10px; display:flex; align-items:center; justify-content:center; background:#f8fafc; }
+        .logo-box img { max-width:100%; max-height:100%; object-fit:contain; }
+        .muted { color:#6b7280; font-size:12px; }
+        .grow { flex:1 1 260px; }
+        input[type="text"] { padding:6px 8px; }
+      `;
+      document.head.appendChild(st);
+    }
 
-  // load current
-  let current = '';
-  try {
-    const r = await window.electronAPI?.getOnboardingStatus?.();
-    const data = r?.data || r || {};
-    current = data.logo_url || data.logo || data.logo_dataUrl || '';
-  } catch {}
-
-  host.innerHTML = `
-    <div class="logo-card">
-      <h2 style="margin:0 0 8px 0;">Logo de l'épicerie</h2>
-      <div class="muted">Le logo apparaît en haut à gauche du menu.</div>
-      <div class="logo-row" style="margin-top:10px;">
-        <div class="logo-box">
-          ${current ? `<img id="logo-preview" src="${current}" alt="Logo">`
-                    : `<span class="muted">Aucun logo</span>`}
-        </div>
-        <div class="logo-actions" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <input id="logo-file" type="file" accept="image/*">
-          <button id="logo-save" class="btn">Enregistrer</button>
-          <button id="logo-remove" class="btn danger">Supprimer</button>
-          <span id="logo-msg" class="muted"></span>
+    host.innerHTML = `
+      <div class="logo-card">
+        <h2 style="margin:0 0 8px 0;">Logo & nom de l’épicerie</h2>
+        <div class="muted">Ces éléments s’affichent en haut à gauche du menu.</div>
+        <div class="logo-row" style="margin-top:10px;">
+          <div class="logo-box">
+            <img id="brand-preview" alt="Aperçu logo" style="display:none;">
+            <span id="brand-empty" class="muted">Aucun logo</span>
+          </div>
+          <div class="grow" style="display:flex; flex-direction:column; gap:8px;">
+            <label style="font-weight:600; font-size:12px;">Nom de l’épicerie</label>
+            <input id="brand-name" type="text" placeholder="Nom public">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input id="brand-file" type="file" accept="image/*">
+              <button id="brand-save" class="btn">Enregistrer</button>
+              <button id="brand-remove" class="btn danger">Supprimer le logo</button>
+              <span id="brand-msg" class="muted"></span>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  `;
+    `;
 
-  const $ = (sel) => host.querySelector(sel);
-  const msg = (t, ok=true) => { const m=$('#logo-msg'); if (!m) return; m.textContent=t||''; m.style.color = ok ? '#374151' : '#b91c1c'; };
+    const $ = (sel) => host.querySelector(sel);
+    const msg = (t, ok=true) => { const m=$('#brand-msg'); if (!m) return; m.textContent=t||''; m.style.color = ok ? '#374151' : '#b91c1c'; };
 
-  let dataUrlToSave = null;
+    const prev = $('#brand-preview');
+    const empty = $('#brand-empty');
+    const nameInput = $('#brand-name');
 
-  $('#logo-file')?.addEventListener('change', (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      dataUrlToSave = reader.result;
-      // create/refresh preview
-      let img = $('#logo-preview');
-      if (!img) {
-        const box = host.querySelector('.logo-box');
-        box.innerHTML = '<img id="logo-preview" alt="Logo">';
-        img = $('#logo-preview');
+    // Charger l'état actuel
+    try {
+      const r = await window.electronAPI?.brandingGet?.();
+      if (r?.ok) {
+        if (typeof r.name === 'string') nameInput.value = r.name;
+        if (r.logoFile) {
+          const src = `file://${String(r.logoFile).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+          prev.src = src;
+          prev.style.display = '';
+          empty.style.display = 'none';
+        } else {
+          prev.style.display = 'none';
+          empty.style.display = '';
+        }
       }
-      img.src = dataUrlToSave;
-      msg('Prévisualisation prête.');
-    };
-    reader.onerror = () => msg("Lecture de l'image impossible.", false);
-    reader.readAsDataURL(f);
-  });
-
-  $('#logo-save')?.addEventListener('click', async () => {
-    try {
-      if (!dataUrlToSave && !current) { msg('Choisis une image avant de sauvegarder.', false); return; }
-      msg('Enregistrement…');
-      const r = await window.electronAPI?.submitOnboarding?.({ logo_dataUrl: dataUrlToSave || current });
-      if (!r?.ok) throw new Error(r?.error || 'Échec');
-      const newUrl = r.logo_url || (r.data && (r.data.logo_url || r.data.logo)) || dataUrlToSave || current;
-      // refresh sidebar instantly
-      window.__refreshTenantLogo__?.(newUrl);
-      msg('Logo enregistré ✅');
     } catch (e) {
-      msg(e?.message || String(e), false);
+      msg('Impossible de charger le branding', false);
     }
-  });
 
-  $('#logo-remove')?.addEventListener('click', async () => {
-    if (!confirm('Supprimer le logo ?')) return;
-    try {
-      msg('Suppression…');
-      const r = await window.electronAPI?.submitOnboarding?.({ logo_dataUrl: null });
-      if (!r?.ok) throw new Error(r?.error || 'Échec');
-      const box = host.querySelector('.logo-box');
-      box.innerHTML = `<span class="muted">Aucun logo</span>`;
-      dataUrlToSave = null;
-      current = '';
-      window.__refreshTenantLogo__?.('');
-      msg('Logo supprimé ✅');
-    } catch (e) { msg(e?.message || String(e), false); }
-  });
-}
+    let selectedDataUrl = null;
 
-
-  async function fetchInventorySummary(apiBase, sessionId) {
-    const r = await fetch(`${apiBase}/inventory/${sessionId}/summary`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const js = await r.json();
-    if (!js?.ok) throw new Error(js?.error || 'Réponse invalide');
-    return js;
-  }
-  async function showInventoryDetailModal(apiBase, sessionId) {
-    showBusy('Chargement du détail…');
-    try {
-      const js = await fetchInventorySummary(apiBase, sessionId);
-      const lines = js.lines || [];
-      const sess  = js.session || {};
-      const date  = sess.started_at ? new Date(sess.started_at).toLocaleString() : '—';
-
-      const invValue = lines.reduce((acc, r) => acc + Number(r.counted_total || 0) * Number(r.prix || 0), 0);
-      const counted  = lines.filter(r => Number(r.counted_total || 0) !== 0).length;
-
-      const wrap = document.createElement('div');
-      wrap.className = 'modal-backdrop';
-      wrap.innerHTML = `
-        <div class="modal" style="background:#fff; border-radius:10px; padding:14px; max-width:95vw; max-height:90vh; overflow:auto;">
-          <h3 style="margin-top:0;">Inventaire #${sessionId} — ${sess.name || ''}</h3>
-          <div style="margin-bottom:8px; color:#555;">
-            Date : <strong>${date}</strong> — Produits inventoriés : <strong>${counted}</strong> — Valeur : <strong>${formatEUR(invValue)}</strong>
-          </div>
-          <table style="width:100%; border-collapse:collapse;">
-            <thead>
-              <tr>
-                <th>Produit</th><th>Code</th><th>Stock initial</th><th>Compté</th><th>Écart</th><th>Prix</th><th>Valeur comptée</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${lines.map(r => {
-                const start = Number(r.stock_start || 0);
-                const counted = Number(r.counted_total || 0);
-                const delta = counted - start;
-                const price = Number(r.prix || 0);
-                const val = counted * price;
-                return `
-                  <tr>
-                    <td>${r.nom || ''}</td>
-                    <td>${r.code_barre || ''}</td>
-                    <td>${start}</td>
-                    <td>${counted}</td>
-                    <td>${delta > 0 ? '+' : ''}${delta}</td>
-                    <td>${formatEUR(price)}</td>
-                    <td>${formatEUR(val)}</td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
-          <div style="text-align:right; margin-top:10px;">
-            <button class="btn modal-close">Fermer</button>
-          </div>
-        </div>
-        <style>.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; z-index:9999; }</style>
-      `;
-      document.body.appendChild(wrap);
-      wrap.querySelector('.modal-close').addEventListener('click', () => wrap.remove());
-      wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
-    } catch (e) {
-      alert('Erreur: ' + (e?.message || e));
-    } finally {
-      hideBusy();
-    }
-  }
-  function toCSV(rows) {
-    const esc = (v) => { const s = String(v ?? ''); return (/[",;\n]/.test(s)) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const header = ['product_id','nom','code_barre','stock_start','counted_total','ecart','prix','valeur_comptee'];
-    const body = rows.map(r => {
-      const start = Number(r.stock_start || 0);
-      const counted = Number(r.counted_total || 0);
-      const delta = counted - start;
-      const price = Number(r.prix || 0);
-      const val = counted * price;
-      return [ r.product_id, r.nom || '', r.code_barre || '', start, counted, delta, price.toFixed(2), val.toFixed(2) ].map(esc).join(';');
+    $('#brand-file')?.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      if (!f) { selectedDataUrl = null; return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        selectedDataUrl = String(reader.result);
+        prev.src = selectedDataUrl;
+        prev.style.display = '';
+        empty.style.display = 'none';
+        msg('Prévisualisation prête.');
+      };
+      reader.onerror = () => msg("Lecture de l'image impossible.", false);
+      reader.readAsDataURL(f);
     });
-    return [header.join(';'), ...body].join('\n');
-  }
-  async function exportInventoryCSV(apiBase, sessionId) {
-    showBusy('Préparation du CSV…');
-    try {
-      const js = await fetchInventorySummary(apiBase, sessionId);
-      const csv = toCSV(js.lines || []);
-      const name = (js.session?.name || `inventaire-${sessionId}`).replace(/[^\w\-]+/g, '_');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${name}.csv`;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert('Export CSV impossible : ' + (e?.message || e));
-    } finally {
-      hideBusy();
-    }
+
+    $('#brand-save')?.addEventListener('click', async () => {
+      try {
+        msg('Enregistrement…');
+        const payload = {};
+        const name = (nameInput.value || '').trim();
+        if (name) payload.name = name;
+        if (selectedDataUrl) payload.logoDataUrl = selectedDataUrl;
+
+        const r = await window.electronAPI?.brandingSet?.(payload);
+        if (!r?.ok) throw new Error(r?.error || 'Échec');
+
+        if (name) window.__refreshTenantName__?.(name);
+        if (r.file) {
+          const src = `file://${String(r.file).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+          window.__refreshTenantLogo__?.(src);
+          prev.src = src;
+          prev.style.display = '';
+          empty.style.display = 'none';
+        }
+        // reset input
+        const file = $('#brand-file'); if (file) file.value = '';
+        selectedDataUrl = null;
+
+        msg('Enregistré ✅');
+      } catch (e) {
+        msg(e?.message || String(e), false);
+      }
+    });
+
+    $('#brand-remove')?.addEventListener('click', async () => {
+      if (!confirm('Supprimer le logo ?')) return;
+      try {
+        msg('Suppression…');
+        // Voir note: idéalement un IPC branding:remove. Ici on écrase par un PNG vide en attendant.
+        const r = await window.electronAPI?.brandingSet?.({ logoDataUrl: 'data:image/png;base64,' });
+        if (!r?.ok) throw new Error(r?.error || 'Échec');
+        window.__refreshTenantLogo__?.('');
+        prev.style.display = 'none';
+        empty.style.display = '';
+        msg('Logo supprimé ✅');
+      } catch (e) {
+        msg(e?.message || String(e), false);
+      }
+    });
   }
 
+  // ----------------------------
+  // Admin Tenants (super admin)
+  // ----------------------------
   async function renderTenantsAdmin() {
     const host = document.getElementById('parametres-souspage') || document.getElementById('page-content');
     if (!host) return;
@@ -1580,55 +1633,50 @@ if (!document.getElementById('params-menu-style')) {
     });
 
     async function loadTenants() {
-  const box = $('#t-list');
-  if (!box) return;
-  box.textContent = 'Chargement…';
+      const box = $('#t-list');
+      if (!box) return;
+      box.textContent = 'Chargement…';
 
-  try {
-    let r = null;
-    // 1) IPC principal
-    if (window.electronAPI?.adminListTenants) {
-      r = await window.electronAPI.adminListTenants();
+      try {
+        let r = null;
+        if (window.electronAPI?.adminListTenants) {
+          r = await window.electronAPI.adminListTenants();
+        }
+        if ((!r || r.ok === false) && window.ApiClient?.admin?.listTenants) {
+          r = await window.ApiClient.admin.listTenants();
+        }
+        if (!r?.ok) {
+          const reason = r?.error || 'Réponse non OK ou IPC absent';
+          box.innerHTML = `<div class="muted">Impossible de charger : ${reason}</div>`;
+          console.debug('[tenants] adminListTenants failed:', r);
+          return;
+        }
+
+        const rows = r.tenants || [];
+        if (!rows.length) {
+          box.innerHTML = `<div class="muted">Aucun tenant.</div>`;
+          return;
+        }
+
+        box.innerHTML = rows.map(t => `
+          <div class="item" data-id="${t.id}" style="padding:8px; border:1px solid #eee; border-radius:8px; margin-bottom:6px; cursor:pointer;">
+            <div><strong>${t.name || '—'}</strong></div>
+            <div class="muted">${t.company_name || '—'}</div>
+            <div class="muted">${t.admin_email || '—'}</div>
+          </div>
+        `).join('');
+
+        box.querySelectorAll('.item').forEach(div => {
+          div.addEventListener('click', () => openTenant(
+            div.dataset.id,
+            rows.find(x => String(x.id) === String(div.dataset.id))
+          ));
+        });
+      } catch (e) {
+        box.innerHTML = `<div class="muted">Erreur: ${e?.message || e}</div>`;
+        console.error('[tenants] loadTenants error:', e);
+      }
     }
-
-    // 2) Fallback HTTP (si ApiClient expose une méthode admin)
-    if ((!r || r.ok === false) && window.ApiClient?.admin?.listTenants) {
-      r = await window.ApiClient.admin.listTenants(); // ← doit renvoyer { ok, tenants, error? }
-    }
-
-    // 3) Affiche l’erreur détaillée si dispo
-    if (!r?.ok) {
-      const reason = r?.error || 'Réponse non OK ou IPC absent';
-      box.innerHTML = `<div class="muted">Impossible de charger : ${reason}</div>`;
-      console.debug('[tenants] adminListTenants failed:', r);
-      return;
-    }
-
-    const rows = r.tenants || [];
-    if (!rows.length) {
-      box.innerHTML = `<div class="muted">Aucun tenant.</div>`;
-      return;
-    }
-
-    box.innerHTML = rows.map(t => `
-      <div class="item" data-id="${t.id}" style="padding:8px; border:1px solid #eee; border-radius:8px; margin-bottom:6px; cursor:pointer;">
-        <div><strong>${t.name || '—'}</strong></div>
-        <div class="muted">${t.company_name || '—'}</div>
-        <div class="muted">${t.admin_email || '—'}</div>
-      </div>
-    `).join('');
-
-    box.querySelectorAll('.item').forEach(div => {
-      div.addEventListener('click', () => openTenant(
-        div.dataset.id,
-        rows.find(x => String(x.id) === String(div.dataset.id))
-      ));
-    });
-  } catch (e) {
-    box.innerHTML = `<div class="muted">Erreur: ${e?.message || e}</div>`;
-    console.error('[tenants] loadTenants error:', e);
-  }
-}
 
     $('#t-refresh')?.addEventListener('click', loadTenants);
     await loadTenants();
@@ -1873,7 +1921,7 @@ if (!document.getElementById('params-menu-style')) {
           $c('#ae-provider').value = s.provider || 'gmail';
           $c('#ae-from').value     = s.from || '';
           $c('#ae-user').value     = s.user || '';
-          $c('#ae-pass').value     = '';
+          $c('#ae-pass').value      = '';
           $c('#ae-host').value     = s.host || '';
           $c('#ae-port').value     = (s.port != null ? s.port : '');
           $c('#ae-secure').checked = !!s.secure;
@@ -1917,7 +1965,9 @@ if (!document.getElementById('params-menu-style')) {
     }
   }
 
-  // === Export global ===
+  // ----------------------------
+  // Export global
+  // ----------------------------
   window.PageParams = {
     renderParametresHome,
     renderHistoriqueFactures,
@@ -1925,9 +1975,11 @@ if (!document.getElementById('params-menu-style')) {
     renderGestionUnites,
     renderGestionModesPaiement,
     renderActivationModules,
+    renderTenantBrandingSettings, // ← expose la page Logo ici
     renderProspectsPage: (...args) =>
       (window.PageProspects?.render || window.renderProspectsPage)?.(...args),
   };
+
   if (!window.renderParametresHome) {
     window.renderParametresHome = () => window.PageParams?.renderParametresHome?.();
   }

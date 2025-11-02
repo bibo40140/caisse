@@ -30,14 +30,14 @@
 
   // --- Wrappers Paramètres ---
   window.renderParametresHome        = (...a) => window.PageParams.renderParametresHome?.(...a);
-  window.renderImportExcel           = (...a) => window.PageParams.renderImportExcel(...a);
-  window.importerExcel               = (...a) => window.PageParams.importerExcel(...a);
-  window.renderImportProduits        = (...a) => window.PageParams.renderImportProduits(...a);
+  window.renderImportExcel           = (...a) => window.PageParams.renderImportExcel?.(...a);
+  window.importerExcel               = (...a) => window.PageParams.importerExcel?.(...a);
+  window.renderImportProduits        = (...a) => window.PageParams.renderImportProduits?.(...a);
   window.renderHistoriqueFactures    = (...a) => window.PageParams.renderHistoriqueFactures?.(...a);
-  window.renderGestionCategories     = (...a) => window.PageParams.renderGestionCategories(...a);
-  window.renderGestionUnites         = (...a) => window.PageParams.renderGestionUnites(...a);
-  window.renderGestionModesPaiement  = (...a) => window.PageParams.renderGestionModesPaiement(...a);
-  window.renderActivationModules     = (...a) => window.PageParams.renderActivationModules(...a);
+  window.renderGestionCategories     = (...a) => window.PageParams.renderGestionCategories?.(...a);
+  window.renderGestionUnites         = (...a) => window.PageParams.renderGestionUnites?.(...a);
+  window.renderGestionModesPaiement  = (...a) => window.PageParams.renderGestionModesPaiement?.(...a);
+  window.renderActivationModules     = (...a) => window.PageParams.renderActivationModules?.(...a);
 })();
 
 // --- Page refresh wiring (memorize current route & expose refreshCurrentPage) ---
@@ -76,63 +76,6 @@
     chip.className = 'sync-chip ' + (cls || '');
   }
 
-
-  // --- Logout button wiring ---
-(function wireLogoutButton() {
-  document.addEventListener('DOMContentLoaded', () => {
-    const btn = document.getElementById('btn-logout');
-    if (!btn) return;
-
-    // Évite les multiples listeners si reload
-    const fresh = btn.cloneNode(true);
-    btn.replaceWith(fresh);
-
-    fresh.addEventListener('click', async () => {
-      try {
-        fresh.disabled = true;
-        const old = fresh.textContent;
-        fresh.textContent = 'Déconnexion…';
-        const res = await window.electronAPI.logout();
-        if (!res || res.ok !== true) {
-          throw new Error(res?.error || 'Déconnexion impossible');
-        }
-        // Le main fermera la fenêtre et ouvrira la page de login.
-      } catch (e) {
-        console.error('[logout] error:', e);
-        alert('Échec de la déconnexion : ' + (e?.message || e));
-        fresh.disabled = false;
-        fresh.textContent = 'Se déconnecter';
-      }
-    });
-  });
-})();
-
-// --- Tenant logo boot: fetch and display in sidebar
-(() => {
-  async function setTenantLogo(urlOrData) {
-    const img = document.getElementById('tenant-logo');
-    if (!img) return;
-    if (urlOrData) {
-      img.src = urlOrData;
-      img.style.display = '';
-    } else {
-      img.removeAttribute('src');
-      img.style.display = 'none';
-    }
-  }
-  document.addEventListener('DOMContentLoaded', async () => {
-    try {
-      const r = await window.electronAPI?.getOnboardingStatus?.();
-      const data = r?.data || r || {};
-      // prefer a concrete url, fallback to dataUrl if that’s how you store it
-      const logo = data.logo_url || data.logo || data.logo_dataUrl || '';
-      await setTenantLogo(logo);
-      // Expose helper so Paramètres page can refresh after upload
-      window.__refreshTenantLogo__ = setTenantLogo;
-    } catch { /* no logo yet */ }
-  });
-})();
-
   async function doManualSync() {
     const chip = document.getElementById('sync-indicator');
     if (!chip || chip.dataset.busy === '1') return;
@@ -141,9 +84,9 @@
 
     try {
       // 1) push des ops en attente
-      await window.electronAPI.opsPushNow();
+      await window.electronAPI?.opsPushNow?.();
       // 2) pull complet
-      await window.electronAPI.syncPullAll();
+      await window.electronAPI?.syncPullAll?.();
       setChip('OK', 'online');
 
       // ✅ rafraîchir la page courante après un pull
@@ -177,4 +120,127 @@
       });
     }
   });
+})();
+
+// --- Logout button wiring ---
+(function wireLogoutButton() {
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('btn-logout');
+    if (!btn) return;
+
+    // Évite les multiples listeners si reload
+    const fresh = btn.cloneNode(true);
+    btn.replaceWith(fresh);
+
+    fresh.addEventListener('click', async () => {
+      try {
+        fresh.disabled = true;
+        const old = fresh.textContent;
+        fresh.textContent = 'Déconnexion…';
+        const res = await window.electronAPI?.logout?.();
+        if (!res || res.ok !== true) {
+          throw new Error(res?.error || 'Déconnexion impossible');
+        }
+        // Le main fermera la fenêtre et ouvrira la page de login.
+      } catch (e) {
+        console.error('[logout] error:', e);
+        alert('Échec de la déconnexion : ' + (e?.message || e));
+        fresh.disabled = false;
+        fresh.textContent = 'Se déconnecter';
+      }
+    });
+  });
+})();
+
+// --- Tenant brand (logo + nom) boot ---
+(() => {
+  async function setTenantLogo(urlOrData) {
+    const img = document.getElementById('tenant-logo');
+    if (!img) return;
+    if (urlOrData) {
+      img.src = urlOrData;
+      img.style.display = '';
+    } else {
+      img.removeAttribute('src');
+      img.style.display = 'none';
+    }
+  }
+
+  function setTenantName(name) {
+    const el = document.getElementById('tenant-name');
+    if (!el) return;
+    el.textContent = (name && String(name).trim()) || "Coop'az";
+  }
+
+  async function loadBranding() {
+    // 0) Persistance locale (branding:get)
+    try {
+      const r = await window.electronAPI?.brandingGet?.();
+      if (r?.ok) {
+        const file = r.file;
+        const name = r.name;
+        if (file) {
+          // cache-busting avec mtime
+          const src = `file://${file.replace(/\\/g, '/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+          await setTenantLogo(src);
+        }
+        if (name) setTenantName(name);
+      }
+    } catch {}
+
+    // 1) Onboarding (au cas où la persistance n’a pas encore été faite)
+    try {
+      const r = await window.electronAPI?.getOnboardingStatus?.();
+      const data = r?.data || r || {};
+      const name = data.store_name || data.tenant_name || data.company_name || data.name;
+      if (name) setTenantName(name);
+      // Optionnel: persister un logo venant de l'onboarding si on n'a pas encore de fichier local
+      const currentSrc = document.getElementById('tenant-logo')?.getAttribute('src');
+      if (!currentSrc && data.logo_dataUrl) {
+        const saved = await window.electronAPI?.brandingSet?.({ logoDataUrl: data.logo_dataUrl });
+        if (saved?.ok && saved.file) {
+          const src = `file://${saved.file.replace(/\\/g, '/')}${saved.mtime ? `?v=${Math.floor(saved.mtime)}` : ''}`;
+          await setTenantLogo(src);
+        }
+      }
+    } catch {}
+
+    // 2) Fallback Auth info pour le nom
+    try {
+      const info = await window.electronAPI?.getAuthInfo?.();
+      const name =
+        info?.store_name || info?.tenant_name || info?.company_name || info?.company || info?.name;
+      if (name) setTenantName(name);
+    } catch {}
+  }
+
+  // Permettre une mise à jour “live” quand la page Logo enregistre
+  window.__refreshTenantLogo__ = async (urlOrData) => {
+    if (urlOrData) {
+      await setTenantLogo(urlOrData);
+    } else {
+      // recharger depuis branding:get
+      try {
+        const r = await window.electronAPI?.brandingGet?.();
+        if (r?.ok && r.file) {
+          const src = `file://${r.file.replace(/\\/g, '/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+          await setTenantLogo(src);
+        } else {
+          await setTenantLogo(null);
+        }
+      } catch {
+        await setTenantLogo(null);
+      }
+    }
+  };
+
+  // Mettre à jour automatiquement si le main broadcast la config
+  if (window.electronEvents?.on) {
+    window.electronEvents.on('config:changed', (_e, cfg) => {
+      const name = cfg?.store_name || cfg?.tenant_name || cfg?.company_name || cfg?.name;
+      if (name) setTenantName(name);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', loadBranding);
 })();
