@@ -38,6 +38,54 @@
   function showAlertModal(msg) { alert(msg); }
 
   // ----------------------------
+  // Hooks de fallback pour le header (nom & logo)
+  // ----------------------------
+  (function ensureBrandingHooks(){
+    if (typeof window.__refreshTenantName__ !== 'function') {
+      window.__refreshTenantName__ = (name) => {
+        const title =
+          document.querySelector('#app-title') ||
+          document.querySelector('.app-title') ||
+          document.querySelector('.brand-title') ||
+          document.querySelector('header .title');
+        if (title) title.textContent = String(name || '').trim();
+        const badge = document.querySelector('[data-tenant-name]');
+        if (badge) badge.textContent = String(name || '').trim();
+      };
+    }
+    if (typeof window.__refreshTenantLogo__ !== 'function') {
+      window.__refreshTenantLogo__ = (src) => {
+        const img =
+          document.querySelector('#app-logo') ||
+          document.querySelector('.app-logo') ||
+          document.querySelector('.brand-logo') ||
+          document.querySelector('header .logo img');
+        if (img) {
+          if (src) { img.src = src; img.style.display = ''; }
+          else { img.removeAttribute('src'); img.style.display = 'none'; }
+        }
+      };
+    }
+  })();
+
+  // Applique le branding stocké (appelable au démarrage et depuis les pages)
+  async function applyBrandingFromStore() {
+    try {
+      const r = await window.electronAPI?.brandingGet?.();
+      if (!r?.ok) return;
+      if (typeof r.name === 'string') {
+        window.__refreshTenantName__?.(r.name);
+      }
+      if (r.logoFile) {
+        const src = `file://${String(r.logoFile).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+        window.__refreshTenantLogo__?.(src);
+      } else {
+        window.__refreshTenantLogo__?.('');
+      }
+    } catch {}
+  }
+
+  // ----------------------------
   // Modules (tenant)
   // ----------------------------
   async function getActiveModules() {
@@ -126,6 +174,9 @@
 
       <div id="parametres-souspage"></div>
     `;
+
+    // ➜ applique le branding au header quand on arrive ici
+    applyBrandingFromStore();
 
     // --- Super admin detection (affiche le bouton Tenants)
     function decodeJwtPayload(tok) {
@@ -1305,8 +1356,9 @@
         </div>
       </div>
     `;
+ 
+ const $ = (id) => host.querySelector(`#${id}`);
 
-    const $ = (id) => host.querySelector(`#${id}`);
     const els = {
       provider: $('email-provider'),
       from:     $('email-from'),
@@ -1363,7 +1415,7 @@
     }
     applyProviderUI();
 
-    els.save.addEventListener('click', () => (async () => {
+    els.save.addEventListener('click', async () => {
       try {
         setMsg(els.saveMsg, 'Enregistrement…', true);
         const payload = {
@@ -1382,7 +1434,7 @@
       } catch (e) {
         setMsg(els.saveMsg, e?.message || String(e), false);
       }
-    })());
+    });
 
     els.testBtn.addEventListener('click', async () => {
       const to = els.testTo.value.trim();
@@ -1489,18 +1541,21 @@
       reader.readAsDataURL(f);
     });
 
+    // ➜ Enregistre : envoie TOUJOURS name, et logo si sélectionné
     $('#brand-save')?.addEventListener('click', async () => {
       try {
         msg('Enregistrement…');
-        const payload = {};
-        const name = (nameInput.value || '').trim();
-        if (name) payload.name = name;
+        const payload = {
+          name: (nameInput.value ?? '').toString(),
+        };
         if (selectedDataUrl) payload.logoDataUrl = selectedDataUrl;
 
         const r = await window.electronAPI?.brandingSet?.(payload);
         if (!r?.ok) throw new Error(r?.error || 'Échec');
 
-        if (name) window.__refreshTenantName__?.(name);
+        // Rafraîchir l’UI globale (header) immédiatement
+        window.__refreshTenantName__?.(payload.name);
+
         if (r.file) {
           const src = `file://${String(r.file).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
           window.__refreshTenantLogo__?.(src);
@@ -1508,7 +1563,7 @@
           prev.style.display = '';
           empty.style.display = 'none';
         }
-        // reset input
+
         const file = $('#brand-file'); if (file) file.value = '';
         selectedDataUrl = null;
 
@@ -1518,11 +1573,13 @@
       }
     });
 
+    // Suppression "soft" du logo (conserve le nom)
     $('#brand-remove')?.addEventListener('click', async () => {
       if (!confirm('Supprimer le logo ?')) return;
       try {
         msg('Suppression…');
-        // Voir note: idéalement un IPC branding:remove. Ici on écrase par un PNG vide en attendant.
+        // Si tu as un IPC branding:remove, préfère l’appeler ici.
+        // Sinon, on écrase par une image vide minimale.
         const r = await window.electronAPI?.brandingSet?.({ logoDataUrl: 'data:image/png;base64,' });
         if (!r?.ok) throw new Error(r?.error || 'Échec');
         window.__refreshTenantLogo__?.('');
@@ -1975,7 +2032,7 @@
     renderGestionUnites,
     renderGestionModesPaiement,
     renderActivationModules,
-    renderTenantBrandingSettings, // ← expose la page Logo ici
+    renderTenantBrandingSettings, // ← expose la page Logo ici (nom aligné)
     renderProspectsPage: (...args) =>
       (window.PageProspects?.render || window.renderProspectsPage)?.(...args),
   };
@@ -1983,4 +2040,7 @@
   if (!window.renderParametresHome) {
     window.renderParametresHome = () => window.PageParams?.renderParametresHome?.();
   }
+
+  // ➜ Appliquer le branding au démarrage (nom + logo rétablis après reload)
+  applyBrandingFromStore();
 })();
