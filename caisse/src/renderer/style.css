@@ -987,3 +987,15 @@ header .sync-chip { float: right; }
   width:100%;
   justify-content:center;
 }
+
+
+/* Tenant logo in sidebar */
+.tenant-logo{
+  display:block;
+  width: 140px;          /* adapt if you want bigger */
+  max-width: 80%;
+  max-height: 72px;
+  object-fit: contain;
+  margin: 0 0 12px 0;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.15));
+}

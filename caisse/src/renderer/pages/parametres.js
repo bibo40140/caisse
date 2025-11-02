@@ -110,6 +110,8 @@ if (!document.getElementById('params-menu-style')) {
         <li><button id="btn-sync-pull" class="btn">Pull produits (Neon → local)</button></li>
         <li><button id="btn-tenants-admin" class="btn" style="display:none;">Tenants (Super admin)</button></li>
         <li><button id="btn-param-email" class="btn">Email d’envoi</button></li>
+        <li><button id="btn-param-logo" class="btn">Logo</button></li>
+
         <li><button id="btn-param-autres" class="btn">Autres paramètres</button></li>
       </ul>
       </div>
@@ -199,6 +201,9 @@ if (!document.getElementById('params-menu-style')) {
     document.getElementById('btn-param-modules')        ?.addEventListener('click', () => renderActivationModules());
     document.getElementById('btn-param-autres')         ?.addEventListener('click', () => window.renderGestionParametres?.());
     document.getElementById('btn-param-email')          ?.addEventListener('click', () => renderEmailSettings());
+    document.getElementById('btn-param-logo')
+  ?.addEventListener('click', () => renderTenantLogoSettings());
+
     document.getElementById('btn-param-prospects')?.addEventListener('click', async () => {
       try {
         const mods = await getActiveModules();
@@ -1277,6 +1282,108 @@ if (!document.getElementById('params-menu-style')) {
       }
     });
   }
+
+  async function renderTenantLogoSettings() {
+  const host = document.getElementById('parametres-souspage') || document.getElementById('page-content');
+  if (!host) return;
+
+  // Minimal scoped styles
+  if (!document.getElementById('logo-settings-style')) {
+    const st = document.createElement('style');
+    st.id = 'logo-settings-style';
+    st.textContent = `
+      .logo-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; box-shadow:0 4px 14px rgba(0,0,0,.05); max-width:760px; }
+      .logo-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+      .logo-box { width:220px; height:90px; border:1px dashed #cbd5e1; border-radius:10px; display:flex; align-items:center; justify-content:center; background:#f8fafc; }
+      .logo-box img { max-width:100%; max-height:100%; object-fit:contain; }
+      .muted { color:#6b7280; font-size:12px; }
+    `;
+    document.head.appendChild(st);
+  }
+
+  // load current
+  let current = '';
+  try {
+    const r = await window.electronAPI?.getOnboardingStatus?.();
+    const data = r?.data || r || {};
+    current = data.logo_url || data.logo || data.logo_dataUrl || '';
+  } catch {}
+
+  host.innerHTML = `
+    <div class="logo-card">
+      <h2 style="margin:0 0 8px 0;">Logo de l'épicerie</h2>
+      <div class="muted">Le logo apparaît en haut à gauche du menu.</div>
+      <div class="logo-row" style="margin-top:10px;">
+        <div class="logo-box">
+          ${current ? `<img id="logo-preview" src="${current}" alt="Logo">`
+                    : `<span class="muted">Aucun logo</span>`}
+        </div>
+        <div class="logo-actions" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <input id="logo-file" type="file" accept="image/*">
+          <button id="logo-save" class="btn">Enregistrer</button>
+          <button id="logo-remove" class="btn danger">Supprimer</button>
+          <span id="logo-msg" class="muted"></span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const $ = (sel) => host.querySelector(sel);
+  const msg = (t, ok=true) => { const m=$('#logo-msg'); if (!m) return; m.textContent=t||''; m.style.color = ok ? '#374151' : '#b91c1c'; };
+
+  let dataUrlToSave = null;
+
+  $('#logo-file')?.addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      dataUrlToSave = reader.result;
+      // create/refresh preview
+      let img = $('#logo-preview');
+      if (!img) {
+        const box = host.querySelector('.logo-box');
+        box.innerHTML = '<img id="logo-preview" alt="Logo">';
+        img = $('#logo-preview');
+      }
+      img.src = dataUrlToSave;
+      msg('Prévisualisation prête.');
+    };
+    reader.onerror = () => msg("Lecture de l'image impossible.", false);
+    reader.readAsDataURL(f);
+  });
+
+  $('#logo-save')?.addEventListener('click', async () => {
+    try {
+      if (!dataUrlToSave && !current) { msg('Choisis une image avant de sauvegarder.', false); return; }
+      msg('Enregistrement…');
+      const r = await window.electronAPI?.submitOnboarding?.({ logo_dataUrl: dataUrlToSave || current });
+      if (!r?.ok) throw new Error(r?.error || 'Échec');
+      const newUrl = r.logo_url || (r.data && (r.data.logo_url || r.data.logo)) || dataUrlToSave || current;
+      // refresh sidebar instantly
+      window.__refreshTenantLogo__?.(newUrl);
+      msg('Logo enregistré ✅');
+    } catch (e) {
+      msg(e?.message || String(e), false);
+    }
+  });
+
+  $('#logo-remove')?.addEventListener('click', async () => {
+    if (!confirm('Supprimer le logo ?')) return;
+    try {
+      msg('Suppression…');
+      const r = await window.electronAPI?.submitOnboarding?.({ logo_dataUrl: null });
+      if (!r?.ok) throw new Error(r?.error || 'Échec');
+      const box = host.querySelector('.logo-box');
+      box.innerHTML = `<span class="muted">Aucun logo</span>`;
+      dataUrlToSave = null;
+      current = '';
+      window.__refreshTenantLogo__?.('');
+      msg('Logo supprimé ✅');
+    } catch (e) { msg(e?.message || String(e), false); }
+  });
+}
+
 
   async function fetchInventorySummary(apiBase, sessionId) {
     const r = await fetch(`${apiBase}/inventory/${sessionId}/summary`);

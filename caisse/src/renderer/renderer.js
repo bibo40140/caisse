@@ -107,6 +107,32 @@
   });
 })();
 
+// --- Tenant logo boot: fetch and display in sidebar
+(() => {
+  async function setTenantLogo(urlOrData) {
+    const img = document.getElementById('tenant-logo');
+    if (!img) return;
+    if (urlOrData) {
+      img.src = urlOrData;
+      img.style.display = '';
+    } else {
+      img.removeAttribute('src');
+      img.style.display = 'none';
+    }
+  }
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      const r = await window.electronAPI?.getOnboardingStatus?.();
+      const data = r?.data || r || {};
+      // prefer a concrete url, fallback to dataUrl if that’s how you store it
+      const logo = data.logo_url || data.logo || data.logo_dataUrl || '';
+      await setTenantLogo(logo);
+      // Expose helper so Paramètres page can refresh after upload
+      window.__refreshTenantLogo__ = setTenantLogo;
+    } catch { /* no logo yet */ }
+  });
+})();
+
   async function doManualSync() {
     const chip = document.getElementById('sync-indicator');
     if (!chip || chip.dataset.busy === '1') return;
