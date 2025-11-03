@@ -67,9 +67,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   on, off, once,
   onConfigChanged,
 
- brandingGet: (args) => ipcRenderer.invoke('branding:get', args || {}),
-  brandingSet: (args) => ipcRenderer.invoke('branding:set', args || {}),
-
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
   getProduits:    () => ipcRenderer.invoke('get-produits'),
@@ -212,18 +209,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------------- Stock (batch) ------------------ */
   ajusterStockBulk: (payload) => ipcRenderer.invoke('stock:adjust-bulk', payload),
 
-  // --- Branding (nom + logo) par tenant ---
-  // Acceptent soit un string tenantId, soit { tenantId }, soit rien (=> 'default')
-  brandingGet: (tenantArg) => {
+
+    getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
+
+// --- Branding (nom + logo) par tenant ---
+// Acceptent soit un string tenantId, soit { tenantId }, soit rien (=> auto via JWT)
+brandingGet: (tenantArg) => {
+    // accepte 'tenantId' string ou { tenantId }, sinon laisse le main déduire via JWT
     const tenantId = (tenantArg && typeof tenantArg === 'object') ? tenantArg.tenantId : tenantArg;
     return ipcRenderer.invoke('branding:get', { tenantId });
   },
-  brandingSet: (payload) => {
+  brandingSet: async (payload) => {
     const p = payload || {};
+    // si pas de tenant explicitement fourni, on tente d’en déduire un côté renderer
+    if (p.tenantId == null && typeof window !== 'undefined') {
+      try {
+        const info = await ipcRenderer.invoke('auth:getInfo');
+        if (info?.tenant_id) p.tenantId = info.tenant_id;
+      } catch {}
+    }
     return ipcRenderer.invoke('branding:set', p);
   },
 
-  
   /* -------------- Prospects ---------------------- */
   listProspects: (filters) => ipcRenderer.invoke('prospects:list', filters),
   createProspect: (p) => ipcRenderer.invoke('prospects:create', p),

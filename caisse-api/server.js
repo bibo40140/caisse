@@ -4,19 +4,19 @@ console.log('[API] build=no-mailer v1 (multi-tenant full)');
 
 import 'dotenv/config';
 import express from 'express';
-import tenantsRouter from './routes/tenants.js';
-
-
-
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import { pool } from './db/index.js';
 
-// Routes modularisées
+// Routers
+import tenantsRouter from './routes/tenants.js';
 import authRoutes from './routes/auth.js';
 import tenantSettingsRoutes from './routes/tenantSettings.js';
+import makeBrandingRouter from './routes/branding.js'; // ✅ la factory correcte
 
-// Middleware d’auth
+// Middleware
 import { authRequired } from './middleware/auth.js';
 
 /* =========================
@@ -53,16 +53,12 @@ app.get('/health/db', async (_req, res) => {
 });
 
 // Servez les fichiers statiques (logos…)
-import path from 'path';
-import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use('/public', express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); 
 
 
-import brandingRouter from './routes/branding.js';   
-import storage from './services/storage.js';        
 
 // tests //
 import authRouter from './routes/auth.js';
@@ -102,11 +98,8 @@ app.use('/tenant_settings', tenantSettingsRoutes);
 // Branding multi-tenant
 // =========================
 
-app.use('/branding', authRequired, brandingRouter);
+app.use('/branding', authRequired, makeBrandingRouter({ pool }));
 
-app.use('/tenant', authRequired,                // on exige l’auth pour récupérer req.tenantId
-  brandingRouter({ pool, storage })            // routes: GET/PUT /tenant/branding
-);
 
 /* ============================================
  * Helper: stock actuel (multi-tenant)

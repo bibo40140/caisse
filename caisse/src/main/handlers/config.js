@@ -2,7 +2,11 @@
 'use strict';
 
 const { ipcMain, BrowserWindow } = require('electron');
-const { readConfig, writeConfig } = require('../db/config');
+
+// ⚠️ IMPORTANT : on unifie la source de vérité de la config ici.
+// On lit/écrit via src/main/config.js (getConfig / setConfig)
+// afin que 'config:get' expose bien api_base_url au renderer.
+const { getConfig, setConfig } = require('../config');
 
 // ✅ Clés autorisées (étendues pour éviter de couper des modules à l'init)
 const ALLOWED_MODULE_KEYS = [
@@ -67,9 +71,9 @@ module.exports = function registerConfigHandlers(ipcMainInstance = ipcMain) {
   try { ipcMainInstance.removeHandler('config:get-ventes-margin'); } catch {}
   try { ipcMainInstance.removeHandler('config:set-ventes-margin'); } catch {}
 
-  // Lire toute la config
+  // Lire toute la config (expose api_base_url depuis src/main/config.js)
   ipcMainInstance.handle('config:get', async () => {
-    return readConfig();
+    return getConfig();
   });
 
   // Mettre à jour les modules (sanitize + normalize + deps + broadcast)
@@ -88,19 +92,20 @@ module.exports = function registerConfigHandlers(ipcMainInstance = ipcMain) {
       sanitized[k] = v;
     }
 
-    const cfg = readConfig();
+    const cfg = getConfig();
     const current = cfg.modules || {};
     const normalized = normalizeModules(current, sanitized);
 
-    const saved = writeConfig({ modules: normalized }); // merge profond via db/config.js
-    broadcastConfig(saved);
+    // On écrit via setConfig pour rester sur le même fichier que getConfig()
+    const saved = setConfig({ ...cfg, modules: normalized });
 
+    broadcastConfig(saved);
     return { status: 'ok', config: saved };
   });
 
   // Lire la marge ventes extérieures (compat nouvelle/ancienne clé)
   ipcMainInstance.handle('config:get-ventes-margin', async () => {
-    const cfg = readConfig();
+    const cfg = getConfig();
     let percent = Number(
       cfg.ventes_exterieur_margin_percent !== undefined
         ? cfg.ventes_exterieur_margin_percent
@@ -110,15 +115,16 @@ module.exports = function registerConfigHandlers(ipcMainInstance = ipcMain) {
     return { percent };
   });
 
-  // Écrire la marge ventes extérieures (clé actuelle)
+  // Écrire la marge ventes extérieures
   ipcMainInstance.handle('config:set-ventes-margin', async (_e, percent) => {
     let p = Number(percent);
     if (!Number.isFinite(p) || p < 0) throw new Error('Pourcentage invalide');
     if (p > 1000) p = 1000; // garde-fou
 
-    const updated = writeConfig({ ventes_exterieur_margin_percent: p });
-    broadcastConfig(updated);
+    const cfg = getConfig();
+    const updated = setConfig({ ...cfg, ventes_exterieur_margin_percent: p });
 
+    broadcastConfig(updated);
     return { status: 'ok', percent: updated.ventes_exterieur_margin_percent };
   });
 };

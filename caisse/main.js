@@ -12,11 +12,39 @@ const { registerBrandingIpc } = require('./src/main/branding');
 // ===============================
 // Broadcast config/modules to UI
 // ===============================
+
+// ➜ Helper: calcule une config "effective" (disque + runtime + ENV + défaut)
+function getEffectiveConfig() {
+  let disk = {};
+  try {
+    disk = readConfig() || {};
+  } catch { disk = {}; }
+
+  // On tente de récupérer la base courante depuis l'apiClient s'il l'expose
+  let apiBase = null;
+  try {
+    const { apiMainClient } = require('./src/main/apiClient');
+    if (apiMainClient && typeof apiMainClient.getBase === 'function') {
+      apiBase = apiMainClient.getBase();
+    }
+  } catch {}
+
+  // Fallback ENV puis valeur par défaut locale
+  if (!apiBase || typeof apiBase !== 'string' || !apiBase.trim()) {
+    apiBase = process.env.API_BASE_URL || disk.api_base_url || 'http://localhost:3001';
+  }
+
+  return {
+    ...disk,
+    api_base_url: apiBase,
+  };
+}
+
 function broadcastConfigOnReady() {
   try {
-    const cfg = readConfig();
+    const cfgEffective = getEffectiveConfig();
     BrowserWindow.getAllWindows().forEach(w => {
-      try { w.webContents.send('config:changed', cfg); } catch {}
+      try { w.webContents.send('config:changed', cfgEffective); } catch {}
     });
   } catch (e) {
     console.error('[broadcastConfigOnReady] failed:', e?.message || e);
@@ -604,12 +632,16 @@ app.whenReady().then(async () => {
     if (removed) console.log('[config] Secrets purgés depuis config.json (auth_token/tenant_id).');
   } catch {}
 
-  // 1) Config → API base
+  // 1) Config → API base (avec fallback ENV/localhost)
   try {
     const cfg = await getConfig();
-    if (cfg?.api_base_url) setApiBase(cfg.api_base_url);
+    const fromCfg = cfg?.api_base_url && String(cfg.api_base_url).trim();
+    const fallback = process.env.API_BASE_URL || 'http://localhost:3001';
+    setApiBase(fromCfg || fallback);
   } catch (e) {
-    console.warn('[config] lecture impossible:', e?.message || e);
+    const fallback = process.env.API_BASE_URL || 'http://localhost:3001';
+    setApiBase(fallback);
+    console.warn('[config] lecture impossible, fallback API_BASE_URL =', fallback, '-', e?.message || e);
   }
 
   // 👉 Option pour forcer l'écran de login (ne pas auto-reprendre un token)
@@ -723,6 +755,15 @@ function safeHandle(channel, handler) {
   try { ipcMain.removeHandler(channel); } catch (_) {}
   ipcMain.handle(channel, handler);
 }
+
+// ⚠️ IMPORTANT : on (re)définit config:get pour renvoyer la config EFFECTIVE (avec api_base_url garanti)
+safeHandle('config:get', async () => {
+  try {
+    return getEffectiveConfig();
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
 
 safeHandle('sync:pushBootstrapRefs', async () => {
   try {

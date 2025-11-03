@@ -43,20 +43,46 @@
   let __cachedTenantId = null;
   async function getCurrentTenantId() {
     if (__cachedTenantId) return __cachedTenantId;
+
+    // 1) Tentative via IPC (si dispo)
     try {
-      const info = await window.electronAPI?.getAuthInfo?.();
-      const tid =
-        info?.tenant_id || info?.tenantId || info?.tid ||
-        info?.id || info?.user?.tenant_id || info?.user?.tenantId;
-      if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
+      if (typeof window.electronAPI?.getAuthInfo === 'function') {
+        const info = await window.electronAPI.getAuthInfo();
+        const tid =
+          info?.tenant_id || info?.tenantId || info?.tid ||
+          info?.id || info?.user?.tenant_id || info?.user?.tenantId;
+        if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
+      }
     } catch {}
+
+    // 2) Fallback : try onboarding status
     try {
       const ob = await window.electronAPI?.getOnboardingStatus?.();
       const data = ob?.data || ob || {};
       const tid = data?.tenant_id || data?.tenantId || data?.id;
       if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
     } catch {}
-    __cachedTenantId = 'default';
+
+    // 3) Ultime fallback : token localStorage
+    try {
+      const tok = window.ApiClient?.getToken?.() || localStorage.getItem('auth_token') || localStorage.getItem('mt_token') || localStorage.getItem('jwt');
+      if (tok) {
+        const payload = (() => {
+          try {
+            const p = tok.split('.')[1];
+            const base64 = p.replace(/-/g, '+').replace(/_/g, '/');
+            const padded = base64 + '==='.slice((base64.length + 3) % 4);
+            const json = atob(padded);
+            return JSON.parse(decodeURIComponent(Array.from(json).map(c => '%' + c.charCodeAt(0).toString(16).padStart(2,'0')).join('')));
+          } catch { return null; }
+        })();
+        const tid = payload?.tenant_id || payload?.tenantId;
+        if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
+      }
+    } catch {}
+
+    // 4) On ne sait pas : retourne null (on laissera l’API déduire via le token)
+    __cachedTenantId = null;
     return __cachedTenantId;
   }
 
@@ -92,23 +118,25 @@
   })();
 
   // Applique le branding stocké (appelable au démarrage et depuis les pages)
-async function applyBrandingFromStore() {
-  try {
-    const tenantId = await getCurrentTenantId();
-    const r = await window.electronAPI?.brandingGet?.({ tenantId });
-    if (!r?.ok) return;
-    if (typeof r.name === 'string') {
-      window.__refreshTenantName__?.(r.name);
-    }
-    if (r.logoFile || r.file) {
-      const f = r.logoFile || r.file;
-      const src = `file://${String(f).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
-      window.__refreshTenantLogo__?.(src);
-    } else {
-      window.__refreshTenantLogo__?.('');
-    }
-  } catch {}
-}
+  async function applyBrandingFromStore() {
+    try {
+      const tenantId = await getCurrentTenantId();
+      // Si on ne connait pas le tenantId, on n’envoie rien : le main le déduira du token
+      const args = tenantId ? { tenantId } : undefined;
+      const r = await window.electronAPI?.brandingGet?.(args);
+      if (!r?.ok) return;
+      if (typeof r.name === 'string') {
+        window.__refreshTenantName__?.(r.name);
+      }
+      if (r.logoFile || r.file) {
+        const f = r.logoFile || r.file;
+        const src = `file://${String(f).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+        window.__refreshTenantLogo__?.(src);
+      } else {
+        window.__refreshTenantLogo__?.('');
+      }
+    } catch {}
+  }
 
   // ----------------------------
   // Modules (tenant)
@@ -406,12 +434,43 @@ async function applyBrandingFromStore() {
     const n = Number(v || 0);
     return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
   }
-  async function getApiBaseFromConfig() {
-    try {
-      const cfg = await (window.electronAPI?.getConfig?.() || {});
-      return (cfg && cfg.api_base_url) ? cfg.api_base_url.replace(/\/+$/, '') : '';
-    } catch { return ''; }
-  }
+
+
+// Remplacer ENTIEREMENT la fonction getApiBaseFromConfig() par ceci
+async function getApiBaseFromConfig() {
+  // 1) via IPC config:get
+  try {
+    if (window.electronAPI?.getConfig) {
+      const cfg = await window.electronAPI.getConfig();
+      const url = cfg?.api_base_url || cfg?.apiBaseUrl || cfg?.apiBase;
+      if (url && typeof url === 'string') return url.replace(/\/+$/, '');
+    }
+  } catch {}
+
+  // 2) via client JS si présent
+  try {
+    if (window.ApiClient?.getBase) {
+      const u = window.ApiClient.getBase();
+      if (u) return String(u).replace(/\/+$/, '');
+    }
+  } catch {}
+
+  // 3) via localStorage (permet un “secours” manuel)
+  try {
+    const u = localStorage.getItem('api_base_url') || localStorage.getItem('API_BASE_URL');
+    if (u) return String(u).replace(/\/+$/, '');
+  } catch {}
+
+  // 4) fallback: si l’app est servie en http(s), on tente l’origin
+  try {
+    if (location?.origin && /^https?:/i.test(location.origin)) {
+      return location.origin.replace(/\/+$/, '');
+    }
+  } catch {}
+
+  return ''; // => la page affichera le message “API non configurée…”
+}
+
 
   // ----------------------------
   // Catégories
@@ -1381,8 +1440,8 @@ async function applyBrandingFromStore() {
         </div>
       </div>
     `;
- 
- const $ = (id) => host.querySelector(`#${id}`);
+
+    const $ = (id) => host.querySelector(`#${id}`);
 
     const els = {
       provider: $('email-provider'),
@@ -1477,25 +1536,12 @@ async function applyBrandingFromStore() {
     });
   }
 
-  // ----------------------------
-// Logo & Nom (branding via API Neon BYTEA)
+// ----------------------------
+// Logo & Nom (branding via IPC main → API Neon)
 // ----------------------------
 async function renderTenantBrandingSettings() {
   const host = document.getElementById('parametres-souspage') || document.getElementById('page-content');
   if (!host) return;
-
-  // besoin de la base API
-  async function getApiBaseFromConfig() {
-    try {
-      const cfg = await (window.electronAPI?.getConfig?.() || {});
-      return (cfg && cfg.api_base_url) ? cfg.api_base_url.replace(/\/+$/, '') : '';
-    } catch { return ''; }
-  }
-  const apiBase = await getApiBaseFromConfig();
-  if (!apiBase) {
-    host.innerHTML = `<div class="logo-card"><h2>Logo & nom</h2><p>API non configurée (<code>api_base_url</code> manquant).</p></div>`;
-    return;
-  }
 
   if (!document.getElementById('logo-settings-style')) {
     const st = document.createElement('style');
@@ -1515,7 +1561,7 @@ async function renderTenantBrandingSettings() {
   host.innerHTML = `
     <div class="logo-card">
       <h2 style="margin:0 0 8px 0;">Logo & nom de l’épicerie</h2>
-      <div class="muted">Stocké dans Neon. Visible pour tous les postes connectés à ce tenant.</div>
+      <div class="muted">Géré via l’API (Neon) mais orchestré côté main. Pas de fetch direct ici pour éviter les 401.</div>
       <div class="logo-row" style="margin-top:10px;">
         <div class="logo-box">
           <img id="brand-preview" alt="Aperçu logo" style="display:none;">
@@ -1542,31 +1588,42 @@ async function renderTenantBrandingSettings() {
   const empty = $('#brand-empty');
   const nameInput = $('#brand-name');
 
-  // charge l'état actuel depuis l'API
-  async function loadMeta() {
-    const r = await fetch(`${apiBase}/branding`, { credentials: 'include', headers: { 'Authorization': localStorage.getItem('auth_token') ? `Bearer ${localStorage.getItem('auth_token')}` : '' } });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const js = await r.json();
-    if (!js?.ok) throw new Error(js?.error || 'Réponse invalide');
-    if (typeof js.name === 'string') nameInput.value = js.name;
+  let tenantId = 'default';
+  try { tenantId = await getCurrentTenantId(); } catch {}
 
-    if (js.has_logo) {
-      const url = `${apiBase}/branding/logo?ts=${Date.now()}`; // cache-busting léger
-      prev.src = url;
-      prev.style.display = '';
-      empty.style.display = 'none';
-      // met aussi le header en live
-      window.__refreshTenantLogo__?.(url);
-    } else {
-      prev.style.display = 'none';
-      empty.style.display = '';
-      window.__refreshTenantLogo__?.('');
+  // Charge l’état via IPC (token + x-tenant-id gérés côté main)
+  async function loadMeta() {
+    try {
+      const r = await window.electronAPI?.brandingGet?.({ tenantId });
+      if (!r?.ok) throw new Error(r?.error || 'Réponse invalide');
+
+      if (typeof r.name === 'string') {
+        nameInput.value = r.name;
+        window.__refreshTenantName__?.(r.name);
+      }
+
+      // Le main renvoie un fichier local (logoFile/file) si un logo existe
+      const filePath = r.logoFile || r.file;
+      if (filePath) {
+        const src = `file://${String(filePath).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+        prev.src = src;
+        prev.style.display = '';
+        empty.style.display = 'none';
+        window.__refreshTenantLogo__?.(src);
+      } else {
+        prev.style.display = 'none';
+        empty.style.display = '';
+        window.__refreshTenantLogo__?.('');
+      }
+      msg('');
+    } catch (e) {
+      msg('Impossible de charger le branding: ' + (e?.message || e), false);
     }
-    if (js.name) window.__refreshTenantName__?.(js.name);
   }
 
-  try { await loadMeta(); } catch (e) { msg('Impossible de charger le branding', false); }
+  try { await loadMeta(); } catch {}
 
+  // Prévisualisation fichier
   let selectedDataUrl = null;
   $('#brand-file')?.addEventListener('change', (e) => {
     const f = e.target.files?.[0];
@@ -1583,24 +1640,18 @@ async function renderTenantBrandingSettings() {
     reader.readAsDataURL(f);
   });
 
+  // Enregistrer via IPC
   $('#brand-save')?.addEventListener('click', async () => {
     try {
       msg('Enregistrement…');
-      const payload = {};
-      payload.name = (nameInput.value ?? '').toString();
+      const payload = {
+        tenantId,
+        name: (nameInput.value ?? '').toString(),
+      };
       if (selectedDataUrl) payload.logoDataUrl = selectedDataUrl;
 
-      const r = await fetch(`${apiBase}/branding`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(localStorage.getItem('auth_token') ? { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` } : {})
-        },
-        credentials: 'include',
-        body: JSON.stringify(payload)
-      });
-      const js = await r.json().catch(()=>null);
-      if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+      const r = await window.electronAPI?.brandingSet?.(payload);
+      if (!r?.ok) throw new Error(r?.error || 'Échec enregistrement');
 
       // refresh UI header + preview
       if (payload.name) window.__refreshTenantName__?.(payload.name);
@@ -1614,21 +1665,13 @@ async function renderTenantBrandingSettings() {
     }
   });
 
+  // Supprimer logo via IPC
   $('#brand-remove')?.addEventListener('click', async () => {
     if (!confirm('Supprimer le logo ?')) return;
     try {
       msg('Suppression…');
-      const r = await fetch(`${apiBase}/branding`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(localStorage.getItem('auth_token') ? { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` } : {})
-        },
-        credentials: 'include',
-        body: JSON.stringify({ deleteLogo: true })
-      });
-      const js = await r.json().catch(()=>null);
-      if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+      const r = await window.electronAPI?.brandingSet?.({ tenantId, deleteLogo: true });
+      if (!r?.ok) throw new Error(r?.error || 'Échec suppression');
       await loadMeta();
       msg('Logo supprimé ✅');
     } catch (e) {
@@ -1636,7 +1679,6 @@ async function renderTenantBrandingSettings() {
     }
   });
 }
-
 
   // ----------------------------
   // Admin Tenants (super admin)

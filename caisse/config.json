@@ -14,5 +14,6 @@
     "modes_paiement": true,
     "ventes_exterieur": true
   },
-  "ventes_exterieur_margin_percent": 30
+  "ventes_exterieur_margin_percent": 30,
+  "api_base_url": "http://localhost:3001"
 }
