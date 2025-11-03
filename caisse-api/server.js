@@ -6,6 +6,8 @@ import 'dotenv/config';
 import express from 'express';
 import tenantsRouter from './routes/tenants.js';
 
+
+
 import cors from 'cors';
 
 import { pool } from './db/index.js';
@@ -56,6 +58,11 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use('/public', express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); 
+
+
+import brandingRouter from './routes/branding.js';   
+import storage from './services/storage.js';        
 
 // tests //
 import authRouter from './routes/auth.js';
@@ -89,6 +96,17 @@ app.use('/inventory', inventoryRoutes);
  * =======================*/
 app.use('/auth', authRoutes);
 app.use('/tenant_settings', tenantSettingsRoutes);
+
+
+// =========================
+// Branding multi-tenant
+// =========================
+
+app.use('/branding', authRequired, brandingRouter);
+
+app.use('/tenant', authRequired,                // on exige l’auth pour récupérer req.tenantId
+  brandingRouter({ pool, storage })            // routes: GET/PUT /tenant/branding
+);
 
 /* ============================================
  * Helper: stock actuel (multi-tenant)

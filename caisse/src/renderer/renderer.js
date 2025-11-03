@@ -193,48 +193,52 @@
   }
 
   async function loadBranding() {
-    const tenantId = await getCurrentTenantId();
-
-    // 0) Persistance locale (branding:get) — par tenant
+  // base API
+  async function getApiBaseFromConfig() {
     try {
-      const r = await window.electronAPI?.brandingGet?.({ tenantId });
-      if (r?.ok) {
-        const file = r.file || r.logoFile; // compat si field diff
-        const name = r.name;
-        if (file) {
-          // cache-busting avec mtime
-          const src = `file://${String(file).replace(/\\/g, '/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
-          await setTenantLogo(src);
-        }
-        if (name) setTenantName(name);
-      }
-    } catch {}
+      const cfg = await (window.electronAPI?.getConfig?.() || {});
+      return (cfg && cfg.api_base_url) ? cfg.api_base_url.replace(/\/+$/, '') : '';
+    } catch { return ''; }
+  }
+  const apiBase = await getApiBaseFromConfig();
 
-    // 1) Onboarding (au cas où la persistance n’a pas encore été faite)
+  if (apiBase) {
     try {
-      const r = await window.electronAPI?.getOnboardingStatus?.();
-      const data = r?.data || r || {};
-      const name = data.store_name || data.tenant_name || data.company_name || data.name;
-      if (name) setTenantName(name);
-      // Optionnel: persister un logo venant de l'onboarding si on n'a pas encore de fichier local
-      const currentSrc = document.getElementById('tenant-logo')?.getAttribute('src');
-      if (!currentSrc && data.logo_dataUrl) {
-        const saved = await window.electronAPI?.brandingSet?.({ tenantId, logoDataUrl: data.logo_dataUrl });
-        if (saved?.ok && saved.file) {
-          const src = `file://${saved.file.replace(/\\/g, '/')}${saved.mtime ? `?v=${Math.floor(saved.mtime)}` : ''}`;
-          await setTenantLogo(src);
+      const r = await fetch(`${apiBase}/branding`, {
+        credentials: 'include',
+        headers: (localStorage.getItem('auth_token')
+          ? { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` }
+          : {})
+      });
+      if (r.ok) {
+        const js = await r.json();
+        if (js?.ok) {
+          if (js.name) setTenantName(js.name);
+          if (js.has_logo) {
+            const url = `${apiBase}/branding/logo?ts=${Date.now()}`;
+            await setTenantLogo(url);
+          }
+          return; // on a réussi → on sort
         }
       }
-    } catch {}
-
-    // 2) Fallback Auth info pour le nom
-    try {
-      const info = await window.electronAPI?.getAuthInfo?.();
-      const name =
-        info?.store_name || info?.tenant_name || info?.company_name || info?.company || info?.name;
-      if (name) setTenantName(name);
     } catch {}
   }
+
+  // Fallbacks (onboarding / auth info) au cas où
+  try {
+    const r = await window.electronAPI?.getOnboardingStatus?.();
+    const data = r?.data || r || {};
+    const name = data.store_name || data.tenant_name || data.company_name || data.name;
+    if (name) setTenantName(name);
+  } catch {}
+  try {
+    const info = await window.electronAPI?.getAuthInfo?.();
+    const name =
+      info?.store_name || info?.tenant_name || info?.company_name || info?.company || info?.name;
+    if (name) setTenantName(name);
+  } catch {}
+}
+
 
   // Permettre une mise à jour “live” quand la page Logo enregistre
   window.__refreshTenantLogo__ = async (urlOrData) => {
