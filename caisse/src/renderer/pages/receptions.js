@@ -1,5 +1,26 @@
 // src/renderer/pages/receptions.js
 (() => {
+  // --- Helpers sûrs pour lignes ---
+  function ensureArray(maybeArray) {
+    if (Array.isArray(maybeArray)) return maybeArray;
+    if (maybeArray && typeof maybeArray === 'object') return Object.values(maybeArray);
+    return [];
+  }
+  function normalizeReceptionDetails(raw) {
+    // Peut être:
+    //  - array de lignes
+    //  - { lignes: [...], header: {...} }
+    //  - { lignes: {id: {...}}, header: {...} }
+    //  - autres variantes -> on renvoie toujours { header, lignes: [] }
+    if (Array.isArray(raw)) return { header: null, lignes: raw };
+    if (raw && typeof raw === 'object') {
+      const header = raw.header || raw.meta || null;
+      const lignes = ensureArray(raw.lignes || raw.lines || raw);
+      return { header, lignes };
+    }
+    return { header: null, lignes: [] };
+  }
+
   async function renderReception() {
     const content = document.getElementById("page-content");
     const fournisseurs = await window.electronAPI.getFournisseurs();
@@ -359,78 +380,73 @@
         afficherListeProduitsFournisseur(true);
       });
 
-     const btnValider = document.getElementById("valider-reception");
-if (btnValider) {
-  btnValider.addEventListener("click", async () => {
-    if (lignesReception.length === 0) { alert("Aucun produit ajouté."); return; }
+      const btnValider = document.getElementById("valider-reception");
+      if (btnValider) {
+        btnValider.addEventListener("click", async () => {
+          if (lignesReception.length === 0) { alert("Aucun produit ajouté."); return; }
 
-    const referenceGlobale = (document.getElementById('referenceInput')?.value || '').trim() || null;
+          const referenceGlobale = (document.getElementById('referenceInput')?.value || '').trim() || null;
 
-    // Regroupement par fournisseur
-    const groupesParFournisseur = {};
-    for (const l of lignesReception) {
-      const fid = l.produit?.fournisseur_id;
-      if (!fid) { await showAlertModal(`Un des produits n'a pas de fournisseur associé.`); return; }
-      if (!groupesParFournisseur[fid]) groupesParFournisseur[fid] = [];
-      groupesParFournisseur[fid].push(l);
-    }
+          // Regroupement par fournisseur
+          const groupesParFournisseur = {};
+          for (const l of lignesReception) {
+            const fid = l.produit?.fournisseur_id;
+            if (!fid) { await showAlertModal(`Un des produits n'a pas de fournisseur associé.`); return; }
+            if (!groupesParFournisseur[fid]) groupesParFournisseur[fid] = [];
+            groupesParFournisseur[fid].push(l);
+          }
 
-    let nbBL = 0;
-    for (const [fid, lines] of Object.entries(groupesParFournisseur)) {
-      const modules = await window.electronAPI.getModules();
-      const stocksOn = !!(modules && modules.stocks);
+          let nbBL = 0;
+          for (const [fid, lines] of Object.entries(groupesParFournisseur)) {
+            const modules = await window.electronAPI.getModules();
+            const stocksOn = !!(modules && modules.stocks);
 
-      const reception = {
-        fournisseur_id: parseInt(fid, 10),
-        fournisseurId: parseInt(fid, 10),
-        reference: referenceGlobale,
-        lignes: lines.map(l => ({
-          produit_id: l.produit.id,
-          quantite: stocksOn ? (Number(l.quantite) || 0) : 0,
-          prix_unitaire: Number(l.prix) || 0,
-          fournisseur_id: parseInt(fid, 10),
-          fournisseurId: parseInt(fid, 10),
-          reference: referenceGlobale,
-          stock_corrige: stocksOn
-            ? ((l.stockCorrige !== '' && l.stockCorrige != null) ? Number(l.stockCorrige) : null)
-            : null
-        }))
-      };
+            const reception = {
+              fournisseur_id: parseInt(fid, 10),
+              fournisseurId: parseInt(fid, 10),
+              reference: referenceGlobale,
+              lignes: lines.map(l => ({
+                produit_id: l.produit.id,
+                quantite: stocksOn ? (Number(l.quantite) || 0) : 0,
+                prix_unitaire: Number(l.prix) || 0,
+                fournisseur_id: parseInt(fid, 10),
+                fournisseurId: parseInt(fid, 10),
+                reference: referenceGlobale,
+                stock_corrige: stocksOn
+                  ? ((l.stockCorrige !== '' && l.stockCorrige != null) ? Number(l.stockCorrige) : null)
+                  : null
+              }))
+            };
 
-      try {
-        const res = await window.electronAPI.enregistrerReception(reception);
+            try {
+              const res = await window.electronAPI.enregistrerReception(reception);
 
-        // ✅ reconnaître toutes les formes de succès renvoyées par le main:
-        //  - true
-        //  - { success: true } ou { ok: true }
-        //  - un nombre brut (id)
-        //  - { receptionId: <id> }
-        const ok =
-          res === true ||
-          (res && (res.success === true || res.ok === true)) ||
-          Number.isFinite(res) ||
-          (res && Number.isFinite(res.receptionId));
+              // ✅ reconnaître toutes les formes de succès renvoyées par le main
+              const ok =
+                res === true ||
+                (res && (res.success === true || res.ok === true)) ||
+                Number.isFinite(res) ||
+                (res && Number.isFinite(res.receptionId));
 
-        if (!ok) {
-          const msg = (res && (res.error || res.message)) || 'Réponse inattendue du main-process';
-          await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${msg}`);
-          return;
-        }
-        nbBL++;
-      } catch (err) {
-        const msg = err?.message || err?.stack || String(err);
-        await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${msg}`);
-        return;
+              if (!ok) {
+                const msg = (res && (res.error || res.message)) || 'Réponse inattendue du main-process';
+                await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${msg}`);
+                return;
+              }
+              nbBL++;
+            } catch (err) {
+              const msg = err?.message || err?.stack || String(err);
+              await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${msg}`);
+              return;
+            }
+          }
+
+          await showAlertModal(`✅ ${nbBL} bon(s) de livraison créé(s) (un par fournisseur).`);
+          localStorage.removeItem(R_LINES_KEY);
+          lignesReception = [];
+          renderReception();
+        });
       }
-    }
-
-    await showAlertModal(`✅ ${nbBL} bon(s) de livraison créé(s) (un par fournisseur).`);
-    localStorage.removeItem(R_LINES_KEY);
-    lignesReception = [];
-    renderReception();
-  });
-}
-
     };
 
     await afficherInterface();
@@ -441,11 +457,14 @@ if (btnValider) {
 
     async function voirDetailsReception_local(receptionId) {
       const content = document.getElementById("page-content");
-      const [toutes, lignes] = await Promise.all([
+      const [toutes, rawDetails] = await Promise.all([
         window.electronAPI.getReceptions(),
         window.electronAPI.getReceptionDetails(receptionId)
       ]);
-      const totalReception = (lignes || []).reduce((s, l) => {
+      const { lignes } = normalizeReceptionDetails(rawDetails);
+      const L = ensureArray(lignes);
+
+      const totalReception = L.reduce((s, l) => {
         const q  = Number(l.quantite || 0);
         const pu = Number(l.prix_unitaire || 0);
         return s + (Number.isFinite(q) && Number.isFinite(pu) ? q * pu : 0);
@@ -481,7 +500,7 @@ if (btnValider) {
             </tr>
           </thead>
           <tbody>
-            ${lignes.map(l => `
+            ${L.map(l => `
               <tr>
                 <td>${l.produit || '—'}</td>
                 <td>${l.unite || '—'}</td>
@@ -505,8 +524,10 @@ if (btnValider) {
 
     const totalsById = new Map();
     await Promise.all(receptions.map(async (r) => {
-      const lignes = await window.electronAPI.getReceptionDetails(r.id);
-      const tot = (lignes || []).reduce((s, l) => {
+      const raw = await window.electronAPI.getReceptionDetails(r.id);
+      const { lignes } = normalizeReceptionDetails(raw);
+      const L = ensureArray(lignes);
+      const tot = L.reduce((s, l) => {
         const q  = Number(l.quantite || 0);
         const pu = Number(l.prix_unitaire || 0);
         if (!Number.isFinite(q) || !Number.isFinite(pu)) return s;

@@ -209,19 +209,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------------- Stock (batch) ------------------ */
   ajusterStockBulk: (payload) => ipcRenderer.invoke('stock:adjust-bulk', payload),
 
+  getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
 
-    getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
-
-// --- Branding (nom + logo) par tenant ---
-// Acceptent soit un string tenantId, soit { tenantId }, soit rien (=> auto via JWT)
-brandingGet: (tenantArg) => {
-    // accepte 'tenantId' string ou { tenantId }, sinon laisse le main déduire via JWT
+  // --- Branding (nom + logo) par tenant ---
+  // Acceptent soit un string tenantId, soit { tenantId }, soit rien (=> auto via JWT)
+  brandingGet: (tenantArg) => {
     const tenantId = (tenantArg && typeof tenantArg === 'object') ? tenantArg.tenantId : tenantArg;
     return ipcRenderer.invoke('branding:get', { tenantId });
   },
   brandingSet: async (payload) => {
     const p = payload || {};
-    // si pas de tenant explicitement fourni, on tente d’en déduire un côté renderer
     if (p.tenantId == null && typeof window !== 'undefined') {
       try {
         const info = await ipcRenderer.invoke('auth:getInfo');
@@ -255,6 +252,10 @@ brandingGet: (tenantArg) => {
     finalize:  ({ sessionId, user, email_to })   =>
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
     listOpen:  ()                                => ipcRenderer.invoke('inventory:list-open'),
+
+    // ✅ Nouveaux ponts pour l'historique Inventaires (routes API)
+    listSessions: ()                              => ipcRenderer.invoke('inventory:listSessions'),
+    getSummary:  (sessionId)                      => ipcRenderer.invoke('inventory:getSummary', sessionId),
   },
 
   /* -------------- Inventaire / produits ---------- */
@@ -301,5 +302,9 @@ contextBridge.exposeInMainWorld('carts', {
     finalize:  ({ sessionId, user, email_to })   =>
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
     listOpen:  ()                                => ipcRenderer.invoke('inventory:list-open'),
+
+    // ✅ Ajoutés aussi ici pour cohérence éventuelle
+    listSessions: ()                              => ipcRenderer.invoke('inventory:listSessions'),
+    getSummary:  (sessionId)                      => ipcRenderer.invoke('inventory:getSummary', sessionId),
   },
 });

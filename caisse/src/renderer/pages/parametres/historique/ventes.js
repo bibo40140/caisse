@@ -1,25 +1,53 @@
+// src/renderer/pages/parametres/historique/ventes.js
 (() => {
-  async function renderHistoriqueFactures() {
-    const container = document.getElementById('page-content');
+  function eur(v) {
+    const n = Number(v || 0);
+    return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+
+  async function render() {
+    const container = document.getElementById('parametres-souspage');
     if (!container) return;
 
+    // Récupère l’historique (headers)
     const ventes = await window.electronAPI.getHistoriqueVentes();
-    const ventesAvecProduits = await Promise.all(
+    // Récupère les infos nécessaires pour l’affichage (sans tout re-rendre au clic)
+    const ventesLite = await Promise.all(
       ventes.map(async (v) => {
+        // On va chercher le header pour fiabiliser les champs (mode paiement, frais, etc.)
         const details = await window.electronAPI.getDetailsVente(v.id);
         const header  = details.header || details;
-        const lignes  = details.lignes || [];
-        const totalProduits = Number(v.total ?? header.total ?? 0);
-        const frais         = Number(v.frais_paiement ?? header.frais_paiement ?? 0) || 0;
-        const cotisation    = Number(v.cotisation    ?? header.cotisation    ?? 0) || 0;
-        const totalAffiche  = totalProduits + cotisation + frais;
-        const adherent = `${v.adherent_nom || header.adherent_nom || ''} ${v.adherent_prenom || header.adherent_prenom || ''}`.trim();
-        return { vente_id: v.id, date_vente: v.date_vente, adherent, mode_paiement_nom: (v.mode_paiement_nom || header.mode_paiement_nom || '—'), total_affiche: totalAffiche };
+        const frais   = Number(header.frais_paiement ?? 0) || 0;
+        const cotis   = Number(header.cotisation ?? 0) || 0;
+
+        // Total produits (si pas dans header, on prend v.total)
+        let totalProduits = 0;
+        if (Array.isArray(details.lignes)) {
+          totalProduits = details.lignes.reduce((s, l) => {
+            const q = Number(l.quantite || 0);
+            const tot = (l.prix != null && l.prix !== '') ? Number(l.prix)
+                      : q * Number(l.prix_unitaire || 0);
+            return s + (Number.isFinite(tot) ? tot : 0);
+          }, 0);
+        } else {
+          totalProduits = Number(v.total ?? header.total ?? 0) || 0;
+        }
+
+        const totalAffiche = totalProduits + cotis + frais;
+        const adherent = `${header.adherent_nom || ''} ${header.adherent_prenom || ''}`.trim();
+
+        return {
+          id: v.id,
+          date_vente: header.date_vente || v.date_vente,
+          adherent,
+          mode_paiement_nom: header.mode_paiement_nom || '—',
+          total_affiche: totalAffiche
+        };
       })
     );
 
     container.innerHTML = `
-      <h2>Historique des ventes</h2>
+      <h3>Historique des ventes</h3>
       <input type="text" id="recherche-vente"
         placeholder="Rechercher…"
         style="margin-bottom: 10px; width: 100%;">
@@ -35,15 +63,16 @@
           </tr>
         </thead>
         <tbody id="ventes-tbody">
-          ${ventesAvecProduits.map(v => `
+          ${ventesLite.map(v => `
             <tr>
               <td>${new Date(v.date_vente).toLocaleString()}</td>
               <td>${v.adherent || '—'}</td>
-              <td>${v.total_affiche.toFixed(2)} €</td>
+              <td>${eur(v.total_affiche)}</td>
               <td>${v.mode_paiement_nom || '—'}</td>
-              <td><button data-id="${v.vente_id}" class="btn voir-detail-btn">Voir</button></td>
+              <td><button data-id="${v.id}" class="btn voir-detail-btn">Voir</button></td>
             </tr>
           `).join('')}
+          ${ventesLite.length === 0 ? `<tr><td colspan="5">Aucune vente.</td></tr>` : ''}
         </tbody>
       </table>
 
@@ -57,6 +86,7 @@
       </div>
     `;
 
+    // Recherche en direct
     const input = document.getElementById('recherche-vente');
     const rows = Array.from(document.querySelectorAll('#ventes-tbody tr'));
     let debounce;
@@ -71,15 +101,16 @@
       }, 80);
     });
 
+    // Détail (modal)
     document.querySelectorAll('.voir-detail-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = parseInt(btn.getAttribute('data-id'), 10);
         const details = await window.electronAPI.getDetailsVente(id);
-        const header = details.header || details;
-        const lignes = details.lignes || [];
+        const header  = details.header || details;
+        const lignes  = details.lignes || [];
 
-        const montantCotisation = Number(header.cotisation || details.cotisation || 0);
-        const fraisPaiement = Number(header.frais_paiement || 0);
+        const montantCotisation = Number(header.cotisation || 0);
+        const fraisPaiement     = Number(header.frais_paiement || 0);
 
         const lignesCalc = lignes.map(l => {
           const q = Number(l.quantite || 0);
@@ -101,7 +132,7 @@
             : Number(q) * Number(l.prix_unitaire || 0);
           return s + (Number.isFinite(tot) ? tot : 0);
         }, 0);
-        const totalGlobal   = totalProduits + montantCotisation + fraisPaiement;
+        const totalGlobal = totalProduits + montantCotisation + fraisPaiement;
 
         const html = `
           <h3>Détail de la vente #${id}</h3>
@@ -124,35 +155,35 @@
                 <tr>
                   <td>${l.produit_nom}</td>
                   <td>${l.qte}</td>
-                  <td>${l.puOrig.toFixed(2)} €</td>
+                  <td>${eur(l.puOrig)}</td>
                   <td>${l.remise.toFixed(2)} %</td>
-                  <td>${l.puRemise.toFixed(2)} €</td>
-                  <td>${l.lineTotal.toFixed(2)} €</td>
+                  <td>${eur(l.puRemise)}</td>
+                  <td>${eur(l.lineTotal)}</td>
                 </tr>
               `).join('')}
               ${montantCotisation > 0 ? `
                 <tr>
                   <td><em>Cotisation</em></td>
                   <td>—</td>
-                  <td colspan="3">${montantCotisation.toFixed(2)} €</td>
-                  <td>${montantCotisation.toFixed(2)} €</td>
+                  <td colspan="3">${eur(montantCotisation)}</td>
+                  <td>${eur(montantCotisation)}</td>
                 </tr>
               ` : ''}
               ${fraisPaiement > 0 ? `
                 <tr>
                   <td><em>Frais de paiement</em></td>
                   <td>—</td>
-                  <td colspan="3">${fraisPaiement.toFixed(2)} €</td>
-                  <td>${fraisPaiement.toFixed(2)} €</td>
+                  <td colspan="3">${eur(fraisPaiement)}</td>
+                  <td>${eur(fraisPaiement)}</td>
                 </tr>
               ` : ''}
             </tbody>
           </table>
           <p style="margin-top: 10px;">
-            <strong>Total produits :</strong> ${totalProduits.toFixed(2)} €<br>
-            ${fraisPaiement > 0 ? `<strong>Frais de paiement :</strong> ${fraisPaiement.toFixed(2)} €<br>` : ''}
-            ${montantCotisation > 0 ? `<strong>Cotisation :</strong> ${montantCotisation.toFixed(2)} €<br>` : ''}
-            <strong>Total :</strong> ${totalGlobal.toFixed(2)} €<br>
+            <strong>Total produits :</strong> ${eur(totalProduits)}<br>
+            ${fraisPaiement > 0 ? `<strong>Frais de paiement :</strong> ${eur(fraisPaiement)}<br>` : ''}
+            ${montantCotisation > 0 ? `<strong>Cotisation :</strong> ${eur(montantCotisation)}<br>` : ''}
+            <strong>Total :</strong> ${eur(totalGlobal)}<br>
           </p>
         `;
         document.getElementById('facture-detail').innerHTML = html;
@@ -166,5 +197,5 @@
     });
   }
 
-  window.PageParams = { ...(window.PageParams||{}), renderHistoriqueFactures };
+  window.PageParamsHistoriqueVentes = { render };
 })();

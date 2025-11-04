@@ -800,6 +800,49 @@ safeHandle('inventory:list-open', async () => {
   return { ok: true, items: [] };
 });
 
+// ⚠️⚠️ NOUVEAU — Historique Inventaires (routes API protégées) ⚠️⚠️
+safeHandle('inventory:listSessions', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+
+    const r = await apiFetch('/inventory/sessions', {
+      headers: { accept: 'application/json', ...getTenantHeaders() }
+    });
+    const js = await safeJson(r);
+    if (!r.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+
+    // Tolérer différents schémas de payload
+    const items = Array.isArray(js?.items) ? js.items
+                : Array.isArray(js?.sessions) ? js.sessions
+                : Array.isArray(js?.data) ? js.data
+                : [];
+    return { ok: true, items };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('inventory:getSummary', async (_e, sessionId) => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+    const id = encodeURIComponent(String(sessionId));
+
+    const r = await apiFetch(`/inventory/${id}/summary`, {
+      headers: { accept: 'application/json', ...getTenantHeaders() }
+    });
+    const js = await safeJson(r);
+    if (!r.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+
+    // payload flexible
+    const summary = js?.summary ?? js;
+    return { ok: true, summary };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
 // Handlers existants (inchangés)
 require('./src/main/handlers/config')(ipcMain);
 require('./src/main/handlers/produits');
