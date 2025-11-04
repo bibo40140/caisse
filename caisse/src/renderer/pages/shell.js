@@ -2,29 +2,29 @@
 (() => {
   async function applyModulesToSidebar() {
     const modules = await (window.getMods?.() || window.electronAPI.getModules());
+
     // Adhérents
     const liAdh = document.querySelector(
       'aside.sidebar nav li[onclick*="adherents"], aside.sidebar nav li[onclick*="adherent"]'
     );
-    if (liAdh) liAdh.style.display = modules.adherents ? '' : 'none';
+    if (liAdh) liAdh.style.display = modules?.adherents ? '' : 'none';
 
     // Réceptions → toujours visible, même Stocks OFF
     const liReceptions = document.querySelector('aside.sidebar nav li[onclick*="receptions"]');
     if (liReceptions) liReceptions.style.display = '';
 
-    // Bouton Paramètres > Cotisations (si tu l’affiches dans une page)
+    // (Héritage) Ancien bouton Paramètres > Cotisations (inutile avec la nouvelle page, inoffensif si présent)
     const btnParamCot = document.getElementById('btn-param-cotisations');
-    if (btnParamCot) btnParamCot.style.display = modules.cotisations ? '' : 'none';
-	
-	// Inventaire visible seulement si stocks=ON
-const liInv = document.querySelector('aside.sidebar nav li[onclick*="inventaire"]');
-if (liInv) liInv.style.display = modules.stocks ? '' : 'none';
+    if (btnParamCot) btnParamCot.style.display = modules?.cotisations ? '' : 'none';
 
+    // Inventaire visible seulement si stocks = ON
+    const liInv = document.querySelector('aside.sidebar nav li[onclick*="inventaire"]');
+    if (liInv) liInv.style.display = modules?.stocks ? '' : 'none';
   }
 
   async function applyModulesToCaisse() {
     const modules = await (window.getMods?.() || window.electronAPI.getModules());
-    const show = !!modules.adherents;
+    const show = !!modules?.adherents;
     const container = document.getElementById('adherent-container');
     const datalist  = document.getElementById('adherents-list');
     const hidden    = document.getElementById('adherent-select');
@@ -44,17 +44,25 @@ if (liInv) liInv.style.display = modules.stocks ? '' : 'none';
     switch (page) {
       case 'produits': {
         title.textContent = "Produits";
-        window.renderFormulaireProduit();
+        window.renderFormulaireProduit?.();
         break;
       }
       case 'caisse': {
         title.textContent = "Caisse";
-        window.renderCaisse().then(() => applyModulesToCaisse().catch(console.error));
+        if (typeof window.renderCaisse === 'function') {
+          window.renderCaisse().then(() => applyModulesToCaisse().catch(console.error));
+        } else {
+          content.innerHTML = `<p>Module Caisse non chargé.</p>`;
+        }
         break;
       }
       case 'receptions': {
         title.textContent = "Réceptions";
-        await window.renderReception();
+        if (typeof window.renderReception === 'function') {
+          await window.renderReception();
+        } else {
+          content.innerHTML = `<p>Module Réceptions non chargé.</p>`;
+        }
         break;
       }
       case 'adherents':
@@ -65,25 +73,66 @@ if (liInv) liInv.style.display = modules.stocks ? '' : 'none';
           return;
         }
         title.textContent = "Adhérents";
-        await window.renderGestionAdherents();
+        if (typeof window.renderGestionAdherents === 'function') {
+          await window.renderGestionAdherents();
+        } else {
+          content.innerHTML = `<p>Module Adhérents non chargé.</p>`;
+        }
         break;
       }
       case 'fournisseurs': {
         title.textContent = "Fournisseurs";
-        window.chargerFournisseurs();
+        window.chargerFournisseurs?.();
         break;
       }
-	  case 'inventaire': {
-  title.textContent = "Inventaire";
-  await window.renderInventaire();
-  break;
-}
+      case 'inventaire': {
+        title.textContent = "Inventaire";
+        if (typeof window.renderInventaire === 'function') {
+          await window.renderInventaire();
+        } else {
+          content.innerHTML = `<p>Module Inventaire non chargé.</p>`;
+        }
+        break;
+      }
 
       case 'parametres': {
         title.textContent = "Paramètres";
-        await window.renderParametresHome(); // (déplacé dans PageParams, ci-dessous)
+        // Lazy-load robuste de la nouvelle page Paramètres
+        if (!window.PageParams?.renderHome) {
+          const inject = (src) => new Promise((res, rej) => {
+            if (document.querySelector(`script[data-dyn="${src}"]`)) return res();
+            const s = document.createElement('script');
+            s.src = src;
+            s.async = false;
+            s.dataset.dyn = src;
+            s.onload = res; s.onerror = () => rej(new Error(`Fail load ${src}`));
+            document.head.appendChild(s);
+          });
+
+          try {
+            await inject('src/renderer/utils/busy.js');
+            await inject('src/renderer/utils/apiBase.js');
+            await inject('src/renderer/utils/currency.js');
+            await inject('src/renderer/utils/dom.js');
+            await inject('src/renderer/utils/tenant.js');
+            await inject('src/renderer/pages/parametres/components/tabs.js');
+            await inject('src/renderer/pages/parametres/index.js');
+          } catch (e) {
+            console.error(e);
+            const msg = (e && e.message) ? e.message : String(e);
+            content.innerHTML = `<p>Impossible de charger la page Paramètres : ${msg}</p>`;
+            return;
+          }
+        }
+
+        if (typeof window.PageParams?.renderHome === 'function') {
+          await window.PageParams.renderHome();
+        } else {
+          content.innerHTML = `<p>La page Paramètres est chargée mais \`renderHome()\` est introuvable.</p>`;
+        }
         break;
       }
+
       default: {
         title.textContent = "Accueil";
         content.innerHTML = `<p>Bienvenue dans votre logiciel de caisse Coop'az !</p>`;

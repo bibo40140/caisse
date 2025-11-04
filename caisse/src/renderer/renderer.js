@@ -1,34 +1,34 @@
 // src/renderer/renderer.js
 (() => {
   // --- Wrappers Caisse ---
-  window.renderCaisse     = (...a) => window.PageCaisse.renderCaisse(...a);
-  window.validerVente     = (...a) => window.PageCaisse.validerVente(...a);
+  window.renderCaisse     = (...a) => window.PageCaisse.renderCaisse?.(...a);
+  window.validerVente     = (...a) => window.PageCaisse.validerVente?.(...a);
 
   // --- Wrappers Produits ---
-  window.renderFormulaireProduit = (...a) => window.PageProduits.renderFormulaireProduit(...a);
-  window.chargerProduits         = (...a) => window.PageProduits.chargerProduits(...a);
+  window.renderFormulaireProduit = (...a) => window.PageProduits.renderFormulaireProduit?.(...a);
+  window.chargerProduits         = (...a) => window.PageProduits.chargerProduits?.(...a);
 
   // --- Wrappers Adhérents ---
-  window.renderGestionAdherents     = (...a) => window.PageAdherents.renderGestionAdherents(...a);
-  window.showFormModalAdherent      = (...a) => window.PageAdherents.showFormModalAdherent(...a);
-  window.renderImportAdherents      = (...a) => window.PageAdherents.renderImportAdherents(...a);
-  window.renderCotisations          = (...a) => window.PageAdherents.renderCotisations(...a);
-  window.verifierCotisationAdherent = (...a) => window.PageAdherents.verifierCotisationAdherent(...a);
+  window.renderGestionAdherents     = (...a) => window.PageAdherents.renderGestionAdherents?.(...a);
+  window.showFormModalAdherent      = (...a) => window.PageAdherents.showFormModalAdherent?.(...a);
+  window.renderImportAdherents      = (...a) => window.PageAdherents.renderImportAdherents?.(...a);
+  window.renderCotisations          = (...a) => window.PageAdherents.renderCotisations?.(...a);
+  window.verifierCotisationAdherent = (...a) => window.PageAdherents.verifierCotisationAdherent?.(...a);
 
   // --- Wrappers Fournisseurs ---
-  window.chargerFournisseurs       = (...a) => window.PageFournisseurs.chargerFournisseurs(...a);
-  window.ajouterFournisseur        = (...a) => window.PageFournisseurs.ajouterFournisseur(...a);
-  window.modifierFournisseur       = (...a) => window.PageFournisseurs.modifierFournisseur(...a);
-  window.renderImportFournisseurs  = (...a) => window.PageFournisseurs.renderImportFournisseurs(...a);
+  window.chargerFournisseurs       = (...a) => window.PageFournisseurs.chargerFournisseurs?.(...a);
+  window.ajouterFournisseur        = (...a) => window.PageFournisseurs.ajouterFournisseur?.(...a);
+  window.modifierFournisseur       = (...a) => window.PageFournisseurs.modifierFournisseur?.(...a);
+  window.renderImportFournisseurs  = (...a) => window.PageFournisseurs.renderImportFournisseurs?.(...a);
 
   // --- Wrappers Réceptions ---
-  window.renderReception  = (...a) => window.PageReceptions.renderReception(...a);
-  window.renderReceptions = (...a) => window.PageReceptions.renderReceptions(...a);
+  window.renderReception  = (...a) => window.PageReceptions.renderReception?.(...a);
+  window.renderReceptions = (...a) => window.PageReceptions.renderReceptions?.(...a);
 
   // --- Wrappers Inventaire ---
-  window.renderInventaire = (...a) => window.PageInventaire.renderInventaire(...a);
+  window.renderInventaire = (...a) => window.PageInventaire.renderInventaire?.(...a);
 
-  // --- Wrappers Paramètres ---
+  // --- Wrappers Paramètres (legacy; la nouvelle page utilise PageParams.renderHome via shell.js) ---
   window.renderParametresHome        = (...a) => window.PageParams.renderParametresHome?.(...a);
   window.renderImportExcel           = (...a) => window.PageParams.renderImportExcel?.(...a);
   window.importerExcel               = (...a) => window.PageParams.importerExcel?.(...a);
@@ -152,123 +152,99 @@
   });
 })();
 
-// --- Tenant brand (logo + nom) boot --- *** MODIFIÉ POUR TENANT ***
+// --- Tenant brand (logo + nom) boot — sans fetch HTTP direct ---
 (() => {
-  let __cachedTenantId = null;
-  async function getCurrentTenantId() {
-    if (__cachedTenantId) return __cachedTenantId;
-    try {
-      const info = await window.electronAPI?.getAuthInfo?.();
-      const tid =
-        info?.tenant_id || info?.tenantId || info?.tid ||
-        info?.id || info?.user?.tenant_id || info?.user?.tenantId;
-      if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
-    } catch {}
-    try {
-      const ob = await window.electronAPI?.getOnboardingStatus?.();
-      const data = ob?.data || ob || {};
-      const tid = data?.tenant_id || data?.tenantId || data?.id;
-      if (tid) { __cachedTenantId = String(tid); return __cachedTenantId; }
-    } catch {}
-    __cachedTenantId = 'default';
-    return __cachedTenantId;
+  // Hooks universels pour MAJ du titre / logo où qu'ils se trouvent
+  if (typeof window.__refreshTenantName__ !== 'function') {
+    window.__refreshTenantName__ = (name) => {
+      const n = (name && String(name).trim()) || "Coop'az";
+      const title =
+        document.querySelector('#app-title') ||
+        document.querySelector('.app-title') ||
+        document.querySelector('.brand-title') ||
+        document.querySelector('#tenant-name') ||
+        document.querySelector('header .title');
+      if (title) title.textContent = n;
+      const badge = document.querySelector('[data-tenant-name]');
+      if (badge) badge.textContent = n;
+    };
+  }
+  if (typeof window.__refreshTenantLogo__ !== 'function') {
+    window.__refreshTenantLogo__ = (src) => {
+      const img =
+        document.querySelector('#app-logo') ||
+        document.querySelector('.app-logo') ||
+        document.querySelector('.brand-logo') ||
+        document.querySelector('#tenant-logo') ||
+        document.querySelector('header .logo img');
+      if (img) {
+        if (src) { img.src = src; img.style.display = ''; }
+        else { img.removeAttribute('src'); img.style.display = 'none'; }
+      }
+    };
   }
 
-  async function setTenantLogo(urlOrData) {
-    const img = document.getElementById('tenant-logo');
-    if (!img) return;
-    if (urlOrData) {
-      img.src = urlOrData;
-      img.style.display = '';
-    } else {
-      img.removeAttribute('src');
-      img.style.display = 'none';
+  async function ensureTenantUtilsLoaded() {
+    if (window.Tenant?.applyBrandingFromStore) return;
+    // inject lazy utils/tenant.js (et ses dépendances si besoin)
+    const inject = (src) => new Promise((res, rej) => {
+      if (document.querySelector(`script[data-dyn="${src}"]`)) return res();
+      const s = document.createElement('script');
+      s.src = src; s.async = false; s.dataset.dyn = src;
+      s.onload = res; s.onerror = () => rej(new Error(`Fail load ${src}`));
+      document.head.appendChild(s);
+    });
+    try {
+      // Les utils peuvent déjà être chargés par shell.js, on tente uniquement tenant.js ici
+      await inject('src/renderer/utils/tenant.js');
+    } catch (e) {
+      console.warn('[branding] tenant utils load failed (fallback IPC path still works):', e?.message || e);
     }
   }
 
-  function setTenantName(name) {
-    const el = document.getElementById('tenant-name');
-    if (!el) return;
-    el.textContent = (name && String(name).trim()) || "Coop'az";
-  }
-
-  async function loadBranding() {
-  // base API
-  async function getApiBaseFromConfig() {
+  async function applyBrandingSafe() {
     try {
-      const cfg = await (window.electronAPI?.getConfig?.() || {});
-      return (cfg && cfg.api_base_url) ? cfg.api_base_url.replace(/\/+$/, '') : '';
-    } catch { return ''; }
-  }
-  const apiBase = await getApiBaseFromConfig();
-
-  if (apiBase) {
-    try {
-      const r = await fetch(`${apiBase}/branding`, {
-        credentials: 'include',
-        headers: (localStorage.getItem('auth_token')
-          ? { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` }
-          : {})
-      });
-      if (r.ok) {
-        const js = await r.json();
-        if (js?.ok) {
-          if (js.name) setTenantName(js.name);
-          if (js.has_logo) {
-            const url = `${apiBase}/branding/logo?ts=${Date.now()}`;
-            await setTenantLogo(url);
-          }
-          return; // on a réussi → on sort
-        }
+      await ensureTenantUtilsLoaded();
+      if (window.Tenant?.applyBrandingFromStore) {
+        // Chemin “officiel” : passe par electronAPI.brandingGet()
+        await window.Tenant.applyBrandingFromStore();
+        return;
       }
     } catch {}
-  }
 
-  // Fallbacks (onboarding / auth info) au cas où
-  try {
-    const r = await window.electronAPI?.getOnboardingStatus?.();
-    const data = r?.data || r || {};
-    const name = data.store_name || data.tenant_name || data.company_name || data.name;
-    if (name) setTenantName(name);
-  } catch {}
-  try {
-    const info = await window.electronAPI?.getAuthInfo?.();
-    const name =
-      info?.store_name || info?.tenant_name || info?.company_name || info?.company || info?.name;
-    if (name) setTenantName(name);
-  } catch {}
-}
-
-
-  // Permettre une mise à jour “live” quand la page Logo enregistre
-  window.__refreshTenantLogo__ = async (urlOrData) => {
-    const tenantId = await getCurrentTenantId();
-    if (urlOrData) {
-      await setTenantLogo(urlOrData);
-    } else {
-      // recharger depuis branding:get (par tenant)
+    // Fallback minimaliste 100% IPC (sans utils/tenant.js)
+    try {
+      let tenantId = null;
       try {
-        const r = await window.electronAPI?.brandingGet?.({ tenantId });
-        if (r?.ok && (r.file || r.logoFile)) {
-          const lf = r.file || r.logoFile;
-          const src = `file://${String(lf).replace(/\\/g, '/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
-          await setTenantLogo(src);
+        const info = await window.electronAPI?.getAuthInfo?.();
+        tenantId =
+          info?.tenant_id || info?.tenantId || info?.tid ||
+          info?.id || info?.user?.tenant_id || info?.user?.tenantId || null;
+    } catch {}
+      const r = await window.electronAPI?.brandingGet?.(tenantId ? { tenantId } : undefined);
+      if (r?.ok) {
+        if (typeof r.name === 'string') window.__refreshTenantName__?.(r.name);
+        if (r.logoFile || r.file) {
+          const f = r.logoFile || r.file;
+          const src = `file://${String(f).replace(/\\/g,'/')}${r.mtime ? `?v=${Math.floor(r.mtime)}` : ''}`;
+          window.__refreshTenantLogo__?.(src);
         } else {
-          await setTenantLogo(null);
+          window.__refreshTenantLogo__?.('');
         }
-      } catch {
-        await setTenantLogo(null);
+        return;
       }
+    } catch (e) {
+      console.warn('[branding] IPC fallback error:', e?.message || e);
     }
-  };
+  }
 
-  // Mettre à jour automatiquement si le main broadcast la config
+  // Re-applique quand le main diffuse des changements de config
   if (window.electronEvents?.on) {
     window.electronEvents.on('config:changed', (_e, cfg) => {
       const name = cfg?.store_name || cfg?.tenant_name || cfg?.company_name || cfg?.name;
-      if (name) setTenantName(name);
+      if (name) window.__refreshTenantName__?.(name);
     });
   }
 
-  document.addEventListener('DOMContentLoaded', loadBranding);
+  document.addEventListener('DOMContentLoaded', applyBrandingSafe);
 })();
