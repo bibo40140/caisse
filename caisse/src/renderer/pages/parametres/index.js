@@ -1,6 +1,6 @@
 // src/renderer/pages/parametres/index.js
 (() => {
-  // Petit helper d’injection (utilise dom.js si présent, sinon fallback local)
+  // Helper d’injection d’un script une seule fois
   const inject = (src) =>
     new Promise((res, rej) => {
       if (document.querySelector(`script[data-dyn="${src}"]`)) return res();
@@ -13,7 +13,15 @@
       document.head.appendChild(s);
     });
 
-  // Rendu de la page d’accueil Paramètres (4 familles)
+  // Helper : injecter plusieurs scripts **dans l’ordre**
+  const injectMany = async (arr) => {
+    for (const src of arr) {
+      // eslint-disable-next-line no-await-in-loop
+      await inject(src);
+    }
+  };
+
+  // Rendu de la page d’accueil Paramètres
   async function renderHome() {
     const content = document.getElementById('page-content');
     if (!content) return;
@@ -69,15 +77,27 @@
       <div id="parametres-souspage" style="margin-top:14px;"></div>
     `;
 
-    // Détection super-admin pour afficher/masquer la carte Super tenant
+    // ✅ Détection super-admin correcte (préserve le bouton si l’info n’est pas dispo)
     (async () => {
+      const card = document.getElementById('card-super');
+      if (!card) return;
       try {
+        // Option 1 (préférée) : via preload
         const info = await window.electronAPI?.getAuthInfo?.();
-        const isSuper = !!info?.is_super_admin || info?.role === 'super_admin' || info === true;
-        const card = document.getElementById('card-super');
-        if (card) card.style.display = isSuper ? '' : 'none';
+        // Option 2 (fallback) : via bridge "api"
+        // const info = await window.api?.invoke?.('auth:getInfo');
+
+        if (info && (info.is_super_admin || info.role === 'super_admin')) {
+          card.style.display = '';
+        } else if (info) {
+          card.style.display = 'none';
+        } else {
+          // pas d'info → on laisse visible pour éviter un faux négatif
+          card.style.display = '';
+        }
       } catch {
-        // si erreur : ne rien masquer (ou masquer si tu préfères)
+        // en cas d'erreur, ne pas masquer par défaut
+        card.style.display = '';
       }
     })();
 
@@ -111,19 +131,28 @@
       }
     });
 
-    // Bind: Super tenant
+    // Bind: Super tenant — charge d’abord tenants.js (définit renderTenantsAdmin), puis SuperTenant.js (renderSuperTenant)
     document.getElementById('card-super')?.addEventListener('click', async () => {
-      await inject('src/renderer/pages/parametres/SuperTenant.js');
-      if (window.PageParamsSuperTenant?.render) {
-        await window.PageParamsSuperTenant.render();
-      } else {
-        document.getElementById('parametres-souspage').innerHTML = `<p>Module "Super tenant" introuvable.</p>`;
+      const souspage = document.getElementById('parametres-souspage');
+      try {
+        await injectMany([
+          'src/renderer/pages/parametres/super-tenant/tenants.js',
+          'src/renderer/pages/parametres/SuperTenant.js',
+        ]);
+        if (window.PageParams?.renderSuperTenant) {
+          window.PageParams.renderSuperTenant();
+        } else {
+          souspage.innerHTML = `<p>Module "Super tenant" introuvable.</p>`;
+        }
+      } catch (e) {
+        souspage.innerHTML = `<p>Erreur de chargement : ${e?.message || e}</p>`;
       }
     });
   }
 
   // Export global pour shell.js
   window.PageParams = {
+    ...(window.PageParams || {}),
     renderHome,
   };
 })();

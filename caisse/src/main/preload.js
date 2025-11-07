@@ -40,6 +40,12 @@ function off(channel, listener) {
   ipcRenderer.removeListener(channel, listener);
 }
 
+contextBridge.exposeInMainWorld('api', {
+  invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+  on: (channel, listener) => ipcRenderer.on(channel, listener),
+  send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+});
+
 /* -------------------------------------------------
    Espace "compat" electronEvents
 -------------------------------------------------- */
@@ -78,9 +84,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resoudreConflitProduit: (action, nouveau, existantId) =>
     ipcRenderer.invoke('resoudre-conflit-produit', action, nouveau, existantId),
 
-
   /* -------------- Mode de paiements ----------------------- */
-
   mp_getAll:   () => ipcRenderer.invoke('mp:getAll'),
   mp_create:   (p) => ipcRenderer.invoke('mp:create', p),
   mp_update:   (p) => ipcRenderer.invoke('mp:update', p),
@@ -160,7 +164,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   adminEmailGetSettings:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:email:get', tenantId),
   adminEmailSetSettings:   (tenantId, settings)       => ipcRenderer.invoke('admin:tenant:email:set', { tenantId, settings }),
   adminEmailTestSend:      (tenantId, payload)        => ipcRenderer.invoke('admin:tenant:email:test', { tenantId, ...payload }),
-  adminTenantDelete: (tenantId, hard = false) =>  ipcRenderer.invoke('admin:tenant:delete', { tenantId, hard }),
+  adminTenantDelete:       (tenantId, hard = false)   => ipcRenderer.invoke('admin:tenant:delete', { tenantId, hard }),
 
   /* -------------- Ventes ------------------------- */
   enregistrerVente: (data) => ipcRenderer.invoke('enregistrer-vente', data),
@@ -173,9 +177,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDetailsVente: (id) => ipcRenderer.invoke('get-details-vente', id),
 
   /* -------------- Adhérents ---------------------- */
-  getAdherents: (archive = 0) => ipcRenderer.invoke('get-adherents', archive),
-    getAdherents: (opts) => ipcRenderer.invoke('get-adherents', opts),
-
+  // Compatible : bool/number (archive) OU objet d’options
+  getAdherents: (arg) => {
+    if (typeof arg === 'boolean' || typeof arg === 'number') {
+      return ipcRenderer.invoke('get-adherents', Number(arg));
+    }
+    return ipcRenderer.invoke('get-adherents', arg);
+  },
   ajouterAdherent: (data) => ipcRenderer.invoke('ajouter-adherent', data),
   modifierAdherent: (data) => ipcRenderer.invoke('modifier-adherent', data),
   archiverAdherent: (id) => ipcRenderer.invoke('archiver-adherent', id),
@@ -219,6 +227,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------------- Stock (batch) ------------------ */
   ajusterStockBulk: (payload) => ipcRenderer.invoke('stock:adjust-bulk', payload),
 
+  /* -------------- Auth / infos ------------------- */
   getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
 
   // --- Branding (nom + logo) par tenant ---
@@ -253,22 +262,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listProspectInvitations: (filters) => ipcRenderer.invoke('prospects:invitations', filters),
   prospectsListInvitations: (args) => ipcRenderer.invoke('prospects:invitations', args),
 
-/* -------------- Inventaire (IPC -> API) -------- */
-inventory: {
-  start:     (payload) => ipcRenderer.invoke('inventory:start', payload),
-  countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>
-    ipcRenderer.invoke('inventory:count-add', { sessionId, product_id, qty, user, device_id }),
-  summary:   ({ sessionId }) => ipcRenderer.invoke('inventory:summary', { sessionId }),
-  finalize:  ({ sessionId, user, email_to }) =>
-    ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
-  listOpen:      () => ipcRenderer.invoke('inventory:list-open'),
-  listSessions:  () => ipcRenderer.invoke('inventory:listSessions'),
-  getSummary:    (sessionId) => ipcRenderer.invoke('inventory:getSummary', sessionId),
-
-  // ➕ NOUVEAU : expo pour forcer la fermeture côté serveur
-  closeAllOpen:  () => ipcRenderer.invoke('inventory:closeAllOpen'),
-},
-
+  /* -------------- Inventaire (IPC -> API) -------- */
+  inventory: {
+    start:     (payload) => ipcRenderer.invoke('inventory:start', payload),
+    countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>
+      ipcRenderer.invoke('inventory:count-add', { sessionId, product_id, qty, user, device_id }),
+    summary:   ({ sessionId }) => ipcRenderer.invoke('inventory:summary', { sessionId }),
+    finalize:  ({ sessionId, user, email_to }) =>
+      ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
+    listOpen:      () => ipcRenderer.invoke('inventory:list-open'),
+    listSessions:  () => ipcRenderer.invoke('inventory:listSessions'),
+    getSummary:    (sessionId) => ipcRenderer.invoke('inventory:getSummary', sessionId),
+    closeAllOpen:  () => ipcRenderer.invoke('inventory:closeAllOpen'), // forcer fermeture côté serveur
+  },
 
   /* -------------- Inventaire / produits ---------- */
   produits: {
@@ -284,14 +290,13 @@ inventory: {
   submitOnboarding: (payload) => ipcRenderer.invoke('onboarding:submit', payload),
   goMain: () => ipcRenderer.invoke('app:go-main'),
   logout: () => ipcRenderer.invoke('auth:logout'),
-
   ensureAuth: () => ipcRenderer.invoke('auth:ensure'),
 
-  // Super admin
+  // Super admin (tenants root)
   adminRegisterTenant: (payload) => ipcRenderer.invoke('admin:registerTenant', payload),
   adminListTenants: () => ipcRenderer.invoke('admin:listTenants'),
 
-  // --- Modules par tenant (API) ---
+  // --- Modules par tenant (API)
   getTenantModules: () => ipcRenderer.invoke('tenant:modules:get'),
   setTenantModules: (modules) => ipcRenderer.invoke('tenant:modules:set', modules),
 });
@@ -304,6 +309,4 @@ contextBridge.exposeInMainWorld('carts', {
   close:  (id)          => ipcRenderer.invoke('cart-close', id),
   delete: (id)          => ipcRenderer.invoke('cart-delete', id),
   remove: (id)          => ipcRenderer.invoke('cart-delete', id),
-
-
 });

@@ -1,3 +1,5 @@
+// src/renderer/pages/parametres/SuperTenant.js
+
 (() => {
   function renderSuperTenant() {
     const content = document.getElementById('page-content');

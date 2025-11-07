@@ -7,10 +7,9 @@
     "inventaire": true,
     "receptions": true,
     "cotisations": true,
-    "modes_paiement": false,
+    "modes_paiement": true,
     "stocks": true,
     "ventes_exterieur": false
   },
-  "ventes_exterieur_margin_percent": 30,
-  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMDBiNjc3ZC1kYmYxLTQ0OTEtOGVlYi0yMDVkNjU5MTQzNzIiLCJ1c2VyX2lkIjoiZTAwYjY3N2QtZGJmMS00NDkxLThlZWItMjA1ZDY1OTE0MzcyIiwidGVuYW50X2lkIjoiN2YxMmQ0ZGUtZmRjOC00YmZhLWFlYjQtMTlmYzQ0NmE0NTlmIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJmYWJpZW4uaGljYXViZXJAZ21haWwuY29tIiwiaXNfc3VwZXJfYWRtaW4iOnRydWUsImlhdCI6MTc2MjUyMDQzNiwiZXhwIjoxNzYzMTI1MjM2fQ.s1uk8hoyyKJGmQCMelmUakrYJzxCryng6MUjeU5uGtA"
+  "ventes_exterieur_margin_percent": 30
 }

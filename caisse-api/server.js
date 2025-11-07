@@ -139,6 +139,16 @@ app.post('/inventory/start', authRequired, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // 👇 AJOUT ICI : fermer toutes les autres sessions encore 'open' pour ce tenant
+    await client.query(
+      `UPDATE inventory_sessions
+         SET status='closed', ended_at=now()
+       WHERE tenant_id=$1 AND status='open'`,
+      [tenantId]
+    );
+
+    // (Optionnel) Si tu voulais "réutiliser" une session du même nom, ce code n'y arrivera plus
+    // puisqu'on vient de toutes les fermer. On laisse néanmoins le check pour robustesse.
     const existing = await client.query(
       `SELECT id, name, status, started_at
        FROM inventory_sessions
@@ -151,6 +161,7 @@ app.post('/inventory/start', authRequired, async (req, res) => {
       return res.json({ ok:true, session: existing.rows[0], reused: true });
     }
 
+    // Crée la nouvelle session ouverte
     const s = await client.query(
       `INSERT INTO inventory_sessions (tenant_id, name, "user", notes, status)
        VALUES ($1,$2,$3,$4,'open')
@@ -159,6 +170,7 @@ app.post('/inventory/start', authRequired, async (req, res) => {
     );
     const sessionId = s.rows[0].id;
 
+    // Snapshot initial de tous les produits
     const prods = await client.query(
       `SELECT id, prix FROM produits WHERE tenant_id=$1 ORDER BY id`,
       [tenantId]
@@ -184,7 +196,6 @@ app.post('/inventory/start', authRequired, async (req, res) => {
   }
 });
 
-/** Ajouter un comptage (device) */
 /** Ajouter un comptage (device) */
 app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
   const tenantId  = req.tenantId;
@@ -263,28 +274,37 @@ app.get('/inventory/sessions', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const client = await pool.connect();
   try {
-    const r = await client.query(`
-      WITH cnt AS (
-SELECT session_id, SUM(qty)::numeric AS total_counted
-FROM inventory_counts
-WHERE tenant_id=$1
-GROUP BY session_id
+    const r = await client.query(
+      `WITH snap AS (
+         SELECT session_id, COUNT(*)::int AS snapshot_lines
+         FROM inventory_snapshot
+         WHERE tenant_id = $1
+         GROUP BY session_id
+       ),
+       cnt AS (
+         SELECT
+           session_id,
+           COUNT(DISTINCT produit_id)::int AS counted_products,
+           MAX(updated_at)               AS last_count_at
+         FROM inventory_counts
+         WHERE tenant_id = $1
+         GROUP BY session_id
+       )
+       SELECT
+         s.id, s.name, s.status, s.notes, s."user",
+         s.started_at, s.ended_at,
+         COALESCE(sn.snapshot_lines, 0) AS snapshot_lines,
+         COALESCE(cn.counted_products, 0) AS counted_products,
+         cn.last_count_at
+       FROM inventory_sessions s
+       LEFT JOIN snap sn ON sn.session_id = s.id
+       LEFT JOIN cnt  cn ON cn.session_id = s.id
+       WHERE s.tenant_id = $1
+       ORDER BY s.started_at DESC`,
+      [tenantId]
+    );
 
-      )
-      SELECT
-        s.id, s.name, s.status, s.started_at, s.ended_at,
-        COUNT(sn.product_id)::int AS total_products,
-        SUM(CASE WHEN COALESCE(c.counted,0) <> 0 THEN 1 ELSE 0 END)::int AS counted_lines,
-        COALESCE(SUM(COALESCE(c.counted,0) * COALESCE(p.prix,0)),0)::numeric AS inventory_value
-      FROM inventory_sessions s
-      JOIN inventory_snapshot sn ON sn.session_id = s.id AND sn.tenant_id = s.tenant_id
-      JOIN produits p ON p.id = sn.product_id AND p.tenant_id = s.tenant_id
-      LEFT JOIN cnt c ON c.session_id = s.id AND c.product_id = sn.product_id
-      WHERE s.tenant_id = $1
-      GROUP BY s.id
-      ORDER BY s.started_at DESC
-    `, [tenantId]);
-    res.json({ ok: true, sessions: r.rows });
+    res.json({ ok: true, items: r.rows });
   } catch (e) {
     console.error('GET /inventory/sessions', e);
     res.status(500).json({ ok:false, error:e.message });
@@ -292,6 +312,27 @@ GROUP BY session_id
     client.release();
   }
 });
+
+app.post('/inventory/close-all-open', authRequired, async (req, res) => {
+  const tenantId = req.tenantId;
+  const client = await pool.connect();
+  try {
+    const r = await client.query(
+      `UPDATE inventory_sessions
+         SET status='closed', ended_at=now()
+       WHERE tenant_id=$1 AND status='open'
+       RETURNING id, name, started_at, ended_at`,
+      [tenantId]
+    );
+    res.json({ ok:true, closed: r.rows });
+  } catch (e) {
+    console.error('POST /inventory/close-all-open', e);
+    res.status(500).json({ ok:false, error:e.message });
+  } finally {
+    client.release();
+  }
+});
+
 
 app.get('/inventory/:id/summary', authRequired, async (req, res) => {
   const tenantId  = req.tenantId;
@@ -342,16 +383,16 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
 
 
 app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
-  const tenantId  = req.tenantId;
+  const tenantId = req.tenantId;
   const sessionId = String(req.params.id || '');
-  const { user }  = req.body || {};
-  const client    = await pool.connect();
-
+  const { user } = req.body || {};
   if (!sessionId) return res.status(400).json({ ok:false, error:'bad_session_id' });
 
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
+    // Lock la session
     const st = await client.query(
       `SELECT id, status, name, started_at
        FROM inventory_sessions
@@ -363,58 +404,51 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ ok:false, error:'session_not_found' });
     }
-
-    const status = st.rows[0].status;
-
-    if (status === 'closed') {
+    if (st.rows[0].status === 'closed') {
       await client.query('ROLLBACK');
+      // renvoie un petit récap existant
       const rr = await pool.query(
-        `SELECT
-           COUNT(*)::int AS lines,
-           COALESCE(SUM(delta_value),0)::numeric AS value
+        `SELECT COUNT(*)::int AS lines,
+                COALESCE(SUM(delta_value),0)::numeric AS value
          FROM inventory_adjust
          WHERE tenant_id=$1 AND session_id=$2`,
         [tenantId, sessionId]
       );
       return res.json({
-        ok: true,
-        recap: {
-          session: { id: sessionId, name: st.rows[0].name, started_at: st.rows[0].started_at, ended_at: null },
-          stats:   { linesInserted: rr.rows[0].lines, countedProducts: rr.rows[0].lines, inventoryValue: Number(rr.rows[0].value) }
+        ok:true,
+        recap:{
+          session:{ id: sessionId, name: st.rows[0].name, started_at: st.rows[0].started_at, ended_at: st.rows[0].ended_at || null },
+          stats:{ linesInserted: rr.rows[0].lines, countedProducts: rr.rows[0].lines, inventoryValue: Number(rr.rows[0].value) }
         },
-        alreadyClosed: true
+        alreadyClosed:true
       });
     }
 
-    if (status === 'open') {
+    if (st.rows[0].status === 'open') {
       await client.query(
-        `UPDATE inventory_sessions
-           SET status='finalizing'
+        `UPDATE inventory_sessions SET status='finalizing'
          WHERE tenant_id=$1 AND id=$2`,
         [tenantId, sessionId]
       );
     }
 
+    // Agrégat snapshot + comptages (les non-comptés tombent à 0)
     const agg = await client.query(
       `WITH summed AS (
-         SELECT produit_id, SUM(qty)::numeric AS counted
+         SELECT produit_id, SUM(qty)::numeric AS counted_total
          FROM inventory_counts
          WHERE tenant_id=$1 AND session_id=$2
          GROUP BY produit_id
        )
        SELECT
-         p.id AS product_id,
+         s.product_id        AS product_id,
          p.nom,
-         p.code_barre,
          p.prix,
          s.stock_start,
-         COALESCE(sm.counted, 0) AS counted_total
+         COALESCE(sm.counted_total, 0) AS counted_total
        FROM inventory_snapshot s
-       JOIN produits p
-         ON p.id = s.product_id
-        AND p.tenant_id = s.tenant_id
-       LEFT JOIN summed sm
-         ON sm.produit_id = s.product_id
+       JOIN produits p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
+       LEFT JOIN summed sm ON sm.produit_id = s.product_id
        WHERE s.tenant_id=$1 AND s.session_id=$2
        ORDER BY p.nom`,
       [tenantId, sessionId]
@@ -424,42 +458,41 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 
     for (const r of agg.rows) {
       const pid     = String(r.product_id);
-      const start   = Number(r.stock_start);
-      const counted = Number(r.counted_total);
+      const start   = Number(r.stock_start || 0);
+      const counted = Number(r.counted_total || 0);
       const prix    = Number(r.prix || 0);
 
+      // Stock "live" actuel (après ventes/réceptions éventuelles entre temps)
       const currentLive = await getCurrentStock(client, tenantId, pid);
+
+      // 👉 delta à appliquer pour amener le stock AU COMPTÉ (0 si non-compté)
       const delta = counted - currentLive;
 
+      // Upsert de la ligne d'ajustement (1 par produit)
       await client.query(
-        `INSERT INTO inventory_adjust
-           (session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value)
-         SELECT $1,$2,$3,$4,$5,$6,$7,$8
-         WHERE NOT EXISTS (
-           SELECT 1 FROM inventory_adjust
-            WHERE session_id=$1 AND tenant_id=$2 AND product_id=$3
-         )`,
-        [sessionId, tenantId, pid, start, counted, delta, null, delta * prix]
+        `INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6, NULL, $7, now())
+         ON CONFLICT (session_id, tenant_id, product_id)
+         DO UPDATE SET
+            stock_start   = EXCLUDED.stock_start,
+            counted_total = EXCLUDED.counted_total,
+            delta         = EXCLUDED.delta,
+            delta_value   = EXCLUDED.delta_value`,
+        [sessionId, tenantId, pid, start, counted, delta, delta * prix]
       );
 
-      const justInserted = await client.query(
-        `SELECT 1 FROM inventory_adjust WHERE session_id=$1 AND tenant_id=$2 AND product_id=$3`,
-        [sessionId, tenantId, pid]
-      );
-      if (justInserted.rowCount > 0) {
-        linesInserted++;
-        if (counted !== 0) countedProducts++;
-        inventoryValue += counted * prix;
-      }
+      linesInserted++;
+      if (counted !== 0) countedProducts++;
+      inventoryValue += counted * prix;
 
+      // Mouvement de stock si nécessaire (source_id unique par session+produit)
       if (delta !== 0) {
         const sourceId = `inv:${sessionId}:${pid}`;
         await client.query(
-          `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
-           SELECT $1,$2,$3,'inventory_finalize',$4
+          `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id, created_at)
+           SELECT $1,$2,$3,'inventory_finalize',$4, now()
            WHERE NOT EXISTS (
-             SELECT 1 FROM stock_movements
-              WHERE tenant_id=$1 AND source_id=$4
+             SELECT 1 FROM stock_movements WHERE tenant_id=$1 AND source_id=$4
            )`,
           [tenantId, pid, delta, sourceId]
         );
@@ -477,12 +510,13 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
     await client.query('COMMIT');
 
     const sess = endUpd.rows[0];
-    const recap = {
-      session: { id: sess.id, name: sess.name, started_at: sess.started_at, ended_at: sess.ended_at },
-      stats:   { linesInserted, countedProducts, inventoryValue }
-    };
-
-    res.json({ ok: true, recap });
+    res.json({
+      ok:true,
+      recap:{
+        session:{ id: sess.id, name: sess.name, started_at: sess.started_at, ended_at: sess.ended_at },
+        stats:{ linesInserted, countedProducts, inventoryValue }
+      }
+    });
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('POST /inventory/:id/finalize', e);
@@ -491,7 +525,6 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
     client.release();
   }
 });
-
 
 /* =========================================================
  * SYNC (bootstrap / pull_refs / push_ops)

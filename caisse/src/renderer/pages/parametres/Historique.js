@@ -43,7 +43,6 @@
       }
 
       if (key === 'receptions') {
-        // réutilise ta page existante
         if (window.PageReceptions?.renderReceptions) {
           await window.PageReceptions.renderReceptions();
         } else if (window.renderReceptions) {
@@ -59,9 +58,19 @@
         if (window.PageParamsHistoriqueInventaires?.render) {
           await window.PageParamsHistoriqueInventaires.render();
         } else if (window.PageParams?.renderHistoriqueInventaires) {
-          await window.PageParams.renderHistoriqueInventaires(); // fallback si tu avais gardé l'ancienne
+          await window.PageParams.renderHistoriqueInventaires();
         } else {
           host.innerHTML = `<p>Module Historique des inventaires introuvable.</p>`;
+        }
+        return;
+      }
+
+      if (key === 'cotisations') {
+        await inject('src/renderer/pages/parametres/historique/cotisations.js');
+        if (window.PageParamsHistoriqueCotisations?.render) {
+          await window.PageParamsHistoriqueCotisations.render();
+        } else {
+          host.innerHTML = `<p>Module Historique des cotisations introuvable.</p>`;
         }
         return;
       }
@@ -83,6 +92,7 @@
         <div class="hist-tab active" data-tab="ventes">Ventes</div>
         <div class="hist-tab" data-tab="receptions">Réceptions</div>
         <div class="hist-tab" data-tab="inventaires">Inventaires</div>
+        <div class="hist-tab" data-tab="cotisations">Cotisations</div>
       </div>
       <div id="parametres-souspage"></div>
     `;

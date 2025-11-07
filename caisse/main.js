@@ -20,13 +20,11 @@ function getEffectiveConfig() {
     disk = readConfig() || {};
   } catch { disk = {}; }
 
-  // On tente de récupérer la base courante depuis l'apiClient s'il l'expose
+  // On tente de récupérer l’API base depuis l’apiClient
   let apiBase = null;
   try {
-    const { apiMainClient } = require('./src/main/apiClient');
-    if (apiMainClient && typeof apiMainClient.getBase === 'function') {
-      apiBase = apiMainClient.getBase();
-    }
+    const { getApiBase } = require('./src/main/apiClient');
+    apiBase = getApiBase && getApiBase();
   } catch {}
 
   // Fallback ENV puis valeur par défaut locale
@@ -53,7 +51,7 @@ function broadcastConfigOnReady() {
 
 // === Auth & API config ===
 const { ensureAuth, getConfig } = require('./src/main/config');
-const { setApiBase, apiMainClient, setAuthToken, apiFetch, logout } = require('./src/main/apiClient');
+const { setApiBase, getApiBase, setAuthToken, getAuthToken, apiFetch, logout } = require('./src/main/apiClient');
 
 // === App modules existants ===
 const db = require('./src/main/db/db');
@@ -204,14 +202,8 @@ app.on('window-all-closed', () => {
 });
 
 function getTenantHeaders() {
-  // Récupère le token déjà stocké par apiMainClient ou dans l’env
-  let token = null;
-  try {
-    if (typeof apiMainClient?.getAuthToken === 'function') {
-      token = apiMainClient.getAuthToken();
-    }
-  } catch {}
-  if (!token && process.env.API_AUTH_TOKEN) token = process.env.API_AUTH_TOKEN;
+  // Récupère le token déjà stocké par apiClient
+  let token = getAuthToken && getAuthToken();
 
   // Décode le JWT pour lire tenant_id
   const info = computeAuthInfoFromToken(token);
@@ -224,10 +216,8 @@ function getTenantHeaders() {
   if (isUUID(info?.tenant_id)) {
     h['x-tenant-id'] = String(info.tenant_id);
   } else if (isUUID(process.env.TENANT_ID)) {
-    // fallback uniquement si c’est un vrai UUID
     h['x-tenant-id'] = String(process.env.TENANT_ID);
-  } // sinon: on n’envoie rien (l’API lira le tenant du token)
-
+  }
   return h;
 }
 
@@ -253,10 +243,10 @@ async function safeJson(r) {
 // IPC: Auth / Onboarding flow
 // ---------------------------------
 
-// Créer un tenant (réservé côté API au super admin)
+// ✅ Créer un tenant (endpoints admin)
 ipcMain.handle('admin:registerTenant', async (_e, payload) => {
   try {
-    const r = await apiFetch('/auth/register-tenant', {
+    const r = await apiFetch('/tenants/admin/register', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'accept': 'application/json' },
       body: JSON.stringify(payload),
@@ -353,14 +343,7 @@ ipcMain.handle('auth:after-login-route', async () => {
 // ⇢ retourne { ok, role, is_super_admin, tenant_id, user_id }
 ipcMain.handle('auth:getInfo', async () => {
   try {
-    let token = null;
-    try {
-      if (typeof apiMainClient?.getAuthToken === 'function') {
-        token = apiMainClient.getAuthToken();
-      }
-    } catch (_) {}
-    if (!token && process.env.API_AUTH_TOKEN) token = process.env.API_AUTH_TOKEN;
-
+    const token = getAuthToken && getAuthToken();
     if (!token) return { ok: false, error: 'no token' };
 
     const payload = jwt.decode(token) || {};
@@ -379,52 +362,42 @@ ipcMain.handle('auth:getInfo', async () => {
   }
 });
 
-// Liste des tenants (réservé super admin côté API)
-async function tryFetchTenantsMulti() {
-  let custom = '';
+// --- Liste des tenants (endpoint direct + fallback)
+async function tryListTenants() {
+  // 1) endpoint “officiel”
   try {
-    const cfg = getConfig();
-    if (cfg && typeof cfg.tenants_endpoint === 'string' && cfg.tenants_endpoint.trim()) {
-      custom = cfg.tenants_endpoint.trim();
-      if (!custom.startsWith('/')) custom = '/' + custom;
+    const r = await apiFetch('/tenants/admin/list', { headers: { accept: 'application/json' }});
+    const js = await safeJson(r);
+    if (r.ok && (Array.isArray(js?.tenants) || Array.isArray(js?.items) || Array.isArray(js?.data))) {
+      const tenants = js.tenants || js.items || js.data;
+      return { ok: true, tenants };
     }
   } catch {}
 
+  // 2) fallback heuristique (multi points)
   const candidates = [
-    custom || null,
     '/tenants',
     '/admin/tenants',
     '/admin/tenants/list',
     '/tenant_settings/tenants',
     '/api/tenants',
     '/v1/tenants',
-  ].filter(Boolean);
-
+  ];
   for (const path of candidates) {
-    let r;
     try {
-      r = await apiFetch(path, { headers: { accept: 'application/json' } });
-    } catch (e) { continue; }
-
-    const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
-    if (!ct.includes('application/json')) continue;
-
-    let js;
-    try { js = await r.json(); } catch { continue; }
-
-    if (r.ok && Array.isArray(js?.tenants)) return { ok: true, tenants: js.tenants };
-    if (r.ok && Array.isArray(js?.items))   return { ok: true, tenants: js.items };
-    if (r.ok && Array.isArray(js?.data))    return { ok: true, tenants: js.data };
+      const r = await apiFetch(path, { headers: { accept: 'application/json' } });
+      const js = await safeJson(r);
+      if (r.ok && Array.isArray(js?.tenants)) return { ok: true, tenants: js.tenants };
+      if (r.ok && Array.isArray(js?.items))   return { ok: true, tenants: js.items };
+      if (r.ok && Array.isArray(js?.data))    return { ok: true, tenants: js.data };
+    } catch {}
   }
-
   return { ok: false, error: 'Aucun endpoint JSON compatible pour la liste des tenants.' };
 }
 
 ipcMain.handle('admin:listTenants', async () => {
   try {
-    const res = await tryFetchTenantsMulti();
-    if (!res.ok) return res;
-    return { ok: true, tenants: res.tenants };
+    return await tryListTenants();
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -574,7 +547,7 @@ ipcMain.handle('admin:tenant:modules:set', async (_e, { tenantId, modules }) => 
 // --- ADMIN: Email d'un tenant ciblé ---
 ipcMain.handle('admin:tenant:email:get', async (_e, tenantId) => {
   try {
-    const r = await apiFetch('/tenant_settings/email', {
+    const r = await apiFetch('/tenant_settings/email/get', {
       headers: { accept: 'application/json', ...getTenantHeadersFor(tenantId) }
     });
     const js = await safeJson(r);
@@ -587,8 +560,8 @@ ipcMain.handle('admin:tenant:email:get', async (_e, tenantId) => {
 
 ipcMain.handle('admin:tenant:email:set', async (_e, { tenantId, settings }) => {
   try {
-    const r = await apiFetch('/tenant_settings/email', {
-      method: 'PUT',
+    const r = await apiFetch('/tenant_settings/email/set', {
+      method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json', ...getTenantHeadersFor(tenantId) },
       body: JSON.stringify(settings || {}),
     });
@@ -602,7 +575,7 @@ ipcMain.handle('admin:tenant:email:set', async (_e, { tenantId, settings }) => {
 
 ipcMain.handle('admin:tenant:email:test', async (_e, { tenantId, to, subject, text, html }) => {
   try {
-    const r = await apiFetch('/mailer/test', {
+    const r = await apiFetch('/tenant_settings/email/test', {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json', ...getTenantHeadersFor(tenantId) },
       body: JSON.stringify({ to, subject, text, html }),
@@ -898,8 +871,6 @@ try {
   cfgModules = (c && c.modules) || {};
 } catch { cfgModules = {}; }
 
-
-
 if (cfgModules.cotisations) require('./src/main/handlers/cotisations');
 if (cfgModules.imports !== false) require('./src/main/handlers/imports');
 if (cfgModules.stocks) {
@@ -911,7 +882,6 @@ registerInventoryHandlers(ipcMain);
 
 // Fallbacks modes de paiement (inchangés)
 function boolToInt(b) { return b ? 1 : 0; }
-
 
 try { ipcMain.removeHandler('mp:getAll'); } catch {}
 try { ipcMain.removeHandler('mp:getAllAdmin'); } catch {}

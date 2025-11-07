@@ -1,3 +1,5 @@
+// src/renderer/pages/parametres/super-tenant/tenants.js
+
 (() => {
   async function renderTenantsAdmin() {
     const host = document.getElementById('parametres-souspage') || document.getElementById('page-content');
@@ -7,6 +9,15 @@
       const st = document.createElement('style');
       st.id = 'tenants-admin-style2';
       st.textContent = `
+      .tadmin .form-vert { display:grid; grid-template-columns: 1fr; gap:10px; }
+.tadmin .form-vert label { display:block; }
+.tadmin .form-vert .actions { display:flex; gap:10px; align-items:center; }
+.tadmin .form-vert input[type="text"],
+.tadmin .form-vert input[type="email"],
+.tadmin .form-vert input[type="password"],
+.tadmin .form-vert input[type="number"],
+.tadmin .form-vert select { width:100%; }
+
         .tadmin .layout { display:grid; grid-template-columns: 320px 1fr; gap:16px; align-items:start; }
         .tadmin .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; box-shadow: 0 4px 14px rgba(0,0,0,.05); }
         .tadmin .list { max-height: 70vh; overflow:auto; }
@@ -28,22 +39,26 @@
         <div class="muted">Créer/modifier un tenant, gérer ses modules et sa configuration e-mail.</div>
         <div class="layout">
           <div class="card">
-            <h3 style="margin-top:0;">Créer un tenant</h3>
-            <div class="row">
-              <div style="flex:1;"><label>Nom<br><input id="t-name"></label></div>
-              <div style="flex:1;"><label>Company (optionnel)<br><input id="t-company"></label></div>
-              <div style="flex:1;"><label>Admin e-mail<br><input id="t-email" type="email"></label></div>
-              <div style="flex:1;"><label>Mot de passe provisoire<br><input id="t-pass" type="password"></label></div>
-              <div><button id="t-create" class="btn">Créer</button></div>
-            </div>
-            <div id="t-create-msg" class="muted" style="margin-top:6px;"></div>
-            <hr style="margin:12px 0;">
-            <div class="row" style="justify-content:space-between;">
-              <h3 style="margin:0;">Tenants</h3>
-              <button id="t-refresh" class="btn">Rafraîchir</button>
-            </div>
-            <div id="t-list" class="list" style="margin-top:8px;">Chargement…</div>
-          </div>
+  <h3 style="margin-top:0;">Créer un tenant</h3>
+  <div class="form-vert">
+    <label>Nom<br><input id="t-name"></label>
+    <label>Company (optionnel)<br><input id="t-company"></label>
+    <label>Admin e-mail<br><input id="t-email" type="email"></label>
+    <label>Mot de passe provisoire<br><input id="t-pass" type="password"></label>
+    <div class="actions">
+      <button id="t-create" class="btn">Créer</button>
+      <span id="t-create-msg" class="muted"></span>
+    </div>
+  </div>
+
+  <hr style="margin:12px 0;">
+  <div class="row" style="justify-content:space-between;">
+    <h3 style="margin:0;">Tenants</h3>
+    <button id="t-refresh" class="btn">Rafraîchir</button>
+  </div>
+  <div id="t-list" class="list" style="margin-top:8px;">Chargement…</div>
+</div>
+
 
           <div class="card" id="t-panel">
             <div id="t-panel-empty" class="muted">Sélectionne un tenant à gauche.</div>
