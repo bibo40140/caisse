@@ -185,14 +185,14 @@ app.post('/inventory/start', authRequired, async (req, res) => {
 });
 
 /** Ajouter un comptage (device) */
+/** Ajouter un comptage (device) */
 app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
-  const tenantId = req.tenantId;
-
+  const tenantId  = req.tenantId;
   const sessionId = String(req.params.id || '');
-  let productIdOrKey = req.body?.product_id;  // peut être uuid, ref, ou barcode
-  const qtyRaw    = req.body?.qty;
-  const deviceId  = req.body?.device_id;
-  const user      = req.body?.user || null;
+  let productIdOrKey = req.body?.product_id;  // uuid, ref, ou barcode
+  const qtyRaw   = req.body?.qty;
+  const deviceId = req.body?.device_id;
+  const user     = req.body?.user || null;
 
   const qty = Number(qtyRaw);
 
@@ -202,13 +202,12 @@ app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
     return res.status(400).json({ ok:false, error:'device_id_required' });
   }
 
-  // petite aide
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const normStr = v => (v == null ? '' : String(v)).trim();
 
   const client = await pool.connect();
   try {
-    // 0) session ouverte ?
+    // Session ouverte ?
     const st = await client.query(
       `SELECT status FROM inventory_sessions WHERE tenant_id=$1 AND id=$2`,
       [tenantId, sessionId]
@@ -216,16 +215,13 @@ app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
     if (st.rowCount === 0) return res.status(404).json({ ok:false, error:'session_not_found' });
     if (st.rows[0].status !== 'open') return res.status(409).json({ ok:false, error:'session_locked' });
 
-    // 1) Résoudre le produit
+    // Résoudre le produit → id (uuid)
     let productUuid = null;
     const key = normStr(productIdOrKey);
 
     if (UUID_RE.test(key)) {
-      // on t'a donné l'UUID
       productUuid = key;
     } else if (key) {
-      // on t'a donné une référence OU un code_barre : on essaie d'abord par référence (souvent unique chez toi),
-      // sinon par code_barre.
       const r1 = await client.query(
         `SELECT id FROM produits WHERE tenant_id=$1 AND reference = $2 LIMIT 1`,
         [tenantId, key]
@@ -235,7 +231,7 @@ app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
       if (!productUuid) {
         const r2 = await client.query(
           `SELECT id FROM produits WHERE tenant_id=$1 AND code_barre = $2 LIMIT 1`,
-          [tenantId, key.replace(/\s+/g,'')] // normalise EAN sans espaces
+          [tenantId, key.replace(/\s+/g,'')]
         );
         if (r2.rowCount > 0) productUuid = String(r2.rows[0].id);
       }
@@ -245,11 +241,11 @@ app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
       return res.status(400).json({ ok:false, error:'product_resolution_failed' });
     }
 
-    // 2) Upsert du comptage pour (session_id, product_id, device_id)
+    // Upsert comptage (schéma: produit_id, qty)
     await client.query(
-      `INSERT INTO inventory_counts(session_id, tenant_id, product_id, device_id, "user", qty, updated_at)
+      `INSERT INTO inventory_counts (session_id, tenant_id, produit_id, device_id, "user", qty, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6, now())
-       ON CONFLICT (session_id, product_id, device_id)
+       ON CONFLICT (session_id, produit_id, device_id)
        DO UPDATE SET qty = inventory_counts.qty + EXCLUDED.qty, updated_at=now()`,
       [sessionId, tenantId, productUuid, deviceId, user, qty]
     );
@@ -269,10 +265,11 @@ app.get('/inventory/sessions', authRequired, async (req, res) => {
   try {
     const r = await client.query(`
       WITH cnt AS (
-        SELECT session_id, product_id, SUM(qty)::numeric AS counted
-        FROM inventory_counts
-        WHERE tenant_id=$1
-        GROUP BY session_id, product_id
+SELECT session_id, SUM(qty)::numeric AS total_counted
+FROM inventory_counts
+WHERE tenant_id=$1
+GROUP BY session_id
+
       )
       SELECT
         s.id, s.name, s.status, s.started_at, s.ended_at,
@@ -297,7 +294,7 @@ app.get('/inventory/sessions', authRequired, async (req, res) => {
 });
 
 app.get('/inventory/:id/summary', authRequired, async (req, res) => {
-  const tenantId = req.tenantId;
+  const tenantId  = req.tenantId;
   const sessionId = String(req.params.id || '');
   if (!sessionId) return res.status(400).json({ ok:false, error:'bad_session_id' });
 
@@ -313,10 +310,10 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
 
     const r = await client.query(
       `WITH summed AS (
-         SELECT product_id, SUM(qty)::numeric AS counted_total
+         SELECT produit_id, SUM(qty)::numeric AS counted_total
          FROM inventory_counts
          WHERE tenant_id=$1 AND session_id=$2
-         GROUP BY product_id
+         GROUP BY produit_id
        )
        SELECT
          p.id   AS product_id,
@@ -324,8 +321,11 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
          p.prix,
          COALESCE(s.counted_total, 0) AS counted_total
        FROM inventory_snapshot snap
-       JOIN produits p ON p.id = snap.product_id AND p.tenant_id = snap.tenant_id
-       LEFT JOIN summed s ON s.product_id = snap.product_id
+       JOIN produits p
+         ON p.id = snap.product_id
+        AND p.tenant_id = snap.tenant_id
+       LEFT JOIN summed s
+         ON s.produit_id = snap.product_id
        WHERE snap.tenant_id=$1 AND snap.session_id=$2
        ORDER BY p.nom`,
       [tenantId, sessionId]
@@ -340,11 +340,12 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
   }
 });
 
+
 app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
-  const tenantId = req.tenantId;
+  const tenantId  = req.tenantId;
   const sessionId = String(req.params.id || '');
-  const { user } = req.body || {};
-  const client = await pool.connect();
+  const { user }  = req.body || {};
+  const client    = await pool.connect();
 
   if (!sessionId) return res.status(400).json({ ok:false, error:'bad_session_id' });
 
@@ -396,16 +397,24 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 
     const agg = await client.query(
       `WITH summed AS (
-         SELECT product_id, SUM(qty)::numeric AS counted
+         SELECT produit_id, SUM(qty)::numeric AS counted
          FROM inventory_counts
          WHERE tenant_id=$1 AND session_id=$2
-         GROUP BY product_id
+         GROUP BY produit_id
        )
-       SELECT p.id AS product_id, p.nom, p.code_barre, p.prix,
-              s.stock_start, COALESCE(sm.counted, 0) AS counted_total
+       SELECT
+         p.id AS product_id,
+         p.nom,
+         p.code_barre,
+         p.prix,
+         s.stock_start,
+         COALESCE(sm.counted, 0) AS counted_total
        FROM inventory_snapshot s
-       JOIN produits p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
-       LEFT JOIN summed sm ON sm.product_id = s.product_id
+       JOIN produits p
+         ON p.id = s.product_id
+        AND p.tenant_id = s.tenant_id
+       LEFT JOIN summed sm
+         ON sm.produit_id = s.product_id
        WHERE s.tenant_id=$1 AND s.session_id=$2
        ORDER BY p.nom`,
       [tenantId, sessionId]
@@ -423,11 +432,12 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
       const delta = counted - currentLive;
 
       await client.query(
-        `INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value)
+        `INSERT INTO inventory_adjust
+           (session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value)
          SELECT $1,$2,$3,$4,$5,$6,$7,$8
          WHERE NOT EXISTS (
            SELECT 1 FROM inventory_adjust
-           WHERE session_id=$1 AND tenant_id=$2 AND product_id=$3
+            WHERE session_id=$1 AND tenant_id=$2 AND product_id=$3
          )`,
         [sessionId, tenantId, pid, start, counted, delta, null, delta * prix]
       );
@@ -449,7 +459,7 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
            SELECT $1,$2,$3,'inventory_finalize',$4
            WHERE NOT EXISTS (
              SELECT 1 FROM stock_movements
-             WHERE tenant_id=$1 AND source_id=$4
+              WHERE tenant_id=$1 AND source_id=$4
            )`,
           [tenantId, pid, delta, sourceId]
         );
@@ -481,6 +491,7 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
     client.release();
   }
 });
+
 
 /* =========================================================
  * SYNC (bootstrap / pull_refs / push_ops)
@@ -932,19 +943,36 @@ for (const c of categories) {
     }
 
     // Fournisseurs
-    for (const f of fournisseurs) {
-      await client.query(`
-        INSERT INTO fournisseurs
-         (id, tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, label)
-        VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (id) DO UPDATE SET
-          nom=$3, contact=$4, email=$5, telephone=$6, adresse=$7, code_postal=$8, ville=$9, categorie_id=$10, label=$11
-      `, [
-        asUuidOrNull(f.id), tenantId,
-        f.nom, f.contact || null, f.email || null, f.telephone || null, f.adresse || null, f.code_postal || null, f.ville || null,
-        asUuidOrNull(f.categorie_id), f.label || null
-      ]);
-    }
+ for (const f of fournisseurs) {
+  await client.query(`
+    INSERT INTO fournisseurs
+      (id, tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, label)
+    VALUES
+      (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    ON CONFLICT (tenant_id, nom) DO UPDATE SET
+      contact      = EXCLUDED.contact,
+      email        = EXCLUDED.email,
+      telephone    = EXCLUDED.telephone,
+      adresse      = EXCLUDED.adresse,
+      code_postal  = EXCLUDED.code_postal,
+      ville        = EXCLUDED.ville,
+      categorie_id = EXCLUDED.categorie_id,
+      label        = EXCLUDED.label
+  `, [
+    asUuidOrNull(f.id),           // $1
+    tenantId,                     // $2
+    f.nom,                        // $3
+    f.contact || null,            // $4
+    f.email || null,              // $5
+    f.telephone || null,          // $6
+    f.adresse || null,            // $7
+    f.code_postal || null,        // $8
+    f.ville || null,              // $9
+    asUuidOrNull(f.categorie_id), // $10
+    f.label || null               // $11
+  ]);
+}
+
 
     // normalise un code-barres (supprime espaces/insécables/séparateurs)
 function normBarcode(v) {
@@ -988,15 +1016,27 @@ for (const p of produits) {
   );
 }
 
-    // Modes de paiement
-    for (const m of modes_paiement) {
-      await client.query(`
-        INSERT INTO modes_paiement (id, tenant_id, nom, taux_percent, frais_fixe, actif)
-        VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3,$4,$5,$6)
-        ON CONFLICT (id) DO UPDATE SET
-          nom=$3, taux_percent=$4, frais_fixe=$5, actif=$6
-      `, [asUuidOrNull(m.id), tenantId, m.nom, Number(m.taux_percent || 0), Number(m.frais_fixe || 0), !!m.actif]);
-    }
+ // --- Bootstrap: modes de paiement (UPSERT sur (tenant_id, nom))
+for (const mp of modes_paiement) {
+  await client.query(`
+    INSERT INTO modes_paiement
+      (id, tenant_id, nom, taux_percent, frais_fixe, actif)
+    VALUES
+      (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6)
+    ON CONFLICT (tenant_id, nom) DO UPDATE SET
+      taux_percent = EXCLUDED.taux_percent,
+      frais_fixe   = EXCLUDED.frais_fixe,
+      actif        = EXCLUDED.actif
+  `, [
+    asUuidOrNull(mp.id),               // $1
+    tenantId,                          // $2
+    String(mp.nom || '').trim(),       // $3
+    Number(mp.taux_percent) || 0,      // $4
+    Number(mp.frais_fixe)   || 0,      // $5
+    !!mp.actif                          // $6
+  ]);
+}
+
 
     await client.query('COMMIT');
     res.json({ ok: true, counts: {

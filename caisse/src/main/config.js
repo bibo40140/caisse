@@ -5,8 +5,6 @@ const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
 const { apiFetch, setApiBase, setAuthToken, getAuthToken } = require('./apiClient');
-const { ensureAuth, getConfig, setConfig } = require('./src/main/config');
-
 
 /** Emplacement du fichier de config à la racine de l’app (packagée ou dev). */
 function getConfigPath() {
@@ -27,7 +25,9 @@ function getConfig() {
     if (cfg && cfg.api_base_url) {
       cfg.api_base_url = String(cfg.api_base_url).replace(/\/+$/, '');
     }
-    return cfg && typeof cfg === 'object' ? cfg : { modules: {} };
+    // ⚠️ on ne purge pas auth_token ici (il peut être stocké)
+    if (!cfg.modules || typeof cfg.modules !== 'object') cfg.modules = {};
+    return cfg;
   } catch {
     return { modules: {} };
   }
@@ -49,6 +49,8 @@ function saveConfig(nextCfg) {
 function setConfig(patch) {
   const cur = getConfig();
   const next = { ...cur, ...patch };
+  // normalisation api_base_url
+  if (next.api_base_url) next.api_base_url = String(next.api_base_url).replace(/\/+$/, '');
   saveConfig(next);
   return next;
 }
@@ -77,30 +79,30 @@ async function safeJson(r) {
 
 /**
  * ensureAuth()
- * - positionne l'API base depuis config.json (ou env CAISSE_API_URL)
- * - si config.auth_token existe → on l’utilise et on le met dans l’apiClient/env
- * - sinon, si process.env.API_AUTH_TOKEN → on l’utilise et on le persiste dans config.json
+ * - positionne l'API base depuis config.json (ou env CAISSE_API_URL / API_BASE_URL)
+ * - si config.auth_token existe → on l’utilise (setAuthToken) et on le renvoie
+ * - sinon, si process.env.API_AUTH_TOKEN → on l’utilise et on le persiste en config.json
  * - sinon, si config.api_email + config.api_password → login silencieux, puis persistance token
- * - sinon → { ok:false, error:'Missing token' } (laisser la fenêtre de login s’ouvrir côté app)
+ * - sinon → { ok:false, error:'Missing token' } (le renderer ouvrira la fenêtre de login)
  * Renvoie { ok, token?, tenant_id?, error? }
  */
 async function ensureAuth() {
   const cfg = getConfig();
 
   // 0) positionner la base API pour tous les appels suivants
-  const base = (cfg.api_base_url || process.env.CAISSE_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+  const base = (cfg.api_base_url || process.env.CAISSE_API_URL || process.env.API_BASE_URL || 'http://localhost:3001')
+    .replace(/\/+$/, '');
   setApiBase(base);
 
   // 1) Token déjà enregistré en config.json
   if (cfg.auth_token && typeof cfg.auth_token === 'string' && cfg.auth_token.trim() !== '') {
     const token = cfg.auth_token.trim();
     setAuthToken(token);
-    process.env.API_AUTH_TOKEN = token; // compat modules
+    process.env.API_AUTH_TOKEN = token; // compat
     return { ok: true, token, tenant_id: parseJwtTenant(token) };
   }
 
-  // 2) Token via env → seulement si autorisé
-if (cfg.allow_auto_login === true) {
+  // 2) Token via env → on le persiste en config.json pour la prochaine fois
   if (process.env.API_AUTH_TOKEN && String(process.env.API_AUTH_TOKEN).trim()) {
     const token = String(process.env.API_AUTH_TOKEN).trim();
     setAuthToken(token);
@@ -109,14 +111,15 @@ if (cfg.allow_auto_login === true) {
   }
 
   // 3) Token déjà en mémoire (apiClient) ?
-  const mem = getAuthToken && getAuthToken();
+  const mem = (typeof getAuthToken === 'function') ? getAuthToken() : '';
   if (mem) {
     setAuthToken(mem);
+    process.env.API_AUTH_TOKEN = mem;
     setConfig({ auth_token: mem });
     return { ok: true, token: mem, tenant_id: parseJwtTenant(mem) };
   }
 
-  // 4) Tentative de login silencieux via config.json (email+password)
+  // 4) Tentative de login silencieux via config.json
   if (base && cfg.api_email && cfg.api_password) {
     try {
       const r = await apiFetch('/auth/login', {
@@ -130,32 +133,22 @@ if (cfg.allow_auto_login === true) {
       }
       const token = js.token;
       setAuthToken(token);
-      setConfig({ auth_token: token });
+      process.env.API_AUTH_TOKEN = token;
+      setConfig({ auth_token: token }); // persiste le token
       return { ok: true, token, tenant_id: parseJwtTenant(token) };
     } catch (e) {
       return { ok: false, error: e?.message || String(e) };
     }
   }
-}
 
   // 5) Rien de dispo → le renderer devra ouvrir la fenêtre de login
   return { ok: false, error: 'Missing token' };
 }
 
-
-function clearAuth() {
-  setAuthToken('');
-  const cfg = getConfig();
-  delete cfg.auth_token;
-  delete cfg.api_email;
-  delete cfg.api_password;
-  saveConfig(cfg);
-}
 module.exports = {
   getConfigPath,
   getConfig,
   saveConfig,
   setConfig,
   ensureAuth,
-  clearAuth 
 };

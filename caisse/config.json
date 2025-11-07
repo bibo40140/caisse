@@ -2,19 +2,15 @@
   "modules": {
     "email": false,
     "emails": false,
-    "stocks": true,
-    "exports": false,
     "adherents": true,
     "prospects": false,
-    "inventaire": false,
-    "multiusers": false,
+    "inventaire": true,
     "receptions": true,
     "cotisations": true,
-    "fournisseurs": true,
     "modes_paiement": false,
-    "ventes_exterieur": true
+    "stocks": true,
+    "ventes_exterieur": false
   },
   "ventes_exterieur_margin_percent": 30,
-  "api_base_url": "http://localhost:3001",
-  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMDBiNjc3ZC1kYmYxLTQ0OTEtOGVlYi0yMDVkNjU5MTQzNzIiLCJ1c2VyX2lkIjoiZTAwYjY3N2QtZGJmMS00NDkxLThlZWItMjA1ZDY1OTE0MzcyIiwidGVuYW50X2lkIjoiN2YxMmQ0ZGUtZmRjOC00YmZhLWFlYjQtMTlmYzQ0NmE0NTlmIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJmYWJpZW4uaGljYXViZXJAZ21haWwuY29tIiwiaXNfc3VwZXJfYWRtaW4iOnRydWUsImlhdCI6MTc2MjUxMDgyMSwiZXhwIjoxNzYzMTE1NjIxfQ.4e3gk2gPthTKXGz6em4X6xObkCGtmGWP5V-EKJnBybA"
+  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMDBiNjc3ZC1kYmYxLTQ0OTEtOGVlYi0yMDVkNjU5MTQzNzIiLCJ1c2VyX2lkIjoiZTAwYjY3N2QtZGJmMS00NDkxLThlZWItMjA1ZDY1OTE0MzcyIiwidGVuYW50X2lkIjoiN2YxMmQ0ZGUtZmRjOC00YmZhLWFlYjQtMTlmYzQ0NmE0NTlmIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJmYWJpZW4uaGljYXViZXJAZ21haWwuY29tIiwiaXNfc3VwZXJfYWRtaW4iOnRydWUsImlhdCI6MTc2MjUyMDQzNiwiZXhwIjoxNzYzMTI1MjM2fQ.s1uk8hoyyKJGmQCMelmUakrYJzxCryng6MUjeU5uGtA"
 }
