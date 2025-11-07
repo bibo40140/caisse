@@ -19,15 +19,7 @@ function _write(json) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(json, null, 2), 'utf8');
 }
 
-/** Supprime les secrets (token/tenant) d’un objet config (mutation) */
-function _stripSecrets(obj) {
-  if (!obj || typeof obj !== 'object') return obj;
-  if ('auth_token' in obj) delete obj.auth_token;
-  if ('tenant_id' in obj)  delete obj.tenant_id;
-  return obj;
-}
-
-/** Lecture brute disque (sans cache) + purge immédiate des secrets si présents */
+/** Lecture brute disque (sans cache) — NE PAS purger les secrets ici */
 function readConfigFromDisk() {
   let json = { modules: {}, ventes_exterieur_margin_percent: DEFAULT_MARGIN };
 
@@ -37,14 +29,6 @@ function readConfigFromDisk() {
   }
 
   if (!json.modules) json.modules = {};
-
-  // 🔒 purge secrets à la lecture + ré-écriture si nécessaire
-  const hadSecrets = 'auth_token' in json || 'tenant_id' in json;
-  _stripSecrets(json);
-  if (hadSecrets) {
-    try { _write(json); } catch {}
-  }
-
   return json;
 }
 
@@ -56,7 +40,7 @@ function readConfig() {
 }
 
 /** Écriture générique (merge superficiel + merge profond pour "modules")
- *  ⚠️ Filtre systématiquement auth_token & tenant_id pour ne pas les persister.
+ *  ⚠️ NE PAS filtrer auth_token / tenant_id (laisse src/main/config.js gérer ça si besoin).
  */
 function writeConfig(partial = {}) {
   const current = readConfig();
@@ -66,15 +50,12 @@ function writeConfig(partial = {}) {
     modules: { ...(current.modules || {}), ...(partial.modules || {}) },
   };
 
-  // 🔒 ne jamais écrire ces champs
-  _stripSecrets(next);
-
   _write(next);
   _cache = next;
   return _cache;
 }
 
-/** Mise à jour uniquement des modules (passe aussi par writeConfig → filtrage OK) */
+/** Mise à jour uniquement des modules */
 function writeModules(modulesMap = {}) {
   return writeConfig({ modules: modulesMap });
 }
@@ -101,7 +82,7 @@ function resetCache() {
   _cache = null;
 }
 
-/** 🔧 utilitaires : suppression explicite des secrets + réécriture disque */
+/** 🔧 utilitaires : suppression explicite des secrets + réécriture disque (utilisé au logout si tu veux) */
 function removeAuthToken() {
   const cfg = readConfig();
   const had = 'auth_token' in cfg;
@@ -119,16 +100,9 @@ function removeTenantId() {
   return had;
 }
 
-/** 🔧 scrub global (utilisé au démarrage) */
+/** NO-OP désormais : on ne purge plus automatiquement au démarrage */
 function scrubSecrets() {
-  const cfg = readConfig();
-  const had = ('auth_token' in cfg) || ('tenant_id' in cfg);
-  if (had) {
-    _stripSecrets(cfg);
-    _write(cfg);
-    _cache = cfg;
-  }
-  return had;
+  return false;
 }
 
 module.exports = {

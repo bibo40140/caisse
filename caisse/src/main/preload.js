@@ -78,6 +78,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resoudreConflitProduit: (action, nouveau, existantId) =>
     ipcRenderer.invoke('resoudre-conflit-produit', action, nouveau, existantId),
 
+
+  /* -------------- Mode de paiements ----------------------- */
+
+  mp_getAll:   () => ipcRenderer.invoke('mp:getAll'),
+  mp_create:   (p) => ipcRenderer.invoke('mp:create', p),
+  mp_update:   (p) => ipcRenderer.invoke('mp:update', p),
+  mp_remove:   (id) => ipcRenderer.invoke('mp:remove', id),
+
   /* -------------- Sync (full/refs/ops) ----------- */
   syncPushAll: () => ipcRenderer.invoke('sync:push_all'),
   syncPullAll: () => ipcRenderer.invoke('sync:pull_all'),
@@ -166,6 +174,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /* -------------- Adhérents ---------------------- */
   getAdherents: (archive = 0) => ipcRenderer.invoke('get-adherents', archive),
+    getAdherents: (opts) => ipcRenderer.invoke('get-adherents', opts),
+
   ajouterAdherent: (data) => ipcRenderer.invoke('ajouter-adherent', data),
   modifierAdherent: (data) => ipcRenderer.invoke('modifier-adherent', data),
   archiverAdherent: (id) => ipcRenderer.invoke('archiver-adherent', id),
@@ -243,20 +253,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listProspectInvitations: (filters) => ipcRenderer.invoke('prospects:invitations', filters),
   prospectsListInvitations: (args) => ipcRenderer.invoke('prospects:invitations', args),
 
-  /* -------------- Inventaire (IPC -> API) -------- */
-  inventory: {
-    start:     (payload)                         => ipcRenderer.invoke('inventory:start', payload),
-    countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>
-      ipcRenderer.invoke('inventory:count-add', { sessionId, product_id, qty, user, device_id }),
-    summary:   ({ sessionId })                   => ipcRenderer.invoke('inventory:summary', { sessionId }),
-    finalize:  ({ sessionId, user, email_to })   =>
-      ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
-    listOpen:  ()                                => ipcRenderer.invoke('inventory:list-open'),
+/* -------------- Inventaire (IPC -> API) -------- */
+inventory: {
+  start:     (payload) => ipcRenderer.invoke('inventory:start', payload),
+  countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>
+    ipcRenderer.invoke('inventory:count-add', { sessionId, product_id, qty, user, device_id }),
+  summary:   ({ sessionId }) => ipcRenderer.invoke('inventory:summary', { sessionId }),
+  finalize:  ({ sessionId, user, email_to }) =>
+    ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
+  listOpen:      () => ipcRenderer.invoke('inventory:list-open'),
+  listSessions:  () => ipcRenderer.invoke('inventory:listSessions'),
+  getSummary:    (sessionId) => ipcRenderer.invoke('inventory:getSummary', sessionId),
 
-    // ✅ Nouveaux ponts pour l'historique Inventaires (routes API)
-    listSessions: ()                              => ipcRenderer.invoke('inventory:listSessions'),
-    getSummary:  (sessionId)                      => ipcRenderer.invoke('inventory:getSummary', sessionId),
-  },
+  // ➕ NOUVEAU : expo pour forcer la fermeture côté serveur
+  closeAllOpen:  () => ipcRenderer.invoke('inventory:closeAllOpen'),
+},
+
 
   /* -------------- Inventaire / produits ---------- */
   produits: {
@@ -293,18 +305,5 @@ contextBridge.exposeInMainWorld('carts', {
   delete: (id)          => ipcRenderer.invoke('cart-delete', id),
   remove: (id)          => ipcRenderer.invoke('cart-delete', id),
 
-  // Alias inventaire
-  inventory: {
-    start:     (payload)                         => ipcRenderer.invoke('inventory:start', payload),
-    countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>
-      ipcRenderer.invoke('inventory:count-add', { sessionId, product_id, qty, user, device_id }),
-    summary:   ({ sessionId })                   => ipcRenderer.invoke('inventory:summary', { sessionId }),
-    finalize:  ({ sessionId, user, email_to })   =>
-      ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),
-    listOpen:  ()                                => ipcRenderer.invoke('inventory:list-open'),
 
-    // ✅ Ajoutés aussi ici pour cohérence éventuelle
-    listSessions: ()                              => ipcRenderer.invoke('inventory:listSessions'),
-    getSummary:  (sessionId)                      => ipcRenderer.invoke('inventory:getSummary', sessionId),
-  },
 });

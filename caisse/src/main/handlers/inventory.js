@@ -1,4 +1,4 @@
-// src/main/handlers/inventory.js — v2.5 (finalize applique summary → stocks locaux)
+// src/main/handlers/inventory.js — v2.7 (session explicite, closeAllOpen, fixes matching & COALESCE)
 const path = require('path');
 const fs = require('fs');
 const fetch = require('node-fetch');
@@ -17,7 +17,7 @@ function readApiBase() {
 const API = readApiBase();
 const DEFAULT_DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
-console.log('[inventory] handlers v2.5 loaded — API =', API);
+console.log('[inventory] handlers v2.7 loaded — API =', API);
 
 /* -------------------- Utils DB safe -------------------- */
 function getDb() { return require('../db/db'); }
@@ -33,6 +33,9 @@ function normCode(v) { return (v == null ? '' : String(v)).replace(/\s+/g, '').t
 function isUuidLike(s) {
   return typeof s === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+}
+function statusOf(s) {
+  return String(s ?? '').toLowerCase();
 }
 
 /* -------------------- Auth headers -------------------- */
@@ -76,7 +79,12 @@ async function apiInventoryCountAdd({ sessionId, product_uuid, qty, user, device
     headers: buildJsonHeaders(),
     body: JSON.stringify({ product_id: product_uuid, qty, user, device_id }),
   });
-  if (!res.ok) throw new Error(`inventory:count-add HTTP ${res.status} ${await res.text().catch(()=> '')}`);
+  if (!res.ok) {
+    let body = '';
+    try { body = await res.text(); } catch {}
+    console.warn('[inventory] count-add failed', res.status, body);
+    throw new Error(`inventory:count-add HTTP ${res.status} ${body}`);
+  }
   return res.json();
 }
 async function apiInventorySummary(sessionId) {
@@ -113,7 +121,6 @@ async function apiInventoryFinalize(apiBase, token, sessionId, body = {}) {
   if (!r.ok) throw new Error(`inventory:finalize HTTP ${r.status} ${await r.text()}`);
   return r.json();
 }
-// History list
 async function apiInventoryListSessions() {
   const r = await fetch(`${API}/inventory/sessions`, {
     method: 'GET',
@@ -132,17 +139,21 @@ function applySummaryToLocal(lines) {
   const db = getDb();
   const cols = listColumns('produits');
   const uuidCols = ['remote_uuid', 'remote_id', 'neon_id', 'product_uuid', 'uuid'].filter(c => hasCol(cols, c));
-  const barcodeCols = ['code_barres', 'code', 'ean'].filter(c => hasCol(cols, c));
+  const barcodeCols = ['code_barre', 'code_barres', 'code', 'ean'].filter(c => hasCol(cols, c));
+
   const selectUuid = uuidCols.length ? `COALESCE(${uuidCols.join(', ')}, '') AS remote_uuid` : `'' AS remote_uuid`;
   const selectBarcodes = barcodeCols.length ? `, ${barcodeCols.map(c => `COALESCE(${c}, '') AS ${c}`).join(', ')}` : '';
   const produitsQuery = `SELECT id, ${selectUuid}${selectBarcodes} FROM produits`;
+
   let produits = [];
   try { produits = db.prepare(produitsQuery).all(); } catch { return { matched: 0, total: 0 }; }
+
   const byUuid = new Map(); const byBarcode = new Map();
   for (const p of produits) {
     if (p.remote_uuid && isUuidLike(String(p.remote_uuid))) byUuid.set(String(p.remote_uuid), Number(p.id));
     for (const c of barcodeCols) { const v = normCode(p[c]); if (v && !byBarcode.has(v)) byBarcode.set(v, Number(p.id)); }
   }
+
   const mapped = new Map();
   for (const l of lines) {
     const qty = Number(l.counted_total || 0);
@@ -153,6 +164,7 @@ function applySummaryToLocal(lines) {
     else { const bc = normCode(l.barcode); if (bc && byBarcode.has(bc)) localId = byBarcode.get(bc); }
     if (localId) mapped.set(localId, qty);
   }
+
   const stmtZeroAll  = db.prepare(`UPDATE produits SET stock = 0`);
   const stmtSetStock = db.prepare(`UPDATE produits SET stock = ? WHERE id = ?`);
   const tx = db.transaction(() => {
@@ -195,11 +207,13 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     const db = getDb();
     const cols = listColumns('produits');
     const uuidCols = ['remote_uuid', 'remote_id', 'neon_id', 'product_uuid', 'uuid'].filter(c => hasCol(cols, c));
-    const selectUuid = uuidCols.length ? uuidCols.join(', ') : '';
+    const selectUuid = uuidCols.length ? `COALESCE(${uuidCols.join(', ')}, '')` : 'NULL';
+
     let row = null;
     try {
-      row = db.prepare(`SELECT ${selectUuid || 'NULL AS remote_uuid'} AS remote_uuid FROM produits WHERE id = ?`).get(localNum);
+      row = db.prepare(`SELECT ${selectUuid} AS remote_uuid FROM produits WHERE id = ?`).get(localNum);
     } catch {}
+
     const remoteUUID = row?.remote_uuid && isUuidLike(String(row.remote_uuid)) ? String(row.remote_uuid) : null;
     if (!remoteUUID) throw new Error('inventory:count-add MAPPING_MISSING — aucun remote_uuid pour ce produit.');
 
@@ -220,7 +234,7 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     // 1) Finalise côté API
     const out = await apiInventoryFinalize(API, token, String(sessionId), { user });
 
-    // 2) Récupère le summary et applique aux stocks locaux (pour voir l’effet immédiatement dans Produits)
+    // 2) Récupère le summary et applique aux stocks locaux
     try {
       const sum = await apiInventorySummary(String(sessionId));
       applySummaryToLocal(sum.lines);
@@ -228,11 +242,17 @@ module.exports = function registerInventoryHandlers(ipcMain) {
       console.warn('[inventory] applySummaryToLocal failed (non bloquant):', e?.message || e);
     }
 
+    // 3) Notifier TOUTES les fenêtres que la session est clôturée → purge UI
+    try {
+      const payload = { sessionId: String(sessionId), closed: true, at: Date.now() };
+      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('inventory:session-closed', payload));
+    } catch (_) {}
+
     if (out?.alreadyFinalized) return { ok: true, recap: out.recap || null, alreadyFinalized: true };
     return out;
   });
 
-  // History (for Paramètres > Historique > Inventaires)
+  // Historique sessions
   safeHandle(ipcMain, 'inventory:listSessions', async () => {
     const items = await apiInventoryListSessions();
     return items;
@@ -241,5 +261,42 @@ module.exports = function registerInventoryHandlers(ipcMain) {
   safeHandle(ipcMain, 'inventory:getSummary', async (_e, sessionId) => {
     const sum = await apiInventorySummary(sessionId);
     return sum.raw;
+  });
+
+  // ⚠️ Option C: Fermer toutes les sessions "open"
+  safeHandle(ipcMain, 'inventory:closeAllOpen', async () => {
+    const { token } = resolveAuthContext();
+    const sessions = await apiInventoryListSessions();
+    const openOnes = sessions.filter(s => statusOf(s.status || s.etat) === 'open');
+
+    let closed = 0, errors = 0;
+    for (const s of openOnes) {
+      const id = s.id || s.session_id || s.uuid;
+      if (!id) continue;
+      try {
+        const out = await apiInventoryFinalize(API, token, String(id), { user: 'admin' });
+        closed++;
+        try {
+          BrowserWindow.getAllWindows().forEach(w =>
+            w.webContents.send('inventory:session-closed', { sessionId: String(id), closed: true, at: Date.now() })
+          );
+        } catch {}
+      } catch (e) {
+        const msg = String(e?.message || e);
+        if (/session_locked/.test(msg)) {
+          // Déjà verrouillée côté API → considérer comme close
+          closed++;
+          try {
+            BrowserWindow.getAllWindows().forEach(w =>
+              w.webContents.send('inventory:session-closed', { sessionId: String(id), closed: true, at: Date.now() })
+            );
+          } catch {}
+        } else {
+          errors++;
+          console.warn('[inventory] closeAllOpen error for', id, msg);
+        }
+      }
+    }
+    return { ok: true, closed, errors };
   });
 };

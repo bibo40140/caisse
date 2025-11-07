@@ -3,6 +3,11 @@
 console.log('[API] build=no-mailer v1 (multi-tenant full)');
 
 import 'dotenv/config';
+
+console.log('[AUTH DEV] DEV_SUPERADMIN_ENABLED=', process.env.DEV_SUPERADMIN_ENABLED, 
+            'DEV_SUPERADMIN_EMAIL=', process.env.DEV_SUPERADMIN_EMAIL);
+
+            
 import express from 'express';
 import cors from 'cors';
 import path from 'path';

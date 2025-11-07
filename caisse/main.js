@@ -57,6 +57,9 @@ const { setApiBase, apiMainClient, setAuthToken, apiFetch, logout } = require('.
 
 // === App modules existants ===
 const db = require('./src/main/db/db');
+const { ensureLocalSchema } = require('./src/main/db/schema');
+ensureLocalSchema(db);
+
 const { getDeviceId } = require('./src/main/device');
 const { runBootstrap } = require('./src/main/bootstrap');
 const sync = require('./src/main/sync'); // hydrateOnStartup, pullAll, pushOpsNow, startAutoSync
@@ -277,10 +280,19 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
     const js = await safeJson(r);
     if (!r.ok || !js?.token) return { ok: false, error: js?.error || `HTTP ${r.status}` };
 
+    // 1) mémorise en mémoire/process
     setAuthToken(js.token);
     process.env.API_AUTH_TOKEN = js.token;
 
-    // Enregistrer les handlers email juste après login
+    // 2) PERSISTE dans config.json pour les futures actions (push/pull/ensureAuth)
+    try {
+      const { setConfig } = require('./src/main/config');  // ← on utilise le même module que ensureAuth()
+      setConfig({ auth_token: js.token });                 // (inutile d’écrire tenant_id; il est dans le JWT)
+    } catch (e) {
+      console.warn('[auth:login] impossible d’écrire auth_token dans config.json:', e?.message || e);
+    }
+
+    // 3) email handlers
     ensureEmailHandlers();
 
     return { ok: true, token: js.token, role: js.role, is_super_admin: js.is_super_admin };
@@ -627,10 +639,9 @@ const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
   // 🔒 Purge défensive des secrets dans config.json
-  try {
-    const removed = scrubSecrets();
-    if (removed) console.log('[config] Secrets purgés depuis config.json (auth_token/tenant_id).');
-  } catch {}
+// (désactivé) on ne purge plus le token au démarrage
+// pour éviter de casser ensureAuth() lors des opérations.
+// Utiliser le bouton "Se déconnecter" pour purger proprement.
 
   // 1) Config → API base (avec fallback ENV/localhost)
   try {
@@ -732,6 +743,10 @@ app.whenReady().then(async () => {
     createMainWindow();
   }
 });
+
+
+const registerAdherentsHandlers = require('./src/main/handlers/adherents');
+registerAdherentsHandlers(); 
 
 // --- garde-fou pour handlers email
 let _emailHandlersRegistered = false;
@@ -845,7 +860,6 @@ safeHandle('inventory:getSummary', async (_e, sessionId) => {
 
 // Handlers existants (inchangés)
 require('./src/main/handlers/config')(ipcMain);
-require('./src/main/handlers/produits');
 require('./src/main/handlers/unites')(ipcMain);
 const registerModulesHandlers = require('./src/main/handlers/modules');
 registerModulesHandlers(); // <<< enregistre 'get-modules', 'set-modules', 'modules:save'
@@ -857,6 +871,10 @@ registerVentesHandlers(ipcMain);
 
 const registerProspectsHandlers = require('./src/main/handlers/prospects');
 registerProspectsHandlers(ipcMain);
+
+const { registerModesPaiementHandlers } = require('./src/main/handlers/modesPaiement');
+registerModesPaiementHandlers();
+
 
 const { registerCategoryHandlers } = require('./src/main/handlers/categories');
 registerCategoryHandlers();
@@ -880,8 +898,7 @@ try {
   cfgModules = (c && c.modules) || {};
 } catch { cfgModules = {}; }
 
-if (cfgModules.fournisseurs) require('./src/main/handlers/fournisseurs')();
-require('./src/main/handlers/adherents')(ipcMain);
+
 
 if (cfgModules.cotisations) require('./src/main/handlers/cotisations');
 if (cfgModules.imports !== false) require('./src/main/handlers/imports');
@@ -894,19 +911,7 @@ registerInventoryHandlers(ipcMain);
 
 // Fallbacks modes de paiement (inchangés)
 function boolToInt(b) { return b ? 1 : 0; }
-try {
-  db.prepare(`
-    CREATE TABLE IF NOT EXISTS modes_paiement (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      nom          TEXT UNIQUE NOT NULL,
-      taux_percent REAL DEFAULT 0,
-      frais_fixe   REAL DEFAULT 0,
-      actif        INTEGER DEFAULT 1
-    )
-  `).run();
-} catch (e) {
-  console.error('[mp] create table error:', e?.message || e);
-}
+
 
 try { ipcMain.removeHandler('mp:getAll'); } catch {}
 try { ipcMain.removeHandler('mp:getAllAdmin'); } catch {}

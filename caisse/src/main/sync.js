@@ -440,20 +440,30 @@ async function pullAll() { return pullRefs(); }
 --------------------------------------------------*/
 let _autoTimer = null;
 let _intervalMs = 30000; // 30s
-function startAutoSync(deviceId) {
-  if (_autoTimer) return;
-  _autoTimer = setInterval(async () => {
-    try {
-      await pushOpsNow(deviceId);
-      _intervalMs = 30000;
-    } catch {
-      _intervalMs = Math.min(_intervalMs + 15000, 120000);
-      clearInterval(_autoTimer);
-      _autoTimer = null;
-      _autoTimer = setInterval(() => startAutoSync(deviceId), _intervalMs);
-    }
-  }, _intervalMs);
+
+function stopAutoSync() {
+  if (_autoTimer) { clearTimeout(_autoTimer); _autoTimer = null; }
 }
+
+function startAutoSync(deviceId) {
+  if (_autoTimer) return; // déjà en cours
+
+  const loop = async () => {
+    try {
+      await pushOpsNow(deviceId);          // push
+      _intervalMs = 30000;                 // reset backoff
+    } catch (e) {
+      _intervalMs = Math.min(_intervalMs + 15000, 120000); // backoff max 2 min
+    } finally {
+      _autoTimer = setTimeout(loop, _intervalMs); // planifie le prochain essai
+    }
+  };
+
+  _autoTimer = setTimeout(loop, 1000); // première exécution in 1s
+}
+
+
+
 
 /* -------------------------------------------------
    Export public

@@ -2,6 +2,7 @@
 (function () {
   const openProductEditor = (...args) => window.ProductEditor.openProductEditor(...args);
 
+  /* ================== Utils UI (busy, row-busy) ================== */
   function ensureBusyOverlay() {
     if (document.getElementById('app-busy')) return;
     const div = document.createElement('div');
@@ -40,6 +41,7 @@
     }
   }
 
+  /* ================== Utils config/modules ================== */
   async function getConfig() {
     try { return await (window.electronAPI?.getConfig?.()); } catch { return {}; }
   }
@@ -47,6 +49,7 @@
     try { return await (window.getMods?.() || window.electronAPI.getModules()); } catch { return {}; }
   }
 
+  /* ================== Constantes & helpers domaine ================== */
   const INV_SESSION_KEY = 'inventory_session_id';
   const DRAFT_KEY       = 'inventaire_draft_v1';
 
@@ -80,6 +83,7 @@
     });
   }
 
+  /* ================== UI: une ligne produit ================== */
   function rowHTML(p, st, fournisseursById, unitesById) {
     const draft = st.draft ?? (st.counted ?? "");
     const validated = !!st.validated;
@@ -124,8 +128,34 @@
     `;
   }
 
+  /* ================== Page Inventaire ================== */
   window.PageInventaire = (() => {
     function debounce(fn, wait = 300) { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); }; }
+
+    // session locale (explicite)
+    const SESSION_KEY = INV_SESSION_KEY;
+    const getSessionId = () => { try { return localStorage.getItem(SESSION_KEY) || null; } catch { return null; } };
+    const setSessionId = (id) => { try { id ? localStorage.setItem(SESSION_KEY, String(id)) : localStorage.removeItem(SESSION_KEY); } catch {} };
+    const purgeLocalSessionAndDraft = () => {
+      try { localStorage.removeItem(SESSION_KEY); } catch {}
+      try { localStorage.removeItem(DRAFT_KEY); } catch {}
+    };
+
+    // helpers message barre
+    function useStatusBar() {
+      const statusBar = document.createElement('div');
+      statusBar.id = 'inv-status';
+      statusBar.style.cssText = 'display:none;margin:8px 0;padding:8px;border-radius:8px;font-size:.92rem;';
+      const show = (msg, kind = 'warn') => {
+        statusBar.style.display = 'block';
+        statusBar.textContent = msg;
+        statusBar.style.background = kind === 'ok' ? '#e6fff2' : '#fff4e6';
+        statusBar.style.border = '1px solid ' + (kind === 'ok' ? '#b7f0cf' : '#ffd9b3');
+        statusBar.style.color = kind === 'ok' ? '#145a32' : '#7a3e00';
+      };
+      const hide = () => { statusBar.style.display = 'none'; };
+      return { el: statusBar, show, hide };
+    }
 
     async function renderInventaire() {
       const mount = document.getElementById("page-content");
@@ -138,76 +168,11 @@
       const emailTo = cfg?.inventory?.email_to || null;
       const currentUser = 'Inventaire';
 
-      const statusBar = document.createElement('div');
-      statusBar.id = 'inv-status';
-      statusBar.style.cssText = 'display:none;margin:8px 0;padding:8px;border-radius:8px;font-size:.92rem;';
-      mount.before(statusBar);
-      const showStatus = (msg, kind = 'warn') => {
-        statusBar.style.display = 'block';
-        statusBar.textContent = msg;
-        statusBar.style.background = kind === 'ok' ? '#e6fff2' : '#fff4e6';
-        statusBar.style.border = '1px solid ' + (kind === 'ok' ? '#b7f0cf' : '#ffd9b3');
-        statusBar.style.color = kind === 'ok' ? '#145a32' : '#7a3e00';
-      };
-      const hideStatus = () => { statusBar.style.display = 'none'; };
+      // ---- status bar
+      const status = useStatusBar();
+      mount.before(status.el);
 
-      function normalizeSessionId(raw){
-        const s = String(raw ?? '').trim();
-        if (!s || s.toLowerCase()==='nan' || s==='null' || s==='undefined') return null;
-        return s;
-      }
-
-      async function tryStartInventorySession() {
-        setBusy(true, 'Initialisation de la session inventaire…');
-        let sessionId = null;
-
-        try {
-          const cachedRaw = localStorage.getItem(INV_SESSION_KEY);
-          const cached = normalizeSessionId(cachedRaw);
-          if (cached) {
-            try {
-              const test = await window.electronAPI?.inventory?.summary?.({ sessionId: cached });
-              if (test && (test.session?.id || cached)) {
-                sessionId = String(test.session?.id || cached);
-                localStorage.setItem(INV_SESSION_KEY, sessionId);
-                showStatus('Session d’inventaire reprise.', 'ok');
-                return sessionId;
-              }
-            } catch {}
-          } else if (cachedRaw) {
-            localStorage.removeItem(INV_SESSION_KEY);
-          }
-        } catch {}
-
-        try {
-          const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
-          const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
-          sessionId = normalizeSessionId(js?.session?.id);
-          if (sessionId) { localStorage.setItem(INV_SESSION_KEY, sessionId); hideStatus(); return sessionId; }
-        } catch (e) {
-          const msg = (e?.message||'') + ' ' + (e?.stack||'');
-          if (/401/.test(msg) || /Missing token/i.test(msg)) {
-            try {
-              if (window.electronAPI?.ensureAuth) {
-                await window.electronAPI.ensureAuth();
-                const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
-                const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
-                sessionId = normalizeSessionId(js?.session?.id);
-                if (sessionId) { localStorage.setItem(INV_SESSION_KEY, sessionId); hideStatus(); return sessionId; }
-              }
-            } catch {}
-          }
-          showStatus('⚠️ Non connecté à l’API inventaire. Mode brouillon local uniquement — la clôture et la synchro temps réel sont désactivées.', 'warn');
-        } finally {
-          setBusy(false);
-        }
-        return null;
-      }
-
-      setBusy(true, 'Initialisation de la session inventaire…');
-      let sessionId = await Promise.race([ tryStartInventorySession(), new Promise(res => setTimeout(() => res(null), 8000)) ]);
-      setBusy(false);
-
+      // ---- état
       const fournisseursById = Object.fromEntries((fournisseurs || []).map(f => [f.id, f]));
       const unitesById = Object.fromEntries((unites || []).map(u => [u.id, u]));
 
@@ -216,10 +181,15 @@
         state.set(p.id, { system: Number(p.stock || 0), counted: null, validated: false, draft: null, prevSent: 0, remoteCount: 0 });
       }
 
+      // ---- layout
       mount.innerHTML = `
         <div class="inv-toolbar">
           <input id="inv-search" placeholder="Rechercher (nom / fournisseur / code-barres)..." />
-          <button id="inv-apply">Valider l’inventaire</button>
+          <div class="spacer"></div>
+          <button id="btnStartSession">Commencer une session</button>
+          <button id="inv-apply" disabled>Clôturer l’inventaire</button>
+          <button id="btnForceClose">Forcer la fermeture des sessions</button>
+
         </div>
 
         <div id="inv-scroll" class="inv-scroll">
@@ -244,6 +214,7 @@
 
         <style>
           .inv-toolbar{ background:#fff; display:flex; gap:.5rem; align-items:center; padding:.5rem 0; border-bottom:1px solid #eee; }
+          .inv-toolbar .spacer { flex: 1; }
           .inv-scroll{ max-height: calc(100vh - 140px); overflow: auto; }
           .inv-table{ width:100%; border-collapse:collapse }
           .inv-table th,.inv-table td{ border:1px solid #ddd; padding:.45rem }
@@ -262,6 +233,7 @@
           .busy-spinner { width:18px; height:18px; }
           @keyframes spin { to { transform: rotate(360deg);} }
           tr.row-busy { opacity:.6; }
+          .disabled { opacity: .6; pointer-events: none; }
         </style>
       `;
 
@@ -269,9 +241,24 @@
       const $search = mount.querySelector("#inv-search");
       const $scroll = mount.querySelector("#inv-scroll");
       const $apply  = mount.querySelector("#inv-apply");
+      const $btnStart = mount.querySelector("#btnStartSession");
 
-      if (!sessionId) { $apply.disabled = true; $apply.title = "Connecte l’API (auth) pour pouvoir clôturer l’inventaire."; }
+      const $btnForceClose = mount.querySelector('#btnForceClose');
+$btnForceClose.addEventListener('click', async () => {
+  if (!confirm('Fermer TOUTES les sessions d’inventaire distantes ouvertes ?')) return;
+  try {
+    await window.electronAPI.inventory.closeAllOpen();
+    localStorage.removeItem('inventory_session_id');
+    localStorage.removeItem('inventaire_draft_v1');
+    alert('Toutes les sessions ouvertes ont été fermées côté serveur.');
+    location.reload();
+  } catch (e) {
+    alert('Échec fermeture sessions: ' + (e?.message || e));
+  }
+});
 
+
+      // ---- draft persistance
       const saveDraft = () => {
         try {
           const items = [];
@@ -297,6 +284,7 @@
         } catch {}
       }
 
+      // ---- rendu lignes
       function renderRows() {
         const q = $search.value || "";
         const filtered = filterList(produits, q, fournisseursById);
@@ -311,8 +299,68 @@
       loadDraft();
       renderRows();
 
+      function disableInventoryInputs(disabled) {
+        if (disabled) { mount.classList.add('disabled'); } else { mount.classList.remove('disabled'); }
+      }
+
+      // ---- session explicite : pas d’auto-reprise ni d’auto-start
+      async function resumeIfWanted() {
+        const sid = getSessionId();
+        if (!sid) {
+          status.show('Aucune session active. Cliquez sur “Commencer une session”.', 'warn');
+          $apply.disabled = true;
+          return;
+        }
+        try {
+          const sum = await (window.electronAPI.invoke
+            ? window.electronAPI.invoke('inventory:getSummary', sid)
+            : window.electronAPI.inventory.getSummary(sid));
+          const statusStr = (sum?.session?.status || sum?.status || '').toString().toLowerCase();
+          if (statusStr && statusStr !== 'open') {
+            purgeLocalSessionAndDraft();
+            status.show('La session distante est clôturée. Cliquez sur “Commencer une session”.', 'ok');
+            $apply.disabled = true;
+            return;
+          }
+          status.show('Session en cours détectée. Vous pouvez reprendre ou clôturer.', 'ok');
+          $apply.disabled = false;
+        } catch {
+          purgeLocalSessionAndDraft();
+          status.show('La session locale n’existe plus côté serveur. Cliquez sur “Commencer une session”.', 'warn');
+          $apply.disabled = true;
+        }
+      }
+
+      async function startSession() {
+        try {
+          setBusy(true, 'Création de la session…');
+          const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
+          const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
+          const sid = String(js?.session?.id || js?.id || '').trim();
+          if (!sid) throw new Error('id de session manquant');
+          setSessionId(sid);
+          status.show('Session d’inventaire démarrée. Vous pouvez compter et clôturer.', 'ok');
+          $apply.disabled = false;
+        } catch (e) {
+          alert('Impossible de démarrer une session : ' + (e?.message || e));
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      // ---- actions UI session
+      $btnStart.addEventListener('click', async () => {
+        setSessionId(null); // purge toute ancienne session locale
+        purgeLocalSessionAndDraft();
+        await startSession();
+      });
+
+      await resumeIfWanted();
+
+      // ---- recherche
       $search.addEventListener("input", () => { renderRows(); saveDraftDebounced(); });
 
+      // ---- scan / entrée directe sur input de recherche
       $search.addEventListener("keydown", async (e) => {
         if (e.key !== "Enter") return;
         const code = ($search.value || "").trim(); if (!code) return;
@@ -328,33 +376,43 @@
           renderRows();
           saveDraftDebounced();
 
-          if (sessionId) {
+          const sid = getSessionId();
+          if (sid) {
             $search.disabled = true;
             try {
-              await window.electronAPI.inventory.countAdd({ sessionId, product_id: exact.id, qty: 1, user: currentUser });
+              await window.electronAPI.inventory.countAdd({ sessionId: sid, product_id: exact.id, qty: 1, user: currentUser });
               const st2 = state.get(exact.id);
               st2.prevSent = Number(st2.prevSent || 0) + 1;
               state.set(exact.id, st2);
             } catch (err) {
               const msg = (err?.message || '') + ' ' + (err?.stack || '');
-              if (/401/.test(msg) || /Missing token/i.test(msg)) {
+              if (String(msg).includes('session_locked')) {
+                status.show('Session verrouillée/close côté serveur. On purge la session locale.', 'warn');
+                purgeLocalSessionAndDraft();
+                disableInventoryInputs(true);
+                $apply.disabled = true;
+              } else if (/401/.test(msg) || /Missing token/i.test(msg)) {
                 try {
                   if (window.electronAPI?.ensureAuth) {
                     await window.electronAPI.ensureAuth();
-                    await window.electronAPI.inventory.countAdd({ sessionId, product_id: exact.id, qty: 1, user: currentUser });
+                    await window.electronAPI.inventory.countAdd({ sessionId: sid, product_id: exact.id, qty: 1, user: currentUser });
                     const st2b = state.get(exact.id);
                     st2b.prevSent = Number(st2b.prevSent || 0) + 1;
                     state.set(exact.id, st2b);
-                    hideStatus();
+                    status.hide?.();
                   }
-                } catch { showStatus('⚠️ Auth expirée pendant le comptage. Saisie locale OK, mais non synchronisée.', 'warn'); }
+                } catch { status.show('Auth expirée pendant le comptage. Saisie locale OK, mais non synchronisée.', 'warn'); }
+              } else {
+                status.show('Erreur inventaire : ' + msg, 'warn');
               }
             } finally { $search.disabled = false; $search.focus(); $search.select(); }
+          } else {
+            status.show('Pas de session active : la saisie reste locale. Cliquez sur “Commencer une session”.', 'warn');
           }
         }
       });
 
-      // Auto-validation sur BLUR + touche Entrée
+      // ---- validateRow (avec gestion session/409)
       function validateRow(id) {
         const tr = $rows.querySelector(`tr[data-id="${id}"]`);
         const st = state.get(id); if (!st) return;
@@ -376,18 +434,25 @@
         st.draft = (st.counted === null ? "" : String(st.counted));
         state.set(id, st);
 
-        if (sessionId) {
+        const sid = getSessionId();
+        if (sid) {
           (async () => {
             try {
               const effective = (st.counted === null ? 0 : Number(st.counted));
               const deltaToSend = effective - Number(st.prevSent || 0);
               if (Number.isFinite(deltaToSend) && deltaToSend !== 0) {
-                await window.electronAPI.inventory.countAdd({ sessionId, product_id: id, qty: deltaToSend, user: currentUser });
+                await window.electronAPI.inventory.countAdd({ sessionId: sid, product_id: id, qty: deltaToSend, user: currentUser });
                 st.prevSent = effective;
                 state.set(id, st);
               }
             } catch (err) {
-              console.warn('[inventaire] count-add failed for product', id, err?.message || err);
+              const msg = String(err?.message || err);
+              if (msg.includes('session_locked')) {
+                status.show('Cette session est verrouillée côté serveur. Démarrez une nouvelle session.', 'warn');
+                disableInventoryInputs(true);
+              } else {
+                console.warn('[inventaire] count-add failed for product', id, msg);
+              }
             } finally { setRowBusy(tr, false); }
           })();
         } else {
@@ -399,7 +464,7 @@
         saveDraftDebounced();
       }
 
-      // blur → auto-validate
+      // Auto-validation sur BLUR + Enter
       $rows.addEventListener("focusout", (e) => {
         const input = e.target.closest('input.counted');
         if (!input) return;
@@ -407,7 +472,6 @@
         if (!tr) return;
         const id = Number(tr.dataset.id);
         const st = state.get(id);
-        // Auto-validate seulement si la saisie a changé ou si non validé
         const raw = String(input.value || '').trim();
         if (!st.validated || raw !== (st.draft ?? '')) {
           st.draft = raw;
@@ -415,7 +479,6 @@
           validateRow(id);
         }
       });
-
       $rows.addEventListener("keydown", (e) => {
         if (e.key !== "Enter") return;
         const tr = e.target.closest("tr[data-id]");
@@ -426,6 +489,7 @@
         }
       });
 
+      // actions sur lignes
       $rows.addEventListener("click", async (e) => {
         const tr = e.target.closest("tr[data-id]"); if (!tr) return;
         const id = Number(tr.dataset.id);
@@ -449,7 +513,6 @@
         }
         if (res.action === 'delete') await deleteProduct(id);
       }
-
       async function deleteProduct(id) {
         const p = produits.find(x => x.id === id); if (!p) return;
         if (!confirm(`Supprimer le produit "${p.nom}" ?`)) return;
@@ -463,10 +526,12 @@
         } catch (err) { alert("Erreur de suppression : " + (err?.message || err)); }
       }
 
+      // ---- rafraîchissement du summary distant (optionnel)
       async function refreshSummary() {
-        if (!sessionId) return;
+        const sid = getSessionId();
+        if (!sid) return;
         try {
-          const sum = await window.electronAPI.inventory.summary({ sessionId });
+          const sum = await window.electronAPI.inventory.summary({ sessionId: sid });
           const byId = new Map();
           for (const r of (sum?.lines || [])) byId.set(Number(r.product_id), r);
 
@@ -481,25 +546,28 @@
           if (changed) renderRows();
         } catch {}
       }
-
-      if (sessionId && pollEverySec > 0) { refreshSummary(); setInterval(refreshSummary, pollEverySec * 1000); }
+      if (pollEverySec > 0) { refreshSummary(); setInterval(refreshSummary, pollEverySec * 1000); }
 
       if (window.electronEvents?.on) {
-        window.electronEvents.on('inventory:count-updated', (_evt, payload) => {
-          if (!payload || String(payload.sessionId) !== String(sessionId)) return;
-          refreshSummary();
-        });
         window.electronEvents.on('inventory:session-changed', (_evt, payload) => {
           if (payload?.session?.status === 'closed') {
-            try { localStorage.removeItem(INV_SESSION_KEY); } catch {}
-            try { localStorage.removeItem(DRAFT_KEY); } catch {}
+            purgeLocalSessionAndDraft();
             location.reload();
           }
+        });
+        window.electronEvents.on('inventory:session-closed', () => {
+          purgeLocalSessionAndDraft();
+          const status = document.getElementById('inv-status');
+          if (status) status.textContent = 'Aucune session active. Cliquez sur “Commencer une session”.';
+          $apply.disabled = true;
+          disableInventoryInputs(false);
+          $search.value = '';
+          renderRows();
         });
         window.electronEvents.on('data:refreshed', () => { location.reload(); });
       }
 
-      // ✅ avant la clôture, on valide TOUT ce qui est saisi en brouillon
+      // ---- forcer la validation des lignes non validées avant finalize
       async function validateAllPending() {
         const ids = [];
         for (const [id, st] of state.entries()) {
@@ -507,14 +575,14 @@
           if (!st.validated && raw !== '') ids.push(id);
         }
         for (const id of ids) {
-          await new Promise((resolve) => { validateRow(id); setTimeout(resolve, 50); }); // petite pause pour laisser l’IPC partir
+          await new Promise((resolve) => { validateRow(id); setTimeout(resolve, 50); });
         }
       }
 
       $apply.addEventListener("click", async () => {
-        if (!sessionId) { alert("Session d’inventaire introuvable (non connecté). Réessaye après reconnexion."); return; }
+        const sid = getSessionId();
+        if (!sid) { alert("Aucune session active. Cliquez sur “Commencer une session”."); return; }
 
-        // force la validation de toutes les lignes saisies
         await validateAllPending();
 
         const ok = confirm("Clôturer l’inventaire ?\nTous les produits non saisis seront remis à 0.");
@@ -523,7 +591,7 @@
         $apply.disabled = true;
         setBusy(true, 'Clôture de l’inventaire en cours…');
 
-        // Récap local fiable (lignes validées)
+        // Récap local
         let countedProducts = 0;
         let inventoryValue = 0;
         try {
@@ -539,12 +607,11 @@
         } catch {}
 
         try {
-          const res = await window.electronAPI.inventory.finalize({ sessionId, user: 'Inventaire', email_to: emailTo });
+          const res = await window.electronAPI.inventory.finalize({ sessionId: sid, user: 'Inventaire', email_to: emailTo });
 
-          try { await window.electronAPI.syncPullAll(); } catch {}
+          try { await window.electronAPI.syncPullAll?.(); } catch {}
 
-          try { localStorage.removeItem(INV_SESSION_KEY); } catch {}
-          try { localStorage.removeItem(DRAFT_KEY); } catch {}
+          purgeLocalSessionAndDraft();
 
           const end = new Date();
           const dateStr = end.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
@@ -567,14 +634,21 @@ Produits inventoriés : ${countedProducts}
 Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €.
 
 Session #${res?.recap?.session?.id || ''}`;
-              await window.electronAPI.sendInventoryRecapEmail({ to: emailTo, subject, text });
+              await window.electronAPI.sendInventoryRecapEmail?.({ to: emailTo, subject, text });
             }
           } catch {}
 
           location.reload();
 
         } catch (e) {
-          alert('Erreur de clôture : ' + (e?.message || e));
+          const msg = String(e?.message || e);
+          if (msg.includes('session_locked')) {
+            alert('La session est verrouillée côté serveur. Elle est sans doute déjà clôturée.');
+            purgeLocalSessionAndDraft();
+            location.reload();
+          } else {
+            alert('Erreur de clôture : ' + msg);
+          }
         } finally {
           setBusy(false);
           $apply.disabled = false;

@@ -1,50 +1,39 @@
 // src/main/db/tenantDb.js
 const path = require('path');
+const fs = require('fs');
 const Database = require('better-sqlite3');
-const jwt = require('jsonwebtoken');
-const applySchemaAndSeeds = require('./schema');
+const { ensureLocalSchema } = require('./schema');
 
-const CACHE = new Map(); // key = tenantId|null → { db, inited: true }
+let ACTIVE_TENANT_ID = null;
+const DBS = new Map();
+
+function setActiveTenantId(id) {
+  ACTIVE_TENANT_ID = id || 'default';
+}
 
 function getActiveTenantId() {
-  const tok = process.env.API_AUTH_TOKEN || null;
-  if (!tok) return null;
-  try {
-    const p = jwt.decode(tok) || {};
-    return p.tenant_id ?? null;
-  } catch {
-    return null;
-  }
+  return ACTIVE_TENANT_ID || 'default';
 }
 
-function dbPathFor(tenantId) {
-  const suffix = tenantId ? String(tenantId) : 'default';
-  return path.resolve(__dirname, `../../../coopaz.${suffix}.db`);
-}
+function getTenantDb(tenantId) {
+  const id = tenantId || getActiveTenantId() || 'default';
+  if (DBS.has(id)) return DBS.get(id);
 
-function getTenantDb(explicitTenantId = null) {
-  const id = explicitTenantId ?? getActiveTenantId();
-  const key = id || 'default';
-  const cached = CACHE.get(key);
-  if (cached) return cached.db;
+  // store DB files in a local /db folder
+  const dir = path.join(process.cwd(), 'db');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
 
-  const file = dbPathFor(id);
+  const file = path.join(dir, `tenant_${id}.db`);
   const db = new Database(file);
-  db.pragma('foreign_keys = ON');
 
-  const hasMeta = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='app_meta'"
-  ).get();
-  if (!hasMeta) {
-    applySchemaAndSeeds(db); // crée tables + seeds pour ce tenant
-  }
-  CACHE.set(key, { db, inited: true });
+  try { db.pragma('foreign_keys = ON'); } catch {}
+  try { db.pragma('journal_mode = WAL'); } catch {}
+
+  // 👇 canonical local schema
+  ensureLocalSchema(db);
+
+  DBS.set(id, db);
   return db;
 }
 
-function resetCache() {
-  for (const v of CACHE.values()) { try { v.db.close(); } catch {} }
-  CACHE.clear();
-}
-
-module.exports = { getTenantDb, getActiveTenantId, resetCache };
+module.exports = { getTenantDb, getActiveTenantId, setActiveTenantId };

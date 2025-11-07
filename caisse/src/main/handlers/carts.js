@@ -3,46 +3,6 @@ const { ipcMain } = require('electron');
 const db = require('../db/db');
 
 // ─────────────────────────────────────────────────────────────
-// Schéma (idempotent)
-// ─────────────────────────────────────────────────────────────
-db.exec(`
-  CREATE TABLE IF NOT EXISTS carts (
-    id               TEXT PRIMARY KEY,
-    name             TEXT,
-    sale_type        TEXT NOT NULL DEFAULT 'adherent',
-    adherent_id      INTEGER,
-    prospect_id      INTEGER,
-    client_email     TEXT,
-    mode_paiement_id INTEGER,
-    meta             TEXT,
-    created_at       INTEGER NOT NULL,
-    updated_at       INTEGER NOT NULL,
-    status           TEXT NOT NULL DEFAULT 'open',
-    FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
-    FOREIGN KEY (mode_paiement_id) REFERENCES modes_paiement(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS cart_items (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    cart_id         TEXT NOT NULL,
-    produit_id      INTEGER,
-    nom             TEXT,
-    fournisseur_nom TEXT,
-    unite           TEXT,
-    prix            REAL,
-    quantite        REAL,
-    remise_percent  REAL,
-    type            TEXT,
-    created_at      INTEGER NOT NULL,
-    updated_at      INTEGER NOT NULL,
-    FOREIGN KEY (cart_id)    REFERENCES carts(id)     ON DELETE CASCADE,
-    FOREIGN KEY (produit_id) REFERENCES produits(id)  ON DELETE CASCADE
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_cart_items_cart ON cart_items(cart_id);
-`);
-
-// ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
 const existsId = (table, id) => {
@@ -56,6 +16,12 @@ const toValidFk = (table, v) => {
   const id = Number(v);
   if (!Number.isFinite(id) || id <= 0) return null;
   return existsId(table, id) ? id : null;
+};
+
+const parseMeta = (val) => {
+  if (val == null) return null;
+  if (typeof val === 'object') return val;
+  try { return JSON.parse(val); } catch { return null; }
 };
 
 // Nettoie un item pour respecter les FKs
@@ -84,6 +50,8 @@ const sanitizeItem = (raw) => {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Statements
+// ─────────────────────────────────────────────────────────────
 const upsertCart = db.prepare(`
   INSERT INTO carts (id, name, sale_type, adherent_id, prospect_id, client_email, mode_paiement_id, meta, created_at, updated_at, status)
   VALUES (@id, @name, @sale_type, @adherent_id, @prospect_id, @client_email, @mode_paiement_id, @meta, @created_at, @updated_at, @status)
@@ -100,6 +68,7 @@ const upsertCart = db.prepare(`
 `);
 
 const delCartItems = db.prepare(`DELETE FROM cart_items WHERE cart_id = ?`);
+
 const insCartItem  = db.prepare(`
   INSERT INTO cart_items (cart_id, produit_id, nom, fournisseur_nom, unite, prix, quantite, remise_percent, type, created_at, updated_at)
   VALUES (@cart_id, @produit_id, @nom, @fournisseur_nom, @unite, @prix, @quantite, @remise_percent, @type, @created_at, @updated_at)
@@ -111,24 +80,31 @@ const insCartItem  = db.prepare(`
 ipcMain.handle('cart-save', (e, payload) => {
   const now = Date.now();
 
+  const id = String(payload?.id || '').trim();
+  if (!id) throw new Error('cart-save failed: id manquant');
+
   // Normalisation robuste des champs du ticket
+  const allowedStatus = new Set(['open', 'closed', 'archived']);
+  const status = String(payload?.status || 'open').toLowerCase();
+  const safeStatus = allowedStatus.has(status) ? status : 'open';
+
   const cart = {
-    id: String(payload.id),
-    name: payload.name || null,
-    sale_type: payload.sale_type || 'adherent',
-    adherent_id: toValidFk('adherents', payload.adherent_id),
+    id,
+    name: payload?.name || null,
+    sale_type: payload?.sale_type || 'adherent',
+    adherent_id: toValidFk('adherents', payload?.adherent_id),
     // pas de FK côté prospects (volontaire), on garde un entier positif si fourni
-    prospect_id: (Number.isFinite(Number(payload.prospect_id)) && Number(payload.prospect_id) > 0)
+    prospect_id: (Number.isFinite(Number(payload?.prospect_id)) && Number(payload?.prospect_id) > 0)
       ? Number(payload.prospect_id) : null,
-    client_email: payload.client_email || null,
-    mode_paiement_id: toValidFk('modes_paiement', payload.mode_paiement_id),
-    meta: payload.meta ? JSON.stringify(payload.meta) : null,
-    created_at: payload.created_at || now,
+    client_email: payload?.client_email || null,
+    mode_paiement_id: toValidFk('modes_paiement', payload?.mode_paiement_id),
+    meta: payload?.meta ? JSON.stringify(parseMeta(payload.meta)) : null,
+    created_at: payload?.created_at || now,
     updated_at: now,
-    status: payload.status || 'open',
+    status: safeStatus,
   };
 
-  const rawItems = Array.isArray(payload.items) ? payload.items : [];
+  const rawItems = Array.isArray(payload?.items) ? payload.items : [];
   const items = rawItems.map(sanitizeItem);
 
   const tx = db.transaction(() => {
@@ -179,25 +155,27 @@ ipcMain.handle('cart-list', (e, { status = 'open', limit = 50 } = {}) => {
   const rows = db.prepare(
     `SELECT * FROM carts WHERE status=? ORDER BY updated_at DESC LIMIT ?`
   ).all(status, limit);
-  return rows.map(r => ({ ...r, meta: r.meta ? JSON.parse(r.meta) : null }));
+  return rows.map(r => ({ ...r, meta: parseMeta(r.meta) }));
 });
 
 ipcMain.handle('cart-load', (e, id) => {
-  const cart = db.prepare(`SELECT * FROM carts WHERE id=?`).get(id);
+  const cart = db.prepare(`SELECT * FROM carts WHERE id=?`).get(String(id || '').trim());
   if (!cart) return { ok: false, error: 'not_found' };
-  const items = db.prepare(`SELECT * FROM cart_items WHERE cart_id=? ORDER BY id ASC`).all(id);
-  return { ok: true, cart: { ...cart, meta: cart.meta ? JSON.parse(cart.meta) : null, items } };
+  const items = db.prepare(`SELECT * FROM cart_items WHERE cart_id=? ORDER BY id ASC`).all(cart.id);
+  return { ok: true, cart: { ...cart, meta: parseMeta(cart.meta), items } };
 });
 
 ipcMain.handle('cart-close', (e, id) => {
-  db.prepare(`UPDATE carts SET status='closed', updated_at=? WHERE id=?`).run(Date.now(), id);
+  const cartId = String(id || '').trim();
+  db.prepare(`UPDATE carts SET status='closed', updated_at=? WHERE id=?`).run(Date.now(), cartId);
   return { ok: true };
 });
 
 ipcMain.handle('cart-delete', (e, id) => {
+  const cartId = String(id || '').trim();
   const tx = db.transaction(() => {
-    delCartItems.run(id);
-    db.prepare(`DELETE FROM carts WHERE id=?`).run(id);
+    delCartItems.run(cartId);
+    db.prepare(`DELETE FROM carts WHERE id=?`).run(cartId);
   });
   tx();
   return { ok: true };

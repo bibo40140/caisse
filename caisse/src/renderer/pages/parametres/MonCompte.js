@@ -62,6 +62,16 @@
         return;
       }
 
+      if (key === 'modes_paiement') {
+        await inject('src/renderer/pages/parametres/mon-compte/modes_paiement.js');
+        if (window.PageModesPaiement?.render) {
+          await window.PageModesPaiement.render(host);
+        } else {
+          host.innerHTML = `<p>Module “Modes de paiement” introuvable.</p>`;
+        }
+        return;
+      }
+
       if (key === 'modules') {
         await inject('src/renderer/pages/parametres/mon-compte/modules.js');
         if (window.PageParamsModules?.render) {
@@ -109,6 +119,7 @@
         <div class="mc-tab active" data-tab="import">Import</div>
         <div class="mc-tab" data-tab="categories">Catégories</div>
         <div class="mc-tab" data-tab="unites">Unités</div>
+        <div class="mc-tab" data-tab="modes_paiement">Modes de paiement</div>
         <div class="mc-tab" data-tab="modules">Modules</div>
         <div class="mc-tab" data-tab="branding">Logo & Nom</div>
         <div class="mc-tab" data-tab="email">E-mails</div>

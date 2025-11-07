@@ -1,198 +1,366 @@
--- ============ BASE CLEAN ============
+// src/main/db/schema.js
+// Schéma LOCAL unique et canonique (SQLite)
 
--- (Si tu as déjà fait DROP SCHEMA public CASCADE; CREATE SCHEMA public; passe)
--- Active l’extension pour UUID si dispo
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+function ensureLocalSchema(db) {
+  db.exec(`PRAGMA foreign_keys = ON;`);
 
--- ============ TABLES RÉFÉRENTIELS ============
+  // --- META
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      schema_version INTEGER NOT NULL
+    );
+  `);
+  try {
+    const r = db.prepare(`SELECT COUNT(*) AS n FROM app_meta`).get();
+    if (!r || !r.n) db.prepare(`INSERT INTO app_meta(schema_version) VALUES (1)`).run();
+  } catch {}
 
-CREATE TABLE IF NOT EXISTS unites (
-  id SERIAL PRIMARY KEY,
-  nom TEXT NOT NULL
-);
+  // --- PARAMÈTRES LOCATAIRES (clé/valeur)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tenant_settings (
+      key TEXT PRIMARY KEY,
+      value_json TEXT,
+      updated_at DATETIME DEFAULT (datetime('now','localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tenant_settings_key ON tenant_settings(key);
+  `);
 
-CREATE TABLE IF NOT EXISTS familles (
-  id SERIAL PRIMARY KEY,
-  nom TEXT NOT NULL
-);
+  // --- UNITÉS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS unites (
+      id   INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom  TEXT UNIQUE NOT NULL
+    );
+  `);
 
-CREATE TABLE IF NOT EXISTS categories (
-  id SERIAL PRIMARY KEY,
-  nom TEXT NOT NULL,
-  famille_id INT REFERENCES familles(id) ON DELETE SET NULL
-);
+  // --- FAMILLES
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS familles (
+      id  INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom TEXT UNIQUE NOT NULL
+    );
+  `);
 
-CREATE TABLE IF NOT EXISTS adherents (
-  id SERIAL PRIMARY KEY,
-  nom TEXT NOT NULL,
-  prenom TEXT,
-  email1 TEXT,
-  email2 TEXT,
-  telephone1 TEXT,
-  telephone2 TEXT,
-  adresse TEXT,
-  code_postal TEXT,
-  ville TEXT,
-  nb_personnes_foyer INT,
-  tranche_age TEXT,
-  droit_entree NUMERIC(12,2),
-  date_inscription DATE,
-  archive BOOLEAN DEFAULT FALSE,
-  date_archivage DATE,
-  date_reactivation DATE
-);
+  // --- CATÉGORIES
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom         TEXT NOT NULL,
+      famille_id  INTEGER,
+      UNIQUE(nom, famille_id),
+      FOREIGN KEY (famille_id) REFERENCES familles(id) ON DELETE SET NULL
+    );
+  `);
 
-CREATE TABLE IF NOT EXISTS fournisseurs (
-  id SERIAL PRIMARY KEY,
-  nom TEXT NOT NULL,
-  contact TEXT,
-  email TEXT,
-  telephone TEXT,
-  adresse TEXT,
-  code_postal TEXT,
-  ville TEXT,
-  categorie_id INT REFERENCES categories(id) ON DELETE SET NULL,
-  referent_id INT REFERENCES adherents(id) ON DELETE SET NULL,
-  label TEXT
-);
+  // --- ADHÉRENTS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS adherents (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom                  TEXT NOT NULL,
+      prenom               TEXT NOT NULL,
+      email1               TEXT,
+      email2               TEXT,
+      telephone1           TEXT,
+      telephone2           TEXT,
+      adresse              TEXT,
+      code_postal          TEXT,
+      ville                TEXT,
+      nb_personnes_foyer   INTEGER,
+      tranche_age          TEXT,
+      statut               TEXT NOT NULL DEFAULT 'actif',
+      droit_entree         REAL DEFAULT 0,
+      date_inscription     TEXT,
+      archive              INTEGER DEFAULT 0,
+      date_archivage       TEXT,
+      date_reactivation    TEXT
+    );
+  `);
 
-CREATE TABLE IF NOT EXISTS modes_paiement (
-  id SERIAL PRIMARY KEY,
-  nom TEXT NOT NULL,
-  taux_percent NUMERIC(8,4) DEFAULT 0,
-  frais_fixe NUMERIC(12,4) DEFAULT 0,
-  actif BOOLEAN DEFAULT TRUE
-);
+  // --- MODES DE PAIEMENT
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS modes_paiement (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom          TEXT UNIQUE NOT NULL,
+      taux_percent REAL DEFAULT 0,
+      frais_fixe   REAL DEFAULT 0,
+      actif        INTEGER DEFAULT 1
+    );
+  `);
 
-CREATE TABLE IF NOT EXISTS produits (
-  id SERIAL PRIMARY KEY,
-  nom TEXT NOT NULL,
-  reference TEXT,
-  prix NUMERIC(12,4) DEFAULT 0,
-  stock NUMERIC(14,4) DEFAULT 0,         -- valeur legacy / fallback
-  code_barre TEXT,
-  unite_id INT REFERENCES unites(id) ON DELETE SET NULL,
-  fournisseur_id INT REFERENCES fournisseurs(id) ON DELETE SET NULL,
-  categorie_id INT REFERENCES categories(id) ON DELETE SET NULL,
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
+  // --- FOURNISSEURS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fournisseurs (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom          TEXT NOT NULL,
+      contact      TEXT,
+      email        TEXT,
+      telephone    TEXT,
+      adresse      TEXT,
+      code_postal  TEXT,
+      ville        TEXT,
+      categorie_id INTEGER,
+      referent_id  INTEGER,
+      label        TEXT,
+      FOREIGN KEY (categorie_id) REFERENCES categories(id),
+      FOREIGN KEY (referent_id)  REFERENCES adherents(id)
+    );
+  `);
 
--- ============ VENTES & RECEPTIONS ============
+    // --- PRODUITS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS produits (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom            TEXT NOT NULL,
+      reference      TEXT UNIQUE NOT NULL,
+      prix           REAL NOT NULL,
+      stock          REAL NOT NULL DEFAULT 0,
+      code_barre     TEXT,
+      unite_id       INTEGER,
+      fournisseur_id INTEGER,
+      categorie_id   INTEGER,
+      updated_at     TEXT DEFAULT (datetime('now','localtime')),
+      remote_uuid    TEXT,
+      FOREIGN KEY (unite_id)       REFERENCES unites(id),
+      FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id),
+      FOREIGN KEY (categorie_id)   REFERENCES categories(id)
+    );
+  `);
 
-CREATE TABLE IF NOT EXISTS ventes (
-  id BIGSERIAL PRIMARY KEY,
-  total NUMERIC(14,4),
-  adherent_id INT REFERENCES adherents(id) ON DELETE SET NULL,
-  mode_paiement_id INT REFERENCES modes_paiement(id) ON DELETE SET NULL,
-  sale_type TEXT,            -- 'adherent' | 'prospect' | 'exterieur'
-  client_email TEXT,
-  frais_paiement NUMERIC(12,4),
-  cotisation NUMERIC(12,4),
-  created_at TIMESTAMPTZ DEFAULT now()
-);
+  // ensure barcode index
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_produits_barcode ON produits(code_barre);`);
 
-CREATE TABLE IF NOT EXISTS lignes_vente (
-  id BIGSERIAL PRIMARY KEY,
-  vente_id BIGINT REFERENCES ventes(id) ON DELETE CASCADE,
-  produit_id INT REFERENCES produits(id) ON DELETE SET NULL,
-  quantite NUMERIC(14,4) NOT NULL,
-  prix NUMERIC(12,4) NOT NULL,           -- PU appliqué
-  prix_unitaire NUMERIC(12,4),
-  remise_percent NUMERIC(8,4) DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_lignes_vente_vente ON lignes_vente(vente_id);
-CREATE INDEX IF NOT EXISTS idx_lignes_vente_prod  ON lignes_vente(produit_id);
+  // --- soft patch: add remote_uuid if the table already existed without it
+  try {
+    const cols = db.prepare(`PRAGMA table_info(produits)`).all();
+    const hasRemote = cols.some(c => c.name === 'remote_uuid');
+    if (!hasRemote) {
+      db.exec(`ALTER TABLE produits ADD COLUMN remote_uuid TEXT;`);
+    }
+  } catch (_) {}
 
-CREATE TABLE IF NOT EXISTS receptions (
-  id BIGSERIAL PRIMARY KEY,
-  fournisseur_id INT REFERENCES fournisseurs(id) ON DELETE SET NULL,
-  date TIMESTAMPTZ DEFAULT now(),
-  reference TEXT
-);
+  // create the index only after the column is guaranteed to exist
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_produits_remote_uuid ON produits(remote_uuid);`);
+  } catch (e) {
+    console.error('[schema] idx_produits_remote_uuid creation failed:', e?.message || e);
+  }
 
-CREATE TABLE IF NOT EXISTS lignes_reception (
-  id BIGSERIAL PRIMARY KEY,
-  reception_id BIGINT REFERENCES receptions(id) ON DELETE CASCADE,
-  produit_id INT REFERENCES produits(id) ON DELETE SET NULL,
-  quantite NUMERIC(14,4) NOT NULL,
-  prix_unitaire NUMERIC(12,4)
-);
-CREATE INDEX IF NOT EXISTS idx_lignes_rec_rec   ON lignes_reception(reception_id);
-CREATE INDEX IF NOT EXISTS idx_lignes_rec_prod  ON lignes_reception(produit_id);
+  // --- VENTES
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ventes (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      total            REAL,
+      adherent_id      INTEGER,
+      date_vente       TEXT DEFAULT (datetime('now','localtime')),
+      mode_paiement_id INTEGER,
+      frais_paiement   REAL DEFAULT 0,
+      cotisation       REAL DEFAULT 0,
+      sale_type        TEXT NOT NULL DEFAULT 'adherent',
+      client_email     TEXT,
+      updated_at       TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
+      FOREIGN KEY (mode_paiement_id) REFERENCES modes_paiement(id)
+    );
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ventes_date ON ventes(date_vente);`);
 
--- ============ STOCK MOVEMENTS (SOURCE DE VÉRITÉ) ============
+  // --- LIGNES DE VENTE
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lignes_vente (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      vente_id       INTEGER NOT NULL,
+      produit_id     INTEGER NOT NULL,
+      quantite       REAL NOT NULL,
+      prix           REAL NOT NULL,
+      prix_unitaire  REAL,
+      remise_percent REAL DEFAULT 0,
+      updated_at     TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (vente_id)   REFERENCES ventes(id)   ON DELETE CASCADE,
+      FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_lignes_vente_vente ON lignes_vente(vente_id);`);
 
-CREATE TABLE IF NOT EXISTS stock_movements (
-  id BIGSERIAL PRIMARY KEY,
-  product_id INT NOT NULL REFERENCES produits(id) ON DELETE CASCADE,
-  qty_change NUMERIC(14,4) NOT NULL,
-  reason TEXT,                              -- sale | reception | inventory | adjustment | stock_set
-  source_type TEXT,                         -- sale_line | reception_line | inventory_finalize | stock_set ...
-  source_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE (source_type, source_id)
-);
-CREATE INDEX IF NOT EXISTS idx_sm_prod ON stock_movements(product_id);
+  // --- COTISATIONS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cotisations (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      adherent_id   INTEGER NOT NULL,
+      mois          TEXT NOT NULL,
+      montant       REAL NOT NULL,
+      date_paiement TEXT DEFAULT (date('now')),
+      FOREIGN KEY (adherent_id) REFERENCES adherents(id)
+    );
+  `);
 
--- ============ INVENTAIRE ============
+  // --- RÉCEPTIONS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS receptions (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      fournisseur_id INTEGER,
+      date           TEXT DEFAULT (datetime('now','localtime')),
+      reference      TEXT,
+      updated_at     TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id)
+    );
+  `);
 
-CREATE TABLE IF NOT EXISTS inventory_sessions (
-  id BIGSERIAL PRIMARY KEY,
-  name TEXT NOT NULL,
-  "user" TEXT,
-  notes TEXT,
-  status TEXT NOT NULL DEFAULT 'open',   -- open | finalizing | closed
-  started_at TIMESTAMPTZ DEFAULT now(),
-  ended_at TIMESTAMPTZ
-);
+  // --- LIGNES DE RÉCEPTION
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lignes_reception (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      reception_id   INTEGER NOT NULL,
+      produit_id     INTEGER NOT NULL,
+      quantite       REAL NOT NULL,
+      prix_unitaire  REAL,
+      updated_at     TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE,
+      FOREIGN KEY (produit_id)   REFERENCES produits(id)   ON DELETE CASCADE
+    );
+  `);
 
-CREATE TABLE IF NOT EXISTS inventory_snapshot (
-  session_id BIGINT REFERENCES inventory_sessions(id) ON DELETE CASCADE,
-  product_id INT REFERENCES produits(id) ON DELETE CASCADE,
-  stock_start NUMERIC(14,4) NOT NULL DEFAULT 0,
-  unit_cost NUMERIC(12,4),
-  PRIMARY KEY (session_id, product_id)
-);
+  // --- PANIER / CAISSE
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS carts (
+      id               TEXT PRIMARY KEY,
+      name             TEXT,
+      sale_type        TEXT NOT NULL DEFAULT 'adherent',
+      adherent_id      INTEGER,
+      prospect_id      INTEGER,
+      client_email     TEXT,
+      mode_paiement_id INTEGER,
+      meta             TEXT,
+      created_at       INTEGER NOT NULL,
+      updated_at       INTEGER NOT NULL,
+      status           TEXT NOT NULL DEFAULT 'open',
+      FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
+      FOREIGN KEY (mode_paiement_id) REFERENCES modes_paiement(id)
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cart_items (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      cart_id         TEXT NOT NULL,
+      produit_id      INTEGER,
+      nom             TEXT,
+      fournisseur_nom TEXT,
+      unite           TEXT,
+      prix            REAL,
+      quantite        REAL,
+      remise_percent  REAL,
+      type            TEXT,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL,
+      FOREIGN KEY (cart_id)    REFERENCES carts(id)     ON DELETE CASCADE,
+      FOREIGN KEY (produit_id) REFERENCES produits(id)  ON DELETE CASCADE
+    );
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_cart_items_cart ON cart_items(cart_id);`);
 
-CREATE TABLE IF NOT EXISTS inventory_counts (
-  session_id BIGINT REFERENCES inventory_sessions(id) ON DELETE CASCADE,
-  product_id INT REFERENCES produits(id) ON DELETE CASCADE,
-  device_id TEXT NOT NULL,
-  "user" TEXT,
-  qty NUMERIC(14,4) NOT NULL DEFAULT 0,
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  PRIMARY KEY (session_id, product_id, device_id)
-);
+  // --- PROSPECTS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prospects (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom           TEXT,
+      prenom        TEXT,
+      email         TEXT,
+      telephone     TEXT,
+      adresse       TEXT,
+      code_postal   TEXT,
+      ville         TEXT,
+      note          TEXT,
+      status        TEXT DEFAULT 'actif',
+      date_creation TEXT DEFAULT (datetime('now')),
+      adherent_id   INTEGER,
+      FOREIGN KEY (adherent_id) REFERENCES adherents(id) ON DELETE SET NULL
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prospects_invitations (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      prospect_id  INTEGER NOT NULL,
+      subject      TEXT,
+      body_html    TEXT,
+      date_reunion TEXT,
+      sent_at      TEXT DEFAULT (datetime('now')),
+      sent_by      TEXT,
+      FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_prospects_email   ON prospects(email);
+    CREATE INDEX IF NOT EXISTS idx_prospects_status  ON prospects(status);
+    CREATE INDEX IF NOT EXISTS idx_invits_prospect   ON prospects_invitations(prospect_id);
+  `);
 
-CREATE TABLE IF NOT EXISTS inventory_adjust (
-  id BIGSERIAL PRIMARY KEY,
-  session_id BIGINT REFERENCES inventory_sessions(id) ON DELETE CASCADE,
-  product_id INT REFERENCES produits(id) ON DELETE CASCADE,
-  stock_start NUMERIC(14,4) NOT NULL,
-  counted_total NUMERIC(14,4) NOT NULL,
-  delta NUMERIC(14,4) NOT NULL,
-  unit_cost NUMERIC(12,4),
-  delta_value NUMERIC(14,4)
-);
+  // --- JOURNAL D’OPÉRATIONS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ops_queue (
+      id           TEXT PRIMARY KEY,
+      device_id    TEXT NOT NULL,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      op_type      TEXT NOT NULL,
+      entity_type  TEXT,
+      entity_id    TEXT,
+      payload_json TEXT NOT NULL,
+      sent_at      TEXT,
+      ack          INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_ops_queue_created ON ops_queue(created_at);
+    CREATE INDEX IF NOT EXISTS idx_ops_queue_ack     ON ops_queue(ack);
+  `);
 
--- ============ OPS JOURNAL SERVEUR (IDEMPOTENCE PUSH) ============
+  // --- INVENTAIRE
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS inventory_sessions (
+      id         TEXT PRIMARY KEY,
+      name       TEXT,
+      status     TEXT NOT NULL DEFAULT 'open',
+      started_at TEXT DEFAULT (datetime('now','localtime')),
+      ended_at   TEXT
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS inventory_counts (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id   TEXT NOT NULL,
+      produit_id   INTEGER NOT NULL,
+      qty          REAL NOT NULL,
+      user         TEXT,
+      device_id    TEXT,
+      created_at   TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (session_id) REFERENCES inventory_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (produit_id) REFERENCES produits(id)          ON DELETE CASCADE
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_inv_counts_session ON inventory_counts(session_id);
+    CREATE INDEX IF NOT EXISTS idx_inv_counts_prod    ON inventory_counts(produit_id);
+  `);
 
-CREATE TABLE IF NOT EXISTS ops (
-  id TEXT PRIMARY KEY,               -- id de l'op locale (device)
-  device_id TEXT NOT NULL,
-  op_type TEXT NOT NULL,
-  entity_type TEXT,
-  entity_id TEXT,
-  payload JSONB,
-  applied_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_ops_applied ON ops(applied_at);
+  // --- STOCK MOVEMENTS
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stock_movements (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      produit_id    INTEGER NOT NULL,
+      source        TEXT NOT NULL,
+      source_id     TEXT,
+      delta         REAL NOT NULL,
+      meta          TEXT,
+      created_at    TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sm_produit ON stock_movements(produit_id);
+    CREATE INDEX IF NOT EXISTS idx_sm_created ON stock_movements(created_at);
+  `);
 
--- ============ SEQUENCES ALIGN (facultatif) ============
+  // --- Patchs doux
+  try { db.prepare("ALTER TABLE produits ADD COLUMN remote_uuid TEXT").run(); } catch {}
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_produits_remote_uuid ON produits(remote_uuid);"); } catch {}
+}
 
-SELECT setval(pg_get_serial_sequence('unites','id'),       COALESCE((SELECT MAX(id) FROM unites),0));
-SELECT setval(pg_get_serial_sequence('familles','id'),     COALESCE((SELECT MAX(id) FROM familles),0));
-SELECT setval(pg_get_serial_sequence('categories','id'),   COALESCE((SELECT MAX(id) FROM categories),0));
-SELECT setval(pg_get_serial_sequence('adherents','id'),    COALESCE((SELECT MAX(id) FROM adherents),0));
-SELECT setval(pg_get_serial_sequence('fournisseurs','id'), COALESCE((SELECT MAX(id) FROM fournisseurs),0));
-SELECT setval(pg_get_serial_sequence('produits','id'),     COALESCE((SELECT MAX(id) FROM produits),0));
+module.exports = { ensureLocalSchema };

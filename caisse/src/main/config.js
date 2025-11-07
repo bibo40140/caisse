@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
 const { apiFetch, setApiBase, setAuthToken, getAuthToken } = require('./apiClient');
+const { ensureAuth, getConfig, setConfig } = require('./src/main/config');
+
 
 /** Emplacement du fichier de config à la racine de l’app (packagée ou dev). */
 function getConfigPath() {
@@ -97,7 +99,8 @@ async function ensureAuth() {
     return { ok: true, token, tenant_id: parseJwtTenant(token) };
   }
 
-  // 2) Token via env → on le persiste en config.json pour la prochaine fois
+  // 2) Token via env → seulement si autorisé
+if (cfg.allow_auto_login === true) {
   if (process.env.API_AUTH_TOKEN && String(process.env.API_AUTH_TOKEN).trim()) {
     const token = String(process.env.API_AUTH_TOKEN).trim();
     setAuthToken(token);
@@ -109,12 +112,11 @@ async function ensureAuth() {
   const mem = getAuthToken && getAuthToken();
   if (mem) {
     setAuthToken(mem);
-    process.env.API_AUTH_TOKEN = mem;
     setConfig({ auth_token: mem });
     return { ok: true, token: mem, tenant_id: parseJwtTenant(mem) };
   }
 
-  // 4) Tentative de login silencieux via config.json
+  // 4) Tentative de login silencieux via config.json (email+password)
   if (base && cfg.api_email && cfg.api_password) {
     try {
       const r = await apiFetch('/auth/login', {
@@ -128,22 +130,32 @@ async function ensureAuth() {
       }
       const token = js.token;
       setAuthToken(token);
-      process.env.API_AUTH_TOKEN = token;
-      setConfig({ auth_token: token }); // persiste le token
+      setConfig({ auth_token: token });
       return { ok: true, token, tenant_id: parseJwtTenant(token) };
     } catch (e) {
       return { ok: false, error: e?.message || String(e) };
     }
   }
+}
 
   // 5) Rien de dispo → le renderer devra ouvrir la fenêtre de login
   return { ok: false, error: 'Missing token' };
 }
 
+
+function clearAuth() {
+  setAuthToken('');
+  const cfg = getConfig();
+  delete cfg.auth_token;
+  delete cfg.api_email;
+  delete cfg.api_password;
+  saveConfig(cfg);
+}
 module.exports = {
   getConfigPath,
   getConfig,
   saveConfig,
   setConfig,
   ensureAuth,
+  clearAuth 
 };
