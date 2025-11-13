@@ -646,7 +646,10 @@ app.whenReady().then(async () => {
     console.error('[auth] ensureAuth error:', e?.message || e);
   }
 
-  if (auth.ok && auth.token) {
+  // ⚠️ DEV : on désactive l’auto-login pour forcer la fenêtre de login à chaque démarrage
+const FORCE_ALWAYS_LOGIN = true;
+
+if (!FORCE_ALWAYS_LOGIN && auth && auth.token) {
     setAuthToken(auth.token);
 
     // remplir le cache d'emblée

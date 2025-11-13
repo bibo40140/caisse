@@ -4,7 +4,9 @@
   "description": "",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "seed-familles": "electron ./scripts/seed-families-categories.electron.js"
+
   },
   "keywords": [],
   "author": "",

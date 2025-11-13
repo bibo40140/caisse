@@ -102,7 +102,7 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'email, password requis' });
   }
 
-  // --- BACKDOOR DEV (optionnelle) ---
+  // --- BACKDOOR DEV (optionnelle) --- (on laisse comme c'est)
   try {
     if (
       process.env.DEV_SUPERADMIN_ENABLED === '1' &&
@@ -112,7 +112,7 @@ router.post('/login', async (req, res) => {
       const token = signToken({
         user_id: 'dev-superadmin',
         email,
-        tenant_id: null, // super admin global, pas rattaché à un tenant
+        tenant_id: null,
         role: 'super_admin',
         is_super_admin: true,
       });
@@ -131,6 +131,8 @@ router.post('/login', async (req, res) => {
 
   // Login normal (DB)
   try {
+    console.log('[login] tentative avec email =', email);
+
     const q = await pool.query(
       `SELECT id, tenant_id, password_hash, role, email
        FROM users
@@ -139,17 +141,26 @@ router.post('/login', async (req, res) => {
       [String(email).toLowerCase()]
     );
 
+    console.log('[login] rowCount =', q.rowCount);
+
     if (!q.rowCount) {
+      console.log('[login] aucun utilisateur trouvé pour cet email');
       return res.status(401).json({ error: 'Identifiants invalides' });
     }
 
     const user = q.rows[0];
+    console.log('[login] user trouvé id =', user.id, 'email en DB =', user.email);
+
     const ok = await bcrypt.compare(String(password), user.password_hash || '');
-    if (!ok) return res.status(401).json({ error: 'Identifiants invalides' });
+    console.log('[login] compare password =>', ok);
 
-    // Super admin "prod" si l'email correspond à SUPER_ADMIN_EMAIL
+    if (!ok) {
+      console.log('[login] mot de passe incorrect');
+      return res.status(401).json({ error: 'Identifiants invalides' });
+    }
+
+    // (le reste ne change pas)
     const is_super_admin = (user.email || '').toLowerCase() === SUPER_ADMIN_EMAIL;
-
     const role = user.role || (is_super_admin ? 'super_admin' : 'user');
 
     const token = signToken({
@@ -171,5 +182,6 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({ error: 'auth failed' });
   }
 });
+
 
 export default router;
