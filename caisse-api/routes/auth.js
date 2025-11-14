@@ -3,6 +3,8 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/index.js';
+import { seedTenantDefaults } from '../seed/seedTenantDefaults.js';
+
 
 const router = express.Router();
 
@@ -67,6 +69,8 @@ router.post('/register-tenant', async (req, res) => {
        VALUES ($1, $2, $3, '{}'::jsonb)`,
       [tenant_id, company_name || tenant_name, logo_url || null]
     );
+
+    await seedTenantDefaults(client, tenant_id);   
 
     await client.query('COMMIT');
 

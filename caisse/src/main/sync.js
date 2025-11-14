@@ -72,19 +72,26 @@ async function pullRefs({ since = null } = {}) {
     modes_paiement = [],
   } = d;
 
-  /* ---- Upserts simples (id ENTIER local) ---- */
-  const upUnite = db.prepare(
-    `INSERT INTO unites (id, nom) VALUES (?, ?)
-     ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
-  );
-  const upFam = db.prepare(
-    `INSERT INTO familles (id, nom) VALUES (?, ?)
-     ON CONFLICT(id) DO UPDATE SET nom=excluded.nom`
-  );
-  const upCat = db.prepare(`
-    INSERT INTO categories (id, nom, famille_id) VALUES (?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET nom=excluded.nom, famille_id=excluded.famille_id
+  /* ---- Upserts par NOM (les IDs API sont des UUID, le local est INTEGER) ---- */
+  // Unités
+  const insUniteByName = db.prepare(`
+    INSERT OR IGNORE INTO unites(nom) VALUES (?)
   `);
+  const selUniteIdByName = db.prepare(`SELECT id FROM unites WHERE nom = ?`);
+
+  // Familles
+  const insFamByName = db.prepare(`
+    INSERT OR IGNORE INTO familles(nom) VALUES (?)
+  `);
+  const selFamIdByName = db.prepare(`SELECT id FROM familles WHERE nom = ?`);
+
+  // Catégories
+  const insCatByName = db.prepare(`
+    INSERT OR IGNORE INTO categories(nom, famille_id) VALUES (?, ?)
+  `);
+  const selCatIdByName = db.prepare(`SELECT id, famille_id FROM categories WHERE nom = ?`);
+  const updCatFamily = db.prepare(`UPDATE categories SET famille_id = ? WHERE id = ?`);
+  
   const upAdh = db.prepare(`
     INSERT INTO adherents
       (id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
@@ -150,32 +157,51 @@ async function pullRefs({ since = null } = {}) {
   `);
 
   const tx = db.transaction(() => {
-    const asInt = asIntOrNull;
-
-    // Unités
+    // 1) Unités (par nom)
     for (const r of unites) {
-      const id = asInt(r.id);
-      if (id == null) continue;
-      upUnite.run(id, r.nom);
+      const name = (r.nom || '').trim();
+      if (!name) continue;
+      insUniteByName.run(name);
     }
 
-    // Familles
+    // 2) Familles (par nom) + map remoteUUID -> localId
+    const famUuidToLocalId = new Map();
     for (const r of familles) {
-      const id = asInt(r.id);
-      if (id == null) continue;
-      upFam.run(id, r.nom);
+      const name = (r.nom || '').trim();
+      const remoteId = String(r.id || '');
+      if (!name || !remoteId) continue;
+      insFamByName.run(name);
+      const row = selFamIdByName.get(name);
+      if (row && row.id != null) famUuidToLocalId.set(remoteId, row.id);
     }
 
-    // Catégories
+    // 3) Catégories : on résout la famille locale via la map des UUID
     for (const r of categories) {
-      const id = asInt(r.id);
-      if (id == null) continue;
-      upCat.run(id, r.nom, asInt(r.famille_id));
+      const name = (r.nom || '').trim();
+      if (!name) continue;
+
+      let localFamId = null;
+      const remoteFamId = r.famille_id ? String(r.famille_id) : '';
+      if (remoteFamId && famUuidToLocalId.has(remoteFamId)) {
+        localFamId = famUuidToLocalId.get(remoteFamId);
+      }
+
+      // INSERT OR IGNORE par nom
+      insCatByName.run(name, localFamId);
+
+      // Puis s’assurer que la famille est bien celle attendue (déplacement éventuel)
+      const existing = selCatIdByName.get(name);
+      if (existing && existing.id != null) {
+        const needMove = (existing.famille_id || null) !== (localFamId || null);
+        if (needMove) {
+          updCatFamily.run(localFamId, existing.id);
+        }
+      }
     }
 
-    // Adhérents
+    // 4) Adhérents (ton code existant)
     for (const r of adherents) {
-      const id = asInt(r.id);
+      const id = asIntOrNull(r.id);
       if (id == null) continue;
       upAdh.run(
         id, r.nom, r.prenom, r.email1, r.email2, r.telephone1, r.telephone2, r.adresse,
@@ -184,19 +210,19 @@ async function pullRefs({ since = null } = {}) {
       );
     }
 
-    // Fournisseurs
+    // 5) Fournisseurs (ton code existant)
     for (const r of fournisseurs) {
-      const id = asInt(r.id);
+      const id = asIntOrNull(r.id);
       if (id == null) continue;
       upFour.run(
         id, r.nom, r.contact, r.email, r.telephone, r.adresse, r.code_postal, r.ville,
-        asInt(r.categorie_id), asInt(r.referent_id), r.label ?? null
+        asIntOrNull(r.categorie_id), asIntOrNull(r.referent_id), r.label ?? null
       );
     }
 
-    // Produits (match par code_barre puis reference)
+    // 6) Produits (ton code existant, basé sur code_barre / reference)
     for (const r of produits) {
-      const remoteUUID = r.id || null;        // UUID côté Neon
+      const remoteUUID = r.id || null;
       const codeBarre  = r.code_barre || null;
       const reference  = r.reference || null;
 
@@ -211,7 +237,6 @@ async function pullRefs({ since = null } = {}) {
       }
 
       if (localId != null) {
-        // Mise à jour
         updProdCore.run(
           r.nom ?? null,
           reference ?? null,
@@ -220,14 +245,9 @@ async function pullRefs({ since = null } = {}) {
           codeBarre ?? null,
           localId
         );
-        if (produitsHasRemote && remoteUUID) {
-          try { updProdRemoteUuid.run(remoteUUID, localId); } catch {}
-        }
-        if (produitsHasUpdatedAt) {
-          try { updProdUpdatedAt.run(r.updated_at || null, localId); } catch {}
-        }
+        if (produitsHasRemote && remoteUUID) { try { updProdRemoteUuid.run(remoteUUID, localId); } catch {} }
+        if (produitsHasUpdatedAt) { try { updProdUpdatedAt.run(r.updated_at || null, localId); } catch {} }
       } else {
-        // Insertion (sans FK, on n’écrit PAS unite_id/fournisseur_id/categorie_id ici)
         const values = [
           r.nom ?? null,
           reference ?? null,
@@ -237,18 +257,19 @@ async function pullRefs({ since = null } = {}) {
         ];
         if (produitsHasRemote) values.push(remoteUUID);
         if (produitsHasUpdatedAt) values.push(r.updated_at || null);
-        try { insProd.run(...values); } catch { /* ex: contraintes locales → on ignore */ }
+        try { insProd.run(...values); } catch {}
       }
     }
 
-    // Modes de paiement
+    // 7) Modes de paiement (ton code existant)
     for (const m of modes_paiement) {
-      const id = asInt(m.id);
+      const id = asIntOrNull(m.id);
       if (id == null) continue;
       upMode.run(id, m.nom, Number(m.taux_percent ?? 0), Number(m.frais_fixe ?? 0), b2i(!!m.actif));
     }
   });
   tx();
+
 
   notifyRenderer('data:refreshed', { from: 'pull_refs' });
   setState('online', { phase: 'pulled' });

@@ -243,21 +243,48 @@ async function safeJson(r) {
 // IPC: Auth / Onboarding flow
 // ---------------------------------
 
-// ✅ Créer un tenant (endpoints admin)
+// ✅ Créer un tenant (correct)
+const authState = require('./src/main/auth/state'); // adapte le chemin si besoin
+
 ipcMain.handle('admin:registerTenant', async (_e, payload) => {
   try {
-    const r = await apiFetch('/tenants/admin/register', {
+    const { tenant_name, email, password, company_name, logo_url } = payload || {};
+
+    const r = await apiFetch('/auth/register-tenant', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'accept': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        tenant_name,
+        email,
+        password,
+        company_name: company_name || tenant_name,
+        logo_url: logo_url || null,
+      }),
     });
-    const js = await safeJson(r);
-    if (!r.ok || !js?.tenant_id) throw new Error(js?.error || `HTTP ${r.status}`);
-    return { ok: true, tenant_id: js.tenant_id, token: js.token };
+
+    // on évite safeJson ici: on veut lever une erreur claire si non-JSON
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      throw new Error(`HTTP ${r.status}: ${body || 'register failed'}`);
+    }
+    const js = await r.json();
+
+    // stocker le token en mémoire (et dans ton state)
+    setAuthToken(js.token);
+    if (authState && typeof authState.set === 'function') {
+      authState.set({
+        token: js.token,
+        tenant_id: js.tenant_id,
+        role: js.role,
+        is_super_admin: !!js.is_super_admin,
+      });
+    }
+
+    return { ok: true, tenant_id: js.tenant_id, token: js.token, role: js.role, is_super_admin: !!js.is_super_admin };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
+
 
 // Login
 ipcMain.handle('auth:login', async (_e, { email, password }) => {
@@ -545,9 +572,10 @@ ipcMain.handle('admin:tenant:modules:set', async (_e, { tenantId, modules }) => 
 });
 
 // --- ADMIN: Email d'un tenant ciblé ---
+// GET email settings
 ipcMain.handle('admin:tenant:email:get', async (_e, tenantId) => {
   try {
-    const r = await apiFetch('/tenant_settings/email/get', {
+    const r = await apiFetch('/tenant_settings/email', {
       headers: { accept: 'application/json', ...getTenantHeadersFor(tenantId) }
     });
     const js = await safeJson(r);
@@ -558,31 +586,17 @@ ipcMain.handle('admin:tenant:email:get', async (_e, tenantId) => {
   }
 });
 
+// PUT email settings (⚠️ PUT, pas POST)
 ipcMain.handle('admin:tenant:email:set', async (_e, { tenantId, settings }) => {
   try {
-    const r = await apiFetch('/tenant_settings/email/set', {
-      method: 'POST',
+    const r = await apiFetch('/tenant_settings/email', {
+      method: 'PUT',
       headers: { 'content-type': 'application/json', accept: 'application/json', ...getTenantHeadersFor(tenantId) },
       body: JSON.stringify(settings || {}),
     });
     const js = await safeJson(r);
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
     return { ok: true, settings: js.settings || {} };
-  } catch (e) {
-    return { ok: false, error: e?.message || String(e) };
-  }
-});
-
-ipcMain.handle('admin:tenant:email:test', async (_e, { tenantId, to, subject, text, html }) => {
-  try {
-    const r = await apiFetch('/tenant_settings/email/test', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json', ...getTenantHeadersFor(tenantId) },
-      body: JSON.stringify({ to, subject, text, html }),
-    });
-    const js = await safeJson(r);
-    if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
-    return { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
