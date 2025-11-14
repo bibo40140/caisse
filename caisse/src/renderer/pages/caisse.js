@@ -794,6 +794,15 @@ async function verifierCotisationAdherent(adherentId, nomComplet, panierRef, ref
     const afficherProduits = () => {
       const zoneProduits = document.getElementById('produits-zone');
       const visibles = filtrerProduits();
+      // Tri alphabétique FR (insensible aux accents/majuscules) + tri “naturel” des nombres
+visibles.sort((a, b) =>
+  String(a.nom || '').localeCompare(String(b.nom || ''), 'fr', {
+    sensitivity: 'base',
+    ignorePunctuation: true,
+    numeric: true
+  })
+);
+
 
       zoneProduits.innerHTML = visibles.map(p => {
         const isNeg = modules.stocks && Number(p.stock) <= 0;
@@ -2137,18 +2146,20 @@ if (isExt) {
     const total = Math.round((sousTotalProduits + totalCotisation - totalAcompte + frais_paiement) * 100) / 100;
 
     // 7) Lignes DB (PU appliqué = remise + éventuelle marge extérieur)
-    const lignes = lignesProduits.map(p => {
-      const remise = Number(p.remise || 0);
-      const puOrig = Number(p.prix);
-      const puApplique = puOrig * factor * (1 - remise / 100);
-      return {
-        produit_id: Number(p.id),
-        quantite: Number(p.quantite || 0),
-        prix: Number(puApplique.toFixed(4)),       // PU appliqué
-        prix_unitaire: Number(puOrig.toFixed(4)),  // PU original
-        remise_percent: Number(remise.toFixed(4))
-      };
-    });
+const lignes = lignesProduits.map(p => {
+  const remise = Number(p.remise || 0);
+  const puOrig = Number(p.prix);
+  const puApplique = puOrig * factor * (1 - remise / 100);
+  const qte = Number(p.quantite || 0);
+  return {
+    produit_id: Number(p.id),
+    quantite: qte,
+    prix: +(puApplique * qte).toFixed(4),   // TOTAL DE LIGNE
+    prix_unitaire: +puApplique.toFixed(4),  // PU APPLIQUÉ
+    remise_percent: +remise.toFixed(4),
+  };
+});
+
 
     if (!lignes.length) {
       console.error('[validerVente] Aucune ligne à envoyer au backend, lignesProduits =', lignesProduits);

@@ -70,71 +70,74 @@
     const labelF = (f) => `${f.nom} — #${f.id}`;
 
     async function ouvrirPopupNouveauProduit(fournisseurId) {
-      if (!fournisseurId) { await showAlertModal("Sélectionnez d’abord un fournisseur."); return; }
-      const unites = await window.electronAPI.getUnites();
+  if (!fournisseurId) { await showAlertModal("Sélectionnez d’abord un fournisseur."); return; }
+  const unites = await window.electronAPI.getUnites();
 
-      const form = document.createElement('form');
-      form.innerHTML = `
-        <label>Nom :
-          <input name="nom" required style="width:100%" placeholder="Ex : Pommes Reinette">
-        </label><br><br>
-        <label>Prix (€) :
-          <input type="number" name="prix" step="0.01" min="0" inputmode="decimal" required placeholder="Ex : 2.50">
-        </label><br><br>
-        <label>Stock initial :
-          <input type="number" name="stock" step="0.01" min="0" inputmode="decimal" required placeholder="Ex : 0">
-        </label><br><br>
-        <label>Unité :
-          <select name="unite" required>
-            <option value="">-- Choisir --</option>
-            ${unites.map(u => `<option value="${u.nom}">${u.nom}</option>`).join('')}
-          </select>
-        </label><br><br>
-        <label>Code-barres :
-          <input name="code_barre" placeholder="Optionnel">
-        </label>
-      `;
-      const ok = await showFormModal('➕ Nouveau produit', form);
-      if (!ok) return;
+  const form = document.createElement('form');
+  form.innerHTML = `
+    <label>Nom :
+      <input name="nom" required style="width:100%" placeholder="Ex : Pommes Reinette">
+    </label><br><br>
+    <label>Prix (€) :
+      <input type="number" name="prix" step="0.01" min="0" inputmode="decimal" required placeholder="Ex : 2.50">
+    </label><br><br>
+    <label>Stock initial :
+      <input type="number" name="stock" step="0.01" min="0" inputmode="decimal" required placeholder="Ex : 0">
+    </label><br><br>
+    <label>Unité :
+      <!-- IMPORTANT: the select name is unite_id and option values are IDs -->
+      <select name="unite_id" required>
+        <option value="">-- Choisir --</option>
+        ${unites.map(u => `<option value="${u.id}">${u.nom}</option>`).join('')}
+      </select>
+    </label><br><br>
+    <label>Code-barres :
+      <input name="code_barre" placeholder="Optionnel">
+    </label>
+  `;
+  const ok = await showFormModal('➕ Nouveau produit', form);
+  if (!ok) return;
 
-      const nom   = (form.nom.value || '').trim();
-      const prix  = parseFloat(String(form.prix.value || '').replace(',', '.'));
-      const stock = parseFloat(String(form.stock.value || '').replace(',', '.'));
-      const unite = (form.unite.value || '').trim();
-      if (!nom || !unite || !Number.isFinite(prix) || !Number.isFinite(stock) || prix < 0 || stock < 0) {
-        await showAlertModal("Merci de renseigner le nom, le prix, le stock et l’unité (valeurs positives).");
-        return;
-      }
+  const nom   = (form.nom.value || '').trim();
+  const prix  = parseFloat(String(form.prix.value || '').replace(',', '.'));
+  const stock = parseFloat(String(form.stock.value || '').replace(',', '.'));
+  const unite_id = Number(form.unite_id.value || 0);  // <— read the ID here
 
-      const nouveau = {
-        nom, prix, stock, unite,
-        code_barre: (form.code_barre.value || '').trim(),
-        fournisseur_id: fournisseurId
-      };
+  if (!nom || !unite_id || !Number.isFinite(prix) || !Number.isFinite(stock) || prix < 0 || stock < 0) {
+    await showAlertModal("Merci de renseigner le nom, le prix, le stock et l’unité (valeurs positives).");
+    return;
+  }
 
-      const existant = await window.electronAPI
-        .rechercherProduitParNomEtFournisseur(nouveau.nom, fournisseurId);
+  const nouveau = {
+    nom, prix, stock,
+    unite_id,                                            // <— send unite_id to the backend
+    code_barre: (form.code_barre.value || '').trim(),
+    fournisseur_id: fournisseurId
+  };
 
-      if (existant) {
-        const choix = await showChoixModal(
-          `⚠️ Un produit nommé <strong>${existant.nom}</strong> existe déjà chez ce fournisseur.<br><br>Que souhaitez-vous faire ?`,
-          ['Remplacer', 'Ajouter quand même', 'Annuler']
-        );
-        if (choix === 'Annuler') return;
-        if (choix === 'Remplacer') {
-          await window.electronAPI.supprimerEtRemplacerProduit(nouveau, existant.id);
-        } else {
-          await window.electronAPI.ajouterProduit(nouveau);
-        }
-      } else {
-        await window.electronAPI.ajouterProduit(nouveau);
-      }
+  const existant = await window.electronAPI
+    .rechercherProduitParNomEtFournisseur(nouveau.nom, fournisseurId);
 
-      await showAlertModal('✅ Produit créé !');
-      produits = await window.electronAPI.getProduits();
-      produitsFournisseur = produits.filter(p => p.fournisseur_id === fournisseurId);
-      afficherListeProduitsFournisseur();
+  if (existant) {
+    const choix = await showChoixModal(
+      `⚠️ Un produit nommé <strong>${existant.nom}</strong> existe déjà chez ce fournisseur.<br><br>Que souhaitez-vous faire ?`,
+      ['Remplacer', 'Ajouter quand même', 'Annuler']
+    );
+    if (choix === 'Annuler') return;
+    if (choix === 'Remplacer') {
+      await window.electronAPI.supprimerEtRemplacerProduit(nouveau, existant.id);
+    } else {
+      await window.electronAPI.ajouterProduit(nouveau);
     }
+  } else {
+    await window.electronAPI.ajouterProduit(nouveau);
+  }
+
+  await showAlertModal('✅ Produit créé !');
+  produits = await window.electronAPI.getProduits();
+  produitsFournisseur = produits.filter(p => p.fournisseur_id === fournisseurId);
+  afficherListeProduitsFournisseur();
+}
 
     const afficherLignes = async () => {
       const zone = document.getElementById("zone-lignes-reception");

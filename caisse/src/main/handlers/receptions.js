@@ -1,5 +1,6 @@
 // src/main/handlers/receptions.js (MAIN PROCESS)
 const receptionsDb = require('../db/receptions');
+const { BrowserWindow } = require('electron');
 
 // (optionnel) module de synchro main
 let syncMod = null;
@@ -87,6 +88,13 @@ function registerReceptionHandlers(ipcMain) {
         if (syncMod && typeof syncMod.triggerBackgroundSync === 'function') {
           setImmediate(() => { syncMod.triggerBackgroundSync().catch(() => {}); });
         }
+      } catch {}
+
+       // 🔔 Notifie les renderer d’un refresh des données
+      try {
+        BrowserWindow.getAllWindows().forEach(w => {
+          w.webContents.send('data:refreshed', { from: 'reception:create', ts: Date.now() });
+        });
       } catch {}
 
       return { ok: true, receptionId: id };

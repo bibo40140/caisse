@@ -19,6 +19,16 @@ function genRefFromName(nom = '') {
   return `P-${slug || 'prod'}-${Date.now().toString().slice(-6)}`;
 }
 
+function resolveUniteId(p) {
+  if (p.unite_id !== undefined) return (p.unite_id ?? null);
+  if (p.unite) {
+    const row = db.prepare(`SELECT id FROM unites WHERE LOWER(nom) = LOWER(?) LIMIT 1`).get(String(p.unite));
+    if (row && row.id != null) return Number(row.id);
+  }
+  return null;
+}
+
+
 // ─────────────────────────────────────────────────────────────
 // LECTURE (avec catégorie/famille *effectives*)
 // ─────────────────────────────────────────────────────────────
@@ -183,7 +193,7 @@ function ajouterProduit(p = {}) {
   const reference = p.reference || genRefFromName(nom);
   const prix = toNumber(p.prix, 0);
   const code_barre = p.code_barre || null;
-  const unite_id = p.unite_id ?? null;
+const unite_id = resolveUniteId(p);
   const fournisseur_id = p.fournisseur_id ?? null;
   const categorie_id = p.categorie_id ?? null;
   const stockInit = toNumber(p.stock, 0);

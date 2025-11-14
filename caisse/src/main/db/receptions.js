@@ -104,6 +104,26 @@ function enregistrerReception(reception, lignes) {
         }
       }
 
+
+      // 🔁 Mise à jour du PRIX produit si un PU a été fourni
+      if (prix_unitaire != null) {
+        db.prepare(`
+          UPDATE produits
+             SET prix = ?,
+                 updated_at = datetime('now','localtime')
+           WHERE id = ?
+        `).run(Number(prix_unitaire), produit_id);
+
+        // Enqueue l'op de mise à jour produit pour Neon
+        enqueueOp({
+          deviceId: DEVICE_ID,
+          opType: 'product.updated',
+          entityType: 'produit',
+          entityId: String(produit_id),
+          payload: { id: produit_id, prix: Number(prix_unitaire) }
+        });
+      }
+
       // Enqueue op pour Neon (mouvement + ligne + header si besoin côté serveur)
       enqueueOp({
         deviceId: DEVICE_ID,

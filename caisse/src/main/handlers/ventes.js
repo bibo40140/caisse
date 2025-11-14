@@ -35,42 +35,39 @@ function getPrixProduit(id) {
 
 /**
  * Normalise un tableau de lignes vers le format attendu par la DB.
- * IMPORTANT : `prix` DOIT être le **PU appliqué** (après remise/marge), PAS le total de ligne.
- * `quantite` est la quantité vendue.
- * `prix_unitaire` peut contenir le PU d'origine (avant remise/marge) si tu l'as.
+ * Convention DB (cf. src/main/db/ventes.js) :
+ *  - lignes_vente.prix         = TOTAL DE LIGNE (PU appliqué × quantité)
+ *  - lignes_vente.prix_unitaire= PU APPLIQUÉ (après remise/marge)
+ *  - lignes_vente.quantite     = quantité vendue
  */
 function normalizeLignes(lignesRaw) {
   const arr = Array.isArray(lignesRaw) ? lignesRaw : [];
   return arr
     .map((l) => {
       const produitId = Number(l.produit_id ?? l.produitId ?? l.id);
-      const quantite = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
+      const quantite  = Number(l.quantite   ?? l.qty        ?? l.qte ?? 0);
 
-      // PU d'origine si fourni, sinon on essaie de retomber sur le prix produit
+      // PU "référence" (avant remise/marge) si fourni, sinon fallback DB, sinon fallback l.pu
       const prixUnitaireRef =
-        l.prix_unitaire != null &&
-        l.prix_unitaire !== '' &&
-        Number.isFinite(Number(l.prix_unitaire))
+        (l.prix_unitaire != null && l.prix_unitaire !== '' && Number.isFinite(Number(l.prix_unitaire)))
           ? Number(l.prix_unitaire)
-          : Number.isFinite(Number(l.pu))
-          ? Number(l.pu)
-          : getPrixProduit(produitId);
+          : (Number.isFinite(Number(l.pu)) ? Number(l.pu) : getPrixProduit(produitId));
 
-      // ⚠️ Ici on considère l.prix comme PU appliqué (conforme à caisse.js)
-      // Si l.prix est absent, on retombe sur le prix "référence" (sans remise).
+      // PU appliqué à la ligne (si l.prix fourni on le prend comme PU, sinon on prend la ref)
       const puApplique =
-        l.prix != null && l.prix !== '' && Number.isFinite(Number(l.prix))
+        (l.prix != null && l.prix !== '' && Number.isFinite(Number(l.prix)))
           ? Number(l.prix)
           : prixUnitaireRef;
 
       const remise = Number(l.remise_percent ?? l.remise ?? 0) || 0;
 
+      // Normalisation pour la DB : prix = TOTAL DE LIGNE, prix_unitaire = PU APPLIQUÉ
       return {
         produit_id: produitId,
         quantite,
-        prix: puApplique,          // <- PU appliqué (PAS total de ligne)
-        prix_unitaire: prixUnitaireRef, // <- PU d'origine (si dispo)
-        remise_percent: remise,
+        prix: +(puApplique * quantite).toFixed(4), // TOTAL de ligne
+        prix_unitaire: +puApplique.toFixed(4),      // PU appliqué
+        remise_percent: +remise.toFixed(4),
       };
     })
     .filter(
@@ -130,8 +127,8 @@ module.exports = function registerVentesHandlers(ipcMain) {
       const sale_type = venteIn.sale_type || (adherent_id ? 'adherent' : 'exterieur');
       const client_email = venteIn.client_email ?? null;
 
-      // Total produits = somme(pu_applique * qte)
-      const totalProduits = lignes.reduce((s, l) => s + Number(l.prix || 0) * Number(l.quantite || 0), 0);
+      // ✅ Total produits = somme des TOTAUX DE LIGNE (sans remultiplier la quantité)
+      const totalProduits = lignes.reduce((s, l) => s + Number(l.prix || 0), 0);
 
       const venteObj = {
         total: totalProduits, // côté UI tu affiches total + frais + cotisation si besoin
