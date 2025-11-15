@@ -40,7 +40,6 @@ function asIntOrNull(v) {
 
 /* -------------------------------------------------
    PULL refs depuis Neon -> Sauvegarde locale
-   (correspondance par code_barre puis reference)
 --------------------------------------------------*/
 async function pullRefs({ since = null } = {}) {
   const qs = since ? `?since=${encodeURIComponent(since)}` : '';
@@ -72,26 +71,16 @@ async function pullRefs({ since = null } = {}) {
     modes_paiement = [],
   } = d;
 
-  /* ---- Upserts par NOM (les IDs API sont des UUID, le local est INTEGER) ---- */
-  // Unités
-  const insUniteByName = db.prepare(`
-    INSERT OR IGNORE INTO unites(nom) VALUES (?)
-  `);
+  const insUniteByName = db.prepare(`INSERT OR IGNORE INTO unites(nom) VALUES (?)`);
   const selUniteIdByName = db.prepare(`SELECT id FROM unites WHERE nom = ?`);
 
-  // Familles
-  const insFamByName = db.prepare(`
-    INSERT OR IGNORE INTO familles(nom) VALUES (?)
-  `);
+  const insFamByName = db.prepare(`INSERT OR IGNORE INTO familles(nom) VALUES (?)`);
   const selFamIdByName = db.prepare(`SELECT id FROM familles WHERE nom = ?`);
 
-  // Catégories
-  const insCatByName = db.prepare(`
-    INSERT OR IGNORE INTO categories(nom, famille_id) VALUES (?, ?)
-  `);
+  const insCatByName = db.prepare(`INSERT OR IGNORE INTO categories(nom, famille_id) VALUES (?, ?)`);
   const selCatIdByName = db.prepare(`SELECT id, famille_id FROM categories WHERE nom = ?`);
   const updCatFamily = db.prepare(`UPDATE categories SET famille_id = ? WHERE id = ?`);
-  
+
   const upAdh = db.prepare(`
     INSERT INTO adherents
       (id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
@@ -104,6 +93,7 @@ async function pullRefs({ since = null } = {}) {
       tranche_age=excluded.tranche_age, droit_entree=excluded.droit_entree, date_inscription=excluded.date_inscription,
       archive=excluded.archive, date_archivage=excluded.date_archivage, date_reactivation=excluded.date_reactivation
   `);
+
   const upFour = db.prepare(`
     INSERT INTO fournisseurs
       (id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label)
@@ -113,6 +103,7 @@ async function pullRefs({ since = null } = {}) {
       adresse=excluded.adresse, code_postal=excluded.code_postal, ville=excluded.ville,
       categorie_id=excluded.categorie_id, referent_id=excluded.referent_id, label=excluded.label
   `);
+
   const upMode = db.prepare(`
     INSERT INTO modes_paiement (id, nom, taux_percent, frais_fixe, actif)
     VALUES (?,?,?,?,?)
@@ -120,11 +111,9 @@ async function pullRefs({ since = null } = {}) {
       nom=excluded.nom, taux_percent=excluded.taux_percent, frais_fixe=excluded.frais_fixe, actif=excluded.actif
   `);
 
-  /* ---- Produits : correspondance par code_barre / reference + remote_uuid ---- */
   const produitsHasRemote = hasCol('produits', 'remote_uuid');
   const produitsHasUpdatedAt = hasCol('produits', 'updated_at');
 
-  // requêtes utilitaires
   const selProdByBarcode = db.prepare(`SELECT id FROM produits WHERE REPLACE(COALESCE(code_barre,''),' ','') = REPLACE(COALESCE(?,''),' ','') LIMIT 1`);
   const selProdByReference = db.prepare(`SELECT id FROM produits WHERE reference = ? LIMIT 1`);
   const updProdCore = db.prepare(`
@@ -136,12 +125,8 @@ async function pullRefs({ since = null } = {}) {
            code_barre = COALESCE(?, code_barre)
      WHERE id = ?
   `);
-  const updProdRemoteUuid = produitsHasRemote
-    ? db.prepare(`UPDATE produits SET remote_uuid = ? WHERE id = ?`)
-    : null;
-  const updProdUpdatedAt = produitsHasUpdatedAt
-    ? db.prepare(`UPDATE produits SET updated_at = ? WHERE id = ?`)
-    : null;
+  const updProdRemoteUuid = produitsHasRemote ? db.prepare(`UPDATE produits SET remote_uuid = ? WHERE id = ?`) : null;
+  const updProdUpdatedAt = produitsHasUpdatedAt ? db.prepare(`UPDATE produits SET updated_at = ? WHERE id = ?`) : null;
 
   const insProdBaseColumns = (() => {
     const cols = ['nom','reference','prix','stock','code_barre'];
@@ -157,14 +142,12 @@ async function pullRefs({ since = null } = {}) {
   `);
 
   const tx = db.transaction(() => {
-    // 1) Unités (par nom)
     for (const r of unites) {
       const name = (r.nom || '').trim();
       if (!name) continue;
       insUniteByName.run(name);
     }
 
-    // 2) Familles (par nom) + map remoteUUID -> localId
     const famUuidToLocalId = new Map();
     for (const r of familles) {
       const name = (r.nom || '').trim();
@@ -175,31 +158,22 @@ async function pullRefs({ since = null } = {}) {
       if (row && row.id != null) famUuidToLocalId.set(remoteId, row.id);
     }
 
-    // 3) Catégories : on résout la famille locale via la map des UUID
     for (const r of categories) {
       const name = (r.nom || '').trim();
       if (!name) continue;
-
       let localFamId = null;
       const remoteFamId = r.famille_id ? String(r.famille_id) : '';
       if (remoteFamId && famUuidToLocalId.has(remoteFamId)) {
         localFamId = famUuidToLocalId.get(remoteFamId);
       }
-
-      // INSERT OR IGNORE par nom
       insCatByName.run(name, localFamId);
-
-      // Puis s’assurer que la famille est bien celle attendue (déplacement éventuel)
       const existing = selCatIdByName.get(name);
       if (existing && existing.id != null) {
         const needMove = (existing.famille_id || null) !== (localFamId || null);
-        if (needMove) {
-          updCatFamily.run(localFamId, existing.id);
-        }
+        if (needMove) updCatFamily.run(localFamId, existing.id);
       }
     }
 
-    // 4) Adhérents (ton code existant)
     for (const r of adherents) {
       const id = asIntOrNull(r.id);
       if (id == null) continue;
@@ -210,7 +184,6 @@ async function pullRefs({ since = null } = {}) {
       );
     }
 
-    // 5) Fournisseurs (ton code existant)
     for (const r of fournisseurs) {
       const id = asIntOrNull(r.id);
       if (id == null) continue;
@@ -220,7 +193,6 @@ async function pullRefs({ since = null } = {}) {
       );
     }
 
-    // 6) Produits (ton code existant, basé sur code_barre / reference)
     for (const r of produits) {
       const remoteUUID = r.id || null;
       const codeBarre  = r.code_barre || null;
@@ -261,7 +233,6 @@ async function pullRefs({ since = null } = {}) {
       }
     }
 
-    // 7) Modes de paiement (ton code existant)
     for (const m of modes_paiement) {
       const id = asIntOrNull(m.id);
       if (id == null) continue;
@@ -269,7 +240,6 @@ async function pullRefs({ since = null } = {}) {
     }
   });
   tx();
-
 
   notifyRenderer('data:refreshed', { from: 'pull_refs' });
   setState('online', { phase: 'pulled' });
@@ -361,7 +331,6 @@ async function pushOpsNow(deviceId) {
    BOOTSTRAP / HYDRATE
 --------------------------------------------------*/
 function collectLocalRefs() {
-  // Nettoyage FK côté payload : si une FK pointe vers un id inexistant, on l’envoie en NULL.
   const exists = (table, id) => {
     const n = asIntOrNull(id);
     if (n == null) return false;
@@ -467,24 +436,19 @@ function stopAutoSync() {
 }
 
 function startAutoSync(deviceId) {
-  if (_autoTimer) return; // déjà en cours
-
+  if (_autoTimer) return;
   const loop = async () => {
     try {
-      await pushOpsNow(deviceId);          // push
-      _intervalMs = 30000;                 // reset backoff
+      await pushOpsNow(deviceId);
+      _intervalMs = 30000;
     } catch (e) {
-      _intervalMs = Math.min(_intervalMs + 15000, 120000); // backoff max 2 min
+      _intervalMs = Math.min(_intervalMs + 15000, 120000);
     } finally {
-      _autoTimer = setTimeout(loop, _intervalMs); // planifie le prochain essai
+      _autoTimer = setTimeout(loop, _intervalMs);
     }
   };
-
-  _autoTimer = setTimeout(loop, 1000); // première exécution in 1s
+  _autoTimer = setTimeout(loop, 1000);
 }
-
-
-
 
 /* -------------------------------------------------
    Export public
@@ -506,13 +470,12 @@ async function pushBootstrapRefs() {
 }
 
 async function syncPushAll() {
-  const { unites, familles, categories, adherents, fournisseurs, produits, modes_paiement } = collectLocalRefs();
-
+  const payload = collectLocalRefs();
   let res;
   try {
     res = await apiFetch('/sync/bootstrap', {
       method: 'POST',
-      body: JSON.stringify({ unites, familles, categories, adherents, fournisseurs, produits, modes_paiement }),
+      body: JSON.stringify(payload),
     });
   } catch (e) {
     return { ok: false, error: `Network error: ${String(e)}` };
@@ -535,7 +498,7 @@ module.exports = {
   pullAll,
   pushOpsNow,
   startAutoSync,
-  countPendingOps,
+  countPendingOps,           // <— export explicite (utilisé côté main)
   pushBootstrapRefs,
   syncPushAll,
 };

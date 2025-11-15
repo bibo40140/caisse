@@ -7,9 +7,9 @@
     "adherents": true,
     "email": true,
     "receptions": true,
-    "ventes_exterieur": false,
+    "ventes_exterieur": true,
     "stocks": true
   },
   "ventes_exterieur_margin_percent": 30,
-  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5ZTQwYzljYS0yNzc3LTRiODAtYmYxMi1jMDAwNjljMmFlMDIiLCJ1c2VyX2lkIjoiOWU0MGM5Y2EtMjc3Ny00YjgwLWJmMTItYzAwMDY5YzJhZTAyIiwidGVuYW50X2lkIjoiMjAwMWFmNWMtNTE5OC00M2I4LTkzODctNmE4MDFkNWZmZTcyIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJmYWJpZW4uaGljYXViZXJAZ21haWwuY29tIiwiaXNfc3VwZXJfYWRtaW4iOnRydWUsImlhdCI6MTc2MzEyMzk2NSwiZXhwIjoxNzYzNzI4NzY1fQ.TXzRfRwTHoMlQsepVrVaZQFNFlOrIrtVtmm5UZjGK1o"
+  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5NTEwYTBhYi01YzU2LTRkYmEtOTkyNy02NzEwNjMwYjAxZGEiLCJ1c2VyX2lkIjoiOTUxMGEwYWItNWM1Ni00ZGJhLTk5MjctNjcxMDYzMGIwMWRhIiwidGVuYW50X2lkIjoiN2I3NzA0MzktYTU4OS00NTg2LTk1YjktMjA1NGU1NjUzYzQ1Iiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJmYWJpZW4uaGljYXViZXJAZ21haWwuY29tIiwiaXNfc3VwZXJfYWRtaW4iOnRydWUsImlhdCI6MTc2MzI0MTEyOSwiZXhwIjoxNzYzODQ1OTI5fQ._DG1l8FJx8Ap3DxL1f3F45Z9a9M14JoOsPumlVkdfqw"
 }

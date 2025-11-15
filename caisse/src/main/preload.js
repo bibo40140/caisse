@@ -55,7 +55,6 @@ contextBridge.exposeInMainWorld('electronEvents', { on, off, once });
    Helper dédié pour la config (évite les doublons)
 -------------------------------------------------- */
 function onConfigChanged(cb) {
-  // on nettoie d'abord pour éviter les abonnements multiples au hot-reload
   ipcRenderer.removeAllListeners('config:changed');
   const handler = (_e, cfg) => {
     try { cb(cfg); } catch {}
@@ -72,6 +71,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------- Events (utilisés par le chip et config) -------- */
   on, off, once,
   onConfigChanged,
+
+  invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
 
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
@@ -94,7 +95,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncPushAll: () => ipcRenderer.invoke('sync:push_all'),
   syncPullAll: () => ipcRenderer.invoke('sync:pull_all'),
   syncPushBootstrapRefs: () => ipcRenderer.invoke('sync:pushBootstrapRefs'),
-  // anciens alias → mappés pour compat
+  // Alias compat
   syncPushProduits: () => ipcRenderer.invoke('sync:push_all'),
   syncPullProduits: () => ipcRenderer.invoke('sync:pull_all'),
   // Outils
@@ -158,7 +159,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   emailSetSettings: (s) => ipcRenderer.invoke('email:setSettings', s),
   emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
 
-  // --- Super admin: gestion ciblée d'un tenant ---
+  // --- Super admin: gestion ciblée d’un tenant ---
   adminGetTenantModules:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:modules:get', tenantId),
   adminSetTenantModules:   (tenantId, modules)        => ipcRenderer.invoke('admin:tenant:modules:set', { tenantId, modules }),
   adminEmailGetSettings:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:email:get', tenantId),
@@ -177,7 +178,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDetailsVente: (id) => ipcRenderer.invoke('get-details-vente', id),
 
   /* -------------- Adhérents ---------------------- */
-  // Compatible : bool/number (archive) OU objet d’options
   getAdherents: (arg) => {
     if (typeof arg === 'boolean' || typeof arg === 'number') {
       return ipcRenderer.invoke('get-adherents', Number(arg));
@@ -215,9 +215,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /* -------------- Config / Modules --------------- */
   getConfig: () => ipcRenderer.invoke('config:get'),
-
-  // ⚠️ Déprécié — compat
-  updateModules: (modules) => ipcRenderer.invoke('config:update-modules', modules),
+  updateModules: (modules) => ipcRenderer.invoke('config:update-modules', modules), // compat
   getModules: () => ipcRenderer.invoke('get-modules'),
   setModules: (modules) => ipcRenderer.invoke('set-modules', modules),
 
@@ -230,8 +228,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------------- Auth / infos ------------------- */
   getAuthInfo: () => ipcRenderer.invoke('auth:getInfo'),
 
-  // --- Branding (nom + logo) par tenant ---
-  // Acceptent soit un string tenantId, soit { tenantId }, soit rien (=> auto via JWT)
   brandingGet: (tenantArg) => {
     const tenantId = (tenantArg && typeof tenantArg === 'object') ? tenantArg.tenantId : tenantArg;
     return ipcRenderer.invoke('branding:get', { tenantId });
@@ -273,10 +269,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listOpen:      () => ipcRenderer.invoke('inventory:list-open'),
     listSessions:  () => ipcRenderer.invoke('inventory:listSessions'),
     getSummary:    (sessionId) => ipcRenderer.invoke('inventory:getSummary', sessionId),
-    closeAllOpen:  () => ipcRenderer.invoke('inventory:closeAllOpen'), // forcer fermeture côté serveur
+    closeAllOpen:  () => ipcRenderer.invoke('inventory:closeAllOpen'),
   },
 
-  /* -------------- Inventaire / produits ---------- */
   produits: {
     list: () => ipcRenderer.invoke('produits:list'),
   },

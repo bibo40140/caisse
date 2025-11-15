@@ -9,6 +9,10 @@ const jwt = require('jsonwebtoken');
 // ✅ On centralise l’IPC branding dans src/main/branding.js
 const { registerBrandingIpc } = require('./src/main/branding');
 
+const registerSyncDebug = require('./src/main/handlers/sync_debug');
+registerSyncDebug(ipcMain);
+
+
 // ===============================
 // Broadcast config/modules to UI
 // ===============================
@@ -735,6 +739,7 @@ if (!FORCE_ALWAYS_LOGIN && auth && auth.token) {
 });
 
 
+
 const registerAdherentsHandlers = require('./src/main/handlers/adherents');
 registerAdherentsHandlers(); 
 
@@ -770,6 +775,28 @@ safeHandle('config:get', async () => {
   }
 });
 
+// 🔧🔧 🔥 AJOUTS POUR LA PAGE SYNCHRO (état & déclenchement file d’attente) 🔥 🔧🔧
+safeHandle('sync:status', async () => {
+  try {
+    const n = (typeof sync.countPendingOps === 'function') ? sync.countPendingOps() : 0;
+    return { ok: true, queue: Number(n || 0), when: new Date().toISOString() };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e), queue: 0 };
+  }
+});
+
+safeHandle('sync:drain', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+    const r = await sync.pushOpsNow();
+    return r?.ok ? r : { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// Handlers Sync principaux
 safeHandle('sync:pushBootstrapRefs', async () => {
   try {
     const a = await ensureAuth();
@@ -973,20 +1000,26 @@ safeHandle('mp:remove', async (_e, id) => {
 safeHandle('ops:push-now', async () => {
   try {
     const a = await ensureAuth();
-    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+    if (!a.ok) {
+      return { ok: false, error: 'Non connecté (token manquant)' };
+    }
+
     if (typeof sync.pushOpsNow === 'function') {
-      const r = await sync.pushOpsNow();
+      const r = await sync.pushOpsNow(DEVICE_ID);  // ✅ on passe bien le deviceId
       return r || { ok: true };
     }
-    return { ok: true }; // fallback si pas dispo
+
+    return { ok: true }; // fallback si la fonction n'existe pas
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
 
+
 safeHandle('ops:pending-count', async () => {
   try {
     const fn =
+      sync?.countPendingOps || // ✅ correction : utiliser le bon export
       sync?.opsPendingCount || sync?.pendingOpsCount || sync?.getPendingOpsCount;
     if (typeof fn === 'function') {
       const n = await fn();

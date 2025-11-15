@@ -2,6 +2,16 @@
 
 console.log('[API] build=no-mailer v1 (multi-tenant full)');
 
+
+function asIntOrNull(v) {
+  if (v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+
+
+
 import 'dotenv/config';
 
 console.log('[AUTH DEV] DEV_SUPERADMIN_ENABLED=', process.env.DEV_SUPERADMIN_ENABLED, 
@@ -685,116 +695,151 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
       if (!p || typeof p !== 'object') p = {};
 
       switch (op.op_type) {
-        case 'sale.created': {
-          let venteId     = asUuidOrNull(p.venteId);
-          let mpId        = asUuidOrNull(p.modePaiementId);
-          let adherentId  = asUuidOrNull(p.adherentId);
+                case 'sale.created': {
+  const venteId    = asIntOrNull(p.venteId);
+  const mpId       = asIntOrNull(p.modePaiementId);
+  const adherentId = asIntOrNull(p.adherentId);
 
-          if (mpId) {
-            const chk = await client.query(
-              `SELECT 1 FROM modes_paiement WHERE tenant_id=$1 AND id=$2`,
-              [tenantId, mpId]
-            );
-            if (chk.rowCount === 0) mpId = null;
-          }
-          if (adherentId) {
-            const chkA = await client.query(
-              `SELECT 1 FROM adherents WHERE tenant_id=$1 AND id=$2`,
-              [tenantId, adherentId]
-            );
-            if (chkA.rowCount === 0) adherentId = null;
-          }
+  await client.query(
+    `INSERT INTO ventes (
+       id, tenant_id, total, adherent_id, mode_paiement_id,
+       sale_type, client_email, frais_paiement, cotisation
+     )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
+    [
+      venteId,
+      tenantId,
+      p.total ?? null,
+      adherentId,
+      mpId,
+      p.saleType || 'adherent',
+      p.clientEmail || null,
+      p.fraisPaiement ?? null,
+      p.cotisation ?? null,
+    ]
+  );
+  console.log('    [+] vente header enregistrée id=', venteId);
+  break;
+}
 
-          await client.query(
-            `INSERT INTO ventes (id, tenant_id, total, adherent_id, mode_paiement_id, sale_type, client_email, frais_paiement, cotisation)
-             VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3,$4,$5,$6,$7,$8,$9)
-             ON CONFLICT (id) DO NOTHING`,
-            [
-              venteId, tenantId,
-              p.total ?? null,
-              adherentId,
-              mpId,
-              p.saleType || 'adherent',
-              p.clientEmail || null,
-              p.fraisPaiement ?? null,
-              p.cotisation ?? null,
-            ]
-          );
-          console.log('    [+] vente header enregistrée id=', venteId || '(auto)');
-          break;
-        }
+
 
         case 'sale.line_added': {
-          const venteId   = asUuidOrNull(p.venteId);
-          const produitId = asUuidOrNull(p.produitId);
-          const ligneId   = asUuidOrNull(p.ligneId);
+          // IDs locaux = entiers
+          const venteId   = asIntOrNull(p.venteId);
+          const produitId = asIntOrNull(p.produitId);
+          const ligneId   = asIntOrNull(p.ligneId);
 
-          if (!venteId)  throw new Error('invalid_vente_id_uuid');
-          if (!produitId) throw new Error('invalid_produit_id_uuid');
+          if (!venteId)  throw new Error('invalid_vente_id_int');
+          if (!produitId) throw new Error('invalid_produit_id_int');
 
+          const quantite = Number(p.quantite || 0);
+          const prix     = Number(p.prix || 0);
+
+          // clé idempotente pour stock_movements
           const sourceKey =
             (ligneId != null)
               ? `lv:${ligneId}`
-              : `sale:${venteId}:${produitId}:${Number(p.quantite)}:${Number(p.prix)}`;
+              : `sale:${venteId}:${produitId}:${quantite}:${prix}`;
 
+          // Produit doit exister pour ce tenant
           const checkProd = await client.query(
             `SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`,
             [tenantId, produitId]
           );
           if (checkProd.rowCount === 0) throw new Error('product_not_found_for_tenant');
 
+          // Vente doit exister pour ce tenant
           const checkVente = await client.query(
             `SELECT 1 FROM ventes WHERE tenant_id=$1 AND id=$2`,
             [tenantId, venteId]
           );
           if (checkVente.rowCount === 0) throw new Error('sale_not_found_for_tenant');
 
-          const quantite = Number(p.quantite || 0);
-          const prix     = Number(p.prix || 0);
-
+          // Idempotence: même ligne déjà présente ?
           const chk = await client.query(
             `SELECT 1 FROM lignes_vente
-             WHERE tenant_id=$1 AND vente_id=$2 AND produit_id=$3 AND quantite=$4 AND prix=$5 LIMIT 1`,
+             WHERE tenant_id=$1 AND vente_id=$2 AND produit_id=$3 AND quantite=$4 AND prix=$5
+             LIMIT 1`,
             [tenantId, venteId, produitId, quantite, prix]
           );
+
           if (chk.rowCount === 0) {
-            await client.query(
-              `INSERT INTO lignes_vente (id, tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
-               VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3,$4,$5,$6,$7,$8)`,
-              [ligneId || null, tenantId, venteId, produitId, quantite, prix, p.prixUnitaire ?? null, p.remisePercent ?? 0]
-            );
+            if (ligneId != null) {
+              // On a un id local → on le pousse explicitement
+              await client.query(
+                `INSERT INTO lignes_vente
+                   (id, tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                 ON CONFLICT (tenant_id, id) DO NOTHING`,
+                [ligneId, tenantId, venteId, produitId, quantite, prix, p.prixUnitaire ?? null, p.remisePercent ?? 0]
+              );
+            } else {
+              // Pas d'id → on laisse Postgres (BIGSERIAL) le générer
+              await client.query(
+                `INSERT INTO lignes_vente
+                   (tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+                [tenantId, venteId, produitId, quantite, prix, p.prixUnitaire ?? null, p.remisePercent ?? 0]
+              );
+            }
             console.log('    [+] ligne_vente ajoutée vente=', venteId, 'prod=', produitId, 'qte=', quantite);
           } else {
             console.log('    [=] ligne_vente déjà présente');
           }
 
+          // Mouvement de stock associé
           await client.query(
             `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
              VALUES ($1,$2,$3,'sale_line',$4)
              ON CONFLICT DO NOTHING`,
             [tenantId, produitId, -quantite, sourceKey]
           );
-          console.log('    [+] stock_movements sale_line', { produit_id: produitId, delta: -quantite, sourceKey });
+          console.log('    [+] stock_movements sale_line', { produit_id: produitId, delta: -quantite });
           break;
         }
 
+
         case 'reception.line_added': {
-          const pid = asUuidOrNull(p.produitId);
+          // ➜ Chez toi, les IDs produits / réceptions / fournisseurs sont des entiers (SQLite),
+          // donc on les traite comme des BIGINT côté Postgres, pas comme des UUID.
+          console.log('  → reception.line_added payload:', p);
+
+          const pid = Number(p.produitId);
           const qte = Number(p.quantite || 0);
-          if (!pid) throw new Error('invalid_produit_id_uuid');
 
-          const chkP = await client.query(`SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`, [tenantId, pid]);
-          if (chkP.rowCount === 0) throw new Error('product_not_found_for_tenant');
+          if (!Number.isInteger(pid) || pid <= 0) {
+            console.warn('    [!] reception.line_added ignorée — produitId invalide', p.produitId);
+            break;
+          }
 
-          let rid = asUuidOrNull(p.receptionId) || null;
-          if (rid) {
-            const chkR = await client.query(`SELECT 1 FROM receptions WHERE tenant_id=$1 AND id=$2`, [tenantId, rid]);
+          // Vérifier que le produit existe bien pour ce tenant
+          const chkP = await client.query(
+            `SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`,
+            [tenantId, pid]
+          );
+          if (chkP.rowCount === 0) {
+            console.warn('    [!] reception.line_added ignorée — produit inconnu pour tenant', { tenantId, pid });
+            break;
+          }
+
+          // IDs numériques pour réception et fournisseur
+          let rid = p.receptionId != null ? Number(p.receptionId) : null;
+          const fournisseurId = p.fournisseurId != null ? Number(p.fournisseurId) : null;
+
+          // Créer / vérifier la réception
+          if (rid && Number.isInteger(rid) && rid > 0) {
+            const chkR = await client.query(
+              `SELECT 1 FROM receptions WHERE tenant_id=$1 AND id=$2`,
+              [tenantId, rid]
+            );
             if (chkR.rowCount === 0) {
               await client.query(
                 `INSERT INTO receptions (id, tenant_id, fournisseur_id, date, reference)
-                 VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, now(), $4)
+                 VALUES ($1, $2, $3, now(), $4)
                  ON CONFLICT (id) DO NOTHING`,
-                [rid, tenantId, asUuidOrNull(p.fournisseurId) || null, p.reference || null]
+                [rid, tenantId, fournisseurId, p.reference || null]
               );
             }
           } else {
@@ -802,21 +847,24 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
               `INSERT INTO receptions (tenant_id, fournisseur_id, date, reference)
                VALUES ($1,$2, now(), $3)
                RETURNING id`,
-              [tenantId, asUuidOrNull(p.fournisseurId) || null, p.reference || null]
+              [tenantId, fournisseurId, p.reference || null]
             );
             rid = ins.rows[0].id;
           }
 
-          if (asUuidOrNull(p.ligneRecId)) {
+          // Ligne de réception (id numérique optionnel)
+          const ligneRecId = p.ligneRecId != null ? Number(p.ligneRecId) : null;
+
+          if (ligneRecId && Number.isInteger(ligneRecId) && ligneRecId > 0) {
             await client.query(
               `INSERT INTO lignes_reception (id, tenant_id, reception_id, produit_id, quantite, prix_unitaire)
-               VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2,$3,$4,$5,$6)
+               VALUES ($1, $2, $3, $4, $5, $6)
                ON CONFLICT (id) DO UPDATE SET
-                 reception_id=EXCLUDED.reception_id,
-                 produit_id=EXCLUDED.produit_id,
-                 quantite=EXCLUDED.quantite,
-                 prix_unitaire=EXCLUDED.prix_unitaire`,
-              [asUuidOrNull(p.ligneRecId), tenantId, rid, pid, qte, p.prixUnitaire ?? null]
+                 reception_id  = EXCLUDED.reception_id,
+                 produit_id    = EXCLUDED.produit_id,
+                 quantite      = EXCLUDED.quantite,
+                 prix_unitaire = EXCLUDED.prix_unitaire`,
+              [ligneRecId, tenantId, rid, pid, qte, p.prixUnitaire ?? null]
             );
           } else {
             await client.query(
@@ -826,46 +874,56 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             );
           }
 
+          // Stock courant → delta → mouvement
           const currentStock = await getCurrentStock(client, tenantId, pid);
-          const stockCorrige = (p.stockCorrige !== undefined && p.stockCorrige !== null) ? Number(p.stockCorrige) : null;
-          const base = (stockCorrige !== null && !Number.isNaN(stockCorrige)) ? stockCorrige : currentStock;
+          const stockCorrige = (p.stockCorrige !== undefined && p.stockCorrige !== null)
+            ? Number(p.stockCorrige)
+            : null;
+          const base = (stockCorrige !== null && !Number.isNaN(stockCorrige))
+            ? stockCorrige
+            : currentStock;
           const target = base + qte;
-          const delta = target - currentStock;
+          const delta  = target - currentStock;
 
           await client.query(
             `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
              VALUES ($1,$2,$3,'reception_line',$4)
              ON CONFLICT DO NOTHING`,
-            [tenantId, pid, delta, String(asUuidOrNull(p.ligneRecId) || `${rid}:${pid}`)]
+            [tenantId, pid, delta, String(ligneRecId || `${rid}:${pid}`)]
           );
           console.log('    [+] stock_movements reception_line', { produit_id: pid, delta });
 
+          // éventuelle mise à jour du prix produit
           if (p.prixUnitaire != null) {
             await client.query(
-              `UPDATE produits SET prix = $1, updated_at = now() WHERE tenant_id = $2 AND id = $3`,
+              `UPDATE produits
+                 SET prix = $1, updated_at = now()
+               WHERE tenant_id = $2 AND id = $3`,
               [p.prixUnitaire, tenantId, pid]
             );
             console.log('    [~] prix produit mis à jour', { produit_id: pid, prix: p.prixUnitaire });
           }
+
           break;
         }
 
         case 'inventory.adjust': {
-          const produitId = asUuidOrNull(p.produitId);
-          const delta = Number(p.delta || 0);
-          if (!produitId || !Number.isFinite(delta) || delta === 0) {
-            console.warn('    [!] inventory.adjust ignorée — produitId/delta invalide');
-            break;
-          }
-          await client.query(
-            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
-             VALUES ($1,$2,$3,'inventory_adjust',$4)
-             ON CONFLICT DO NOTHING`,
-            [tenantId, produitId, delta, String(op.id)]
-          );
-          console.log('    [+] stock_movements inventory_adjust', { produit_id: produitId, delta });
-          break;
-        }
+  const produitId = asIntOrNull(p.produitId);
+  const delta = Number(p.delta || 0);
+  if (!produitId || !Number.isFinite(delta) || delta === 0) {
+    console.warn('    [!] inventory.adjust ignorée — produitId/delta invalide');
+    break;
+  }
+  await client.query(
+    `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+     VALUES ($1,$2,$3,'inventory_adjust',$4)
+     ON CONFLICT DO NOTHING`,
+    [tenantId, produitId, delta, String(op.id)]
+  );
+  console.log('    [+] stock_movements inventory_adjust', { produit_id: produitId, delta });
+  break;
+}
+
 
         case 'product.updated': {
           const fields = [];
@@ -881,7 +939,8 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
           if (fields.length > 0) {
             const sql = `UPDATE produits SET ${fields.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND id = $2`;
-            await client.query(sql, [tenantId, asUuidOrNull(p.id), ...values]);
+await client.query(sql, [tenantId, asIntOrNull(p.id), ...values]);
+
             console.log('    [~] produit mis à jour', { id: p.id });
           }
           break;
@@ -1022,34 +1081,40 @@ function normBarcode(v) {
 
 // ========= Produits (FK unite_id, fournisseur_id, categorie_id) =========
 for (const p of produits) {
+  const prodId = asIntOrNull(p.id);
+  if (!prodId) {
+    console.warn('[bootstrap] Produit ignoré car id invalide :', p);
+    continue;
+  }
+
   await client.query(
     `
     INSERT INTO produits
       (id, tenant_id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
     VALUES
-      (COALESCE($1, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-    ON CONFLICT (tenant_id, reference) DO UPDATE SET
-      nom = EXCLUDED.nom,
-      prix = EXCLUDED.prix,
-      stock = EXCLUDED.stock,
-      code_barre = EXCLUDED.code_barre,
-      unite_id = EXCLUDED.unite_id,
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+    ON CONFLICT (tenant_id, id) DO UPDATE SET
+      nom          = EXCLUDED.nom,
+      reference    = EXCLUDED.reference,
+      prix         = EXCLUDED.prix,
+      stock        = EXCLUDED.stock,
+      code_barre   = EXCLUDED.code_barre,
+      unite_id     = EXCLUDED.unite_id,
       fournisseur_id = EXCLUDED.fournisseur_id,
       categorie_id = EXCLUDED.categorie_id,
-      updated_at = now()
+      updated_at   = now()
     `,
     [
-      asUuidOrNull(p.id),          // peut être null → UUID auto
+      prodId,                            // BIGINT
       tenantId,
       p.nom,
-      // ⚠️ reference DOIT être non nul et stable
-      p.reference || `P-${String(p.id ?? '').padStart(6, '0')}`,
+      p.reference || `P-${String(prodId).padStart(6, '0')}`,
       Number(p.prix || 0),
       Number(p.stock ?? 0),
       p.code_barre || null,
       asUuidOrNull(p.unite_id),
       asUuidOrNull(p.fournisseur_id),
-      asUuidOrNull(p.categorie_id)
+      asUuidOrNull(p.categorie_id),
     ]
   );
 }
