@@ -17,17 +17,23 @@ export const DEFAULT_TREE = [
 
 export async function seedTenantDefaults(client, tenant_id) {
   // Assumes tables: familles( id, tenant_id, nom ), categories( id, tenant_id, nom, famille_id ), unites( id, tenant_id, nom )
-  // Uniques conseillés: UNIQUE(tenant_id, LOWER(nom)) sur familles/catégories/unites
+  // Uniques conseillés: UNIQUE(tenant_id, nom) sur familles/catégories/unites
+
   const insertFam = `
     INSERT INTO familles (tenant_id, nom)
     VALUES ($1, $2)
     ON CONFLICT (tenant_id, nom) DO NOTHING
     RETURNING id`;
-  const findFam = `SELECT id FROM familles WHERE tenant_id=$1 AND nom=$2`;
+
+  const findFam = `
+    SELECT id FROM familles
+    WHERE tenant_id=$1 AND nom=$2`;
+
   const insertCat = `
     INSERT INTO categories (tenant_id, nom, famille_id)
     VALUES ($1, $2, $3)
-    ON CONFLICT (tenant_id, nom, famille_id) DO NOTHING`;
+    ON CONFLICT (tenant_id, nom) DO NOTHING`;
+
   const insertUnit = `
     INSERT INTO unites (tenant_id, nom)
     VALUES ($1, $2)
@@ -37,10 +43,14 @@ export async function seedTenantDefaults(client, tenant_id) {
     // upsert famille
     let famRes = await client.query(findFam, [tenant_id, grp.famille]);
     let famId = famRes.rowCount ? famRes.rows[0].id : null;
+
     if (!famId) {
       const ins = await client.query(insertFam, [tenant_id, grp.famille]);
-      famId = ins.rowCount ? ins.rows[0].id : (await client.query(findFam, [tenant_id, grp.famille])).rows[0].id;
+      famId = ins.rowCount
+        ? ins.rows[0].id
+        : (await client.query(findFam, [tenant_id, grp.famille])).rows[0].id;
     }
+
     // catégories
     for (const cat of grp.cats) {
       await client.query(insertCat, [tenant_id, cat, famId]);

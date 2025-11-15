@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS tenant_settings (
   from_email   text,
   from_name    text,
   modules      jsonb NOT NULL DEFAULT '{}'::jsonb,
+  onboarded    boolean NOT NULL DEFAULT false,
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
 
