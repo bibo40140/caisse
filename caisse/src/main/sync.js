@@ -141,22 +141,32 @@ async function pullRefs({ since = null } = {}) {
     VALUES (${insProdBaseColumns.placeholders})
   `);
 
-  const tx = db.transaction(() => {
-    for (const r of unites) {
-      const name = (r.nom || '').trim();
-      if (!name) continue;
-      insUniteByName.run(name);
-    }
+ const tx = db.transaction(() => {
+  // 🔥 RESET des tables de référentiels pour le tenant courant
+  db.prepare('DELETE FROM modes_paiement').run();
+  db.prepare('DELETE FROM produits').run();
+  db.prepare('DELETE FROM fournisseurs').run();
+  db.prepare('DELETE FROM adherents').run();
+  db.prepare('DELETE FROM categories').run();
+  db.prepare('DELETE FROM familles').run();
+  db.prepare('DELETE FROM unites').run();
 
-    const famUuidToLocalId = new Map();
-    for (const r of familles) {
-      const name = (r.nom || '').trim();
-      const remoteId = String(r.id || '');
-      if (!name || !remoteId) continue;
-      insFamByName.run(name);
-      const row = selFamIdByName.get(name);
-      if (row && row.id != null) famUuidToLocalId.set(remoteId, row.id);
-    }
+  // Ensuite on réinsère les données reçues de Neon
+  for (const r of unites) {
+    const name = (r.nom || '').trim();
+    if (!name) continue;
+    insUniteByName.run(name);
+  }
+
+  const famUuidToLocalId = new Map();
+  for (const r of familles) {
+    const name = (r.nom || '').trim();
+    const remoteId = String(r.id || '');
+    if (!name || !remoteId) continue;
+    insFamByName.run(name);
+    const row = selFamIdByName.get(name);
+    if (row && row.id != null) famUuidToLocalId.set(remoteId, row.id);
+  }
 
     for (const r of categories) {
       const name = (r.nom || '').trim();
