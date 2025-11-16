@@ -2,7 +2,7 @@
 // Schéma LOCAL unique et canonique (SQLite)
 // - Active les FK
 // - Crée toutes les tables et index nécessaires à l’app (caisse + inventaire v2.x)
-// - Ne dépend PAS du backend (Neon). Les colonnes "remote_*" sont des ponts possibles.
+// - Ne dépend PAS du backend (Neon). Les colonnes "remote_uuid" servent de pont avec les UUID distants.
 
 function ensureLocalSchema(db) {
   // Toujours activer les FK en SQLite
@@ -14,36 +14,38 @@ function ensureLocalSchema(db) {
       schema_version INTEGER NOT NULL
     );
   `);
-  // Initialise à 1 si vide
   try {
     const r = db.prepare(`SELECT COUNT(*) AS n FROM app_meta`).get();
-    if (!r || !r.n) db.prepare(`INSERT INTO app_meta(schema_version) VALUES (1)`).run();
+    if (!r || !r.n) {
+      db.prepare(`INSERT INTO app_meta(schema_version) VALUES (1)`).run();
+    }
   } catch {}
 
-  
-
-   db.exec(`
+  // --- PARAMÈTRES LOCAUX (clé/valeur) — pour ce poste / ce fichier SQLite
+  db.exec(`
     CREATE TABLE IF NOT EXISTS tenant_settings (
-      key TEXT PRIMARY KEY,
+      key        TEXT PRIMARY KEY,
       value_json TEXT,
       updated_at DATETIME DEFAULT (datetime('now','localtime'))
     );
-    CREATE INDEX IF NOT EXISTS idx_tenant_settings_key ON tenant_settings(key);
   `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_tenant_settings_key ON tenant_settings(key);`);
 
   // --- UNITÉS
   db.exec(`
     CREATE TABLE IF NOT EXISTS unites (
-      id   INTEGER PRIMARY KEY AUTOINCREMENT,
-      nom  TEXT UNIQUE NOT NULL
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom         TEXT UNIQUE NOT NULL,
+      remote_uuid TEXT UNIQUE    -- UUID de la table unites côté Neon
     );
   `);
 
   // --- FAMILLES
   db.exec(`
     CREATE TABLE IF NOT EXISTS familles (
-      id  INTEGER PRIMARY KEY AUTOINCREMENT,
-      nom TEXT UNIQUE NOT NULL
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom         TEXT UNIQUE NOT NULL,
+      remote_uuid TEXT UNIQUE    -- UUID de la table familles côté Neon
     );
   `);
 
@@ -53,6 +55,7 @@ function ensureLocalSchema(db) {
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       nom         TEXT NOT NULL,
       famille_id  INTEGER,
+      remote_uuid TEXT UNIQUE,   -- UUID de la table categories côté Neon
       UNIQUE(nom, famille_id),
       FOREIGN KEY (famille_id) REFERENCES familles(id) ON DELETE SET NULL
     );
@@ -78,7 +81,8 @@ function ensureLocalSchema(db) {
       date_inscription     TEXT,
       archive              INTEGER DEFAULT 0,
       date_archivage       TEXT,
-      date_reactivation    TEXT
+      date_reactivation    TEXT,
+      remote_uuid          TEXT UNIQUE    -- UUID de l'adherent côté Neon
     );
   `);
 
@@ -89,7 +93,8 @@ function ensureLocalSchema(db) {
       nom          TEXT UNIQUE NOT NULL,
       taux_percent REAL DEFAULT 0,
       frais_fixe   REAL DEFAULT 0,
-      actif        INTEGER DEFAULT 1
+      actif        INTEGER DEFAULT 1,
+      remote_uuid  TEXT UNIQUE   -- UUID du mode de paiement côté Neon
     );
   `);
 
@@ -107,12 +112,13 @@ function ensureLocalSchema(db) {
       categorie_id INTEGER,
       referent_id  INTEGER,
       label        TEXT,
+      remote_uuid  TEXT UNIQUE,   -- UUID du fournisseur côté Neon
       FOREIGN KEY (categorie_id) REFERENCES categories(id),
       FOREIGN KEY (referent_id)  REFERENCES adherents(id)
     );
   `);
 
-  // --- PRODUITS (avec remote_uuid requis par l’inventaire v2.x)
+  // --- PRODUITS (remote_uuid déjà utilisé pour le mapping avec Neon)
   db.exec(`
     CREATE TABLE IF NOT EXISTS produits (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,7 +131,7 @@ function ensureLocalSchema(db) {
       fournisseur_id INTEGER,
       categorie_id   INTEGER,
       updated_at     TEXT DEFAULT (datetime('now','localtime')),
-      remote_uuid    TEXT,                                 -- mapping vers ID distant (Neon)
+      remote_uuid    TEXT,                                 -- mapping vers ID distant (Neon, UUID)
       FOREIGN KEY (unite_id)       REFERENCES unites(id),
       FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id),
       FOREIGN KEY (categorie_id)   REFERENCES categories(id)
@@ -136,7 +142,7 @@ function ensureLocalSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_produits_remote_uuid ON produits(remote_uuid);
   `);
 
-  // --- VENTES
+  // --- VENTES (header de vente)
   db.exec(`
     CREATE TABLE IF NOT EXISTS ventes (
       id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,6 +155,7 @@ function ensureLocalSchema(db) {
       sale_type        TEXT NOT NULL DEFAULT 'adherent',   -- 'adherent' | 'exterieur' | 'prospect'
       client_email     TEXT,
       updated_at       TEXT DEFAULT (datetime('now','localtime')),
+      remote_uuid      TEXT UNIQUE,                        -- UUID de la vente côté Neon
       FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
       FOREIGN KEY (mode_paiement_id) REFERENCES modes_paiement(id)
     );
@@ -166,13 +173,14 @@ function ensureLocalSchema(db) {
       prix_unitaire  REAL,
       remise_percent REAL DEFAULT 0,
       updated_at     TEXT DEFAULT (datetime('now','localtime')),
+      remote_uuid    TEXT UNIQUE,                          -- UUID de la ligne côté Neon (optionnel, mais prêt)
       FOREIGN KEY (vente_id)   REFERENCES ventes(id)   ON DELETE CASCADE,
       FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
     );
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_lignes_vente_vente ON lignes_vente(vente_id);`);
 
-  // --- COTISATIONS
+  // --- COTISATIONS (local uniquement pour l'instant)
   db.exec(`
     CREATE TABLE IF NOT EXISTS cotisations (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,6 +200,7 @@ function ensureLocalSchema(db) {
       date           TEXT DEFAULT (datetime('now','localtime')),
       reference      TEXT,
       updated_at     TEXT DEFAULT (datetime('now','localtime')),
+      remote_uuid    TEXT UNIQUE,                          -- UUID de la réception côté Neon
       FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id)
     );
   `);
@@ -205,12 +214,13 @@ function ensureLocalSchema(db) {
       quantite       REAL NOT NULL,
       prix_unitaire  REAL,
       updated_at     TEXT DEFAULT (datetime('now','localtime')),
+      remote_uuid    TEXT UNIQUE,                          -- UUID de la ligne côté Neon (optionnel)
       FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE,
       FOREIGN KEY (produit_id)   REFERENCES produits(id)   ON DELETE CASCADE
     );
   `);
 
-  // --- PANIER / CAISSE (pour l’UI de caisse)
+  // --- PANIER / CAISSE (pour l’UI de caisse, local only)
   db.exec(`
     CREATE TABLE IF NOT EXISTS carts (
       id               TEXT PRIMARY KEY,
@@ -263,7 +273,7 @@ function ensureLocalSchema(db) {
       ville         TEXT,
       note          TEXT,
       status        TEXT DEFAULT 'actif',
-      date_creation TEXT DEFAULT (datetime('now')),
+      date_creation TEXT DEFAULT (datetime('now','localtime')),
       adherent_id   INTEGER,
       FOREIGN KEY (adherent_id) REFERENCES adherents(id) ON DELETE SET NULL
     );
@@ -275,7 +285,7 @@ function ensureLocalSchema(db) {
       subject      TEXT,
       body_html    TEXT,
       date_reunion TEXT,
-      sent_at      TEXT DEFAULT (datetime('now')),
+      sent_at      TEXT DEFAULT (datetime('now','localtime')),
       sent_by      TEXT,
       FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE CASCADE
     );
@@ -305,30 +315,21 @@ function ensureLocalSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_ops_queue_ack     ON ops_queue(ack);
   `);
 
-  // --- PARAMÈTRES LOCATAIRES (clé/valeur)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS tenant_settings (
-      key        TEXT PRIMARY KEY,
-      value_json TEXT,
-      updated_at DATETIME DEFAULT (datetime('now','localtime'))
-    );
-  `);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_tenant_settings_key ON tenant_settings(key);`);
-
   // --- INVENTAIRE (local cache + compat UI)
   db.exec(`
     CREATE TABLE IF NOT EXISTS inventory_sessions (
-      id         TEXT PRIMARY KEY,  -- on garde TEXT pour accepter les UUID renvoyés par l'API
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
       name       TEXT,
       status     TEXT NOT NULL DEFAULT 'open',
       started_at TEXT DEFAULT (datetime('now','localtime')),
-      ended_at   TEXT
+      ended_at   TEXT,
+      remote_uuid TEXT UNIQUE   -- UUID de la session d'inventaire côté Neon (optionnel, pour plus tard)
     );
   `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS inventory_counts (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id   TEXT NOT NULL,
+      session_id   INTEGER NOT NULL,
       produit_id   INTEGER NOT NULL,
       qty          REAL NOT NULL,
       user         TEXT,
@@ -361,9 +362,22 @@ function ensureLocalSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_sm_created ON stock_movements(created_at);
   `);
 
-  // --- Patchs doux si DB existante (no-op si déjà ok)
+  // --- PATCHS DOUX (ajout de remote_uuid si base existante)
   try { db.prepare("ALTER TABLE produits ADD COLUMN remote_uuid TEXT").run(); } catch {}
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_produits_remote_uuid ON produits(remote_uuid);"); } catch {}
+
+  try { db.prepare("ALTER TABLE unites ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE familles ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE categories ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE adherents ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE fournisseurs ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE modes_paiement ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+
+  try { db.prepare("ALTER TABLE ventes ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE lignes_vente ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE receptions ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE lignes_reception ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  try { db.prepare("ALTER TABLE inventory_sessions ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
 }
 
 module.exports = { ensureLocalSchema };

@@ -8,6 +8,12 @@ function asIntOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+// Helper: retourne l'id si c'est un UUID v4 plausible, sinon null
+function asUuidOrNull(x) {
+  const s = (x ?? '').toString().trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s) ? s : null;
+}
+
 import 'dotenv/config';
 
 console.log(
@@ -26,18 +32,11 @@ import { pool } from './db/index.js';
 
 // Routers
 import tenantsRouter from './routes/tenants.js';
-import authRoutes from './routes/auth.js';
+import authRouter from './routes/auth.js';
 import tenantSettingsRoutes from './routes/tenantSettings.js';
 import makeBrandingRouter from './routes/branding.js';
 
-// Middleware
-import { authRequired } from './middleware/auth.js';
-
-// tests / anciens routers (je les laisse tels quels)
-import authRouter from './routes/auth.js';
 import settingsRouter from './routes/settings.js';
-import adherentsRoutes from './routes/adherents.js';
-
 import adherentsRouter from './routes/adherents.js';
 import fournisseursRouter from './routes/fournisseurs.js';
 import produitsRouter from './routes/produits.js';
@@ -45,7 +44,9 @@ import receptionsRouter from './routes/receptions.js';
 import ventesRouter from './routes/ventes.js';
 import inventoryExtraRouter from './routes/inventory_extra.js';
 import inventoryRoutes from './routes/inventory.js';
-import inventoryExtra from './routes/inventory_extra.js';
+
+// Middleware
+import { authRequired } from './middleware/auth.js';
 
 /* =========================
  * Checks de configuration
@@ -72,6 +73,7 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Tenants
 app.use('/tenants', tenantsRouter);
 
 /* =========================
@@ -87,13 +89,15 @@ app.get('/health/db', async (_req, res) => {
   }
 });
 
-// Servez les fichiers statiques (logos…)
+// Static (logos, uploads…)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use('/public', express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// tests //
+/* =========================
+ * Routes "classiques"
+ * =======================*/
 app.use('/auth', authRouter);
 app.use(settingsRouter);
 app.use(adherentsRouter);
@@ -102,20 +106,14 @@ app.use(produitsRouter);
 app.use(receptionsRouter);
 app.use(ventesRouter);
 app.use(inventoryExtraRouter);
-app.use('/inventory', inventoryExtra);
-
-app.use('/adherents', adherentsRoutes);
 app.use('/inventory', inventoryRoutes);
 
 /* =========================
  * Routes multi-tenant
  * =======================*/
-app.use('/auth', authRoutes);
 app.use('/tenant_settings', tenantSettingsRoutes);
 
-// =========================
-// Branding multi-tenant
-// =========================
+// Branding multi-tenant (protégé)
 app.use('/branding', authRequired, makeBrandingRouter({ pool }));
 
 /* ============================================
@@ -151,19 +149,24 @@ app.post('/inventory/start', authRequired, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Fermer toutes les autres sessions encore 'open' pour ce tenant
+    // Fermer toutes les autres sessions "open" pour ce tenant
     await client.query(
-      `UPDATE inventory_sessions
+      `
+      UPDATE inventory_sessions
          SET status='closed', ended_at=now()
-       WHERE tenant_id=$1 AND status='open'`,
+       WHERE tenant_id=$1 AND status='open'
+      `,
       [tenantId]
     );
 
+    // (Sécurité) si une session "open" du même nom traîne encore
     const existing = await client.query(
-      `SELECT id, name, status, started_at
-       FROM inventory_sessions
-       WHERE tenant_id=$1 AND name=$2 AND status='open'
-       ORDER BY started_at ASC LIMIT 1`,
+      `
+      SELECT id, name, status, started_at
+      FROM inventory_sessions
+      WHERE tenant_id=$1 AND name=$2 AND status='open'
+      ORDER BY started_at ASC LIMIT 1
+      `,
       [tenantId, name]
     );
     if (existing.rowCount > 0) {
@@ -171,14 +174,18 @@ app.post('/inventory/start', authRequired, async (req, res) => {
       return res.json({ ok: true, session: existing.rows[0], reused: true });
     }
 
+    // Crée la nouvelle session ouverte
     const s = await client.query(
-      `INSERT INTO inventory_sessions (tenant_id, name, "user", notes, status)
-       VALUES ($1,$2,$3,$4,'open')
-       RETURNING id, name, status, started_at`,
+      `
+      INSERT INTO inventory_sessions (tenant_id, name, "user", notes, status)
+      VALUES ($1,$2,$3,$4,'open')
+      RETURNING id, name, status, started_at
+      `,
       [tenantId, name, user || null, notes || null]
     );
     const sessionId = s.rows[0].id;
 
+    // Snapshot initial de tous les produits
     const prods = await client.query(
       `SELECT id, prix FROM produits WHERE tenant_id=$1 ORDER BY id`,
       [tenantId]
@@ -186,9 +193,11 @@ app.post('/inventory/start', authRequired, async (req, res) => {
     for (const p of prods.rows) {
       const stockStart = await getCurrentStock(client, tenantId, p.id);
       await client.query(
-        `INSERT INTO inventory_snapshot(session_id, tenant_id, product_id, stock_start, unit_cost)
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (session_id, product_id) DO NOTHING`,
+        `
+        INSERT INTO inventory_snapshot(session_id, tenant_id, product_id, stock_start, unit_cost)
+        VALUES ($1,$2,$3,$4,$5)
+        ON CONFLICT (session_id, product_id) DO NOTHING
+        `,
         [sessionId, tenantId, p.id, stockStart, null]
       );
     }
@@ -208,7 +217,7 @@ app.post('/inventory/start', authRequired, async (req, res) => {
 app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const sessionId = String(req.params.id || '');
-  let productIdOrKey = req.body?.product_id;
+  let productIdOrKey = req.body?.product_id; // uuid, ref, ou barcode
   const qtyRaw = req.body?.qty;
   const deviceId = req.body?.device_id;
   const user = req.body?.user || null;
@@ -227,15 +236,16 @@ app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
 
   const client = await pool.connect();
   try {
+    // Session ouverte ?
     const st = await client.query(
       `SELECT status FROM inventory_sessions WHERE tenant_id=$1 AND id=$2`,
       [tenantId, sessionId]
     );
-    if (st.rowCount === 0)
-      return res.status(404).json({ ok: false, error: 'session_not_found' });
+    if (st.rowCount === 0) return res.status(404).json({ ok: false, error: 'session_not_found' });
     if (st.rows[0].status !== 'open')
       return res.status(409).json({ ok: false, error: 'session_locked' });
 
+    // Résoudre le produit → id (uuid ou ref ou code-barres)
     let productUuid = null;
     const key = normStr(productIdOrKey);
 
@@ -261,11 +271,14 @@ app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'product_resolution_failed' });
     }
 
+    // Upsert comptage
     await client.query(
-      `INSERT INTO inventory_counts (session_id, tenant_id, produit_id, device_id, "user", qty, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6, now())
-       ON CONFLICT (session_id, produit_id, device_id)
-       DO UPDATE SET qty = inventory_counts.qty + EXCLUDED.qty, updated_at=now()`,
+      `
+      INSERT INTO inventory_counts (session_id, tenant_id, produit_id, device_id, "user", qty, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6, now())
+      ON CONFLICT (session_id, produit_id, device_id)
+      DO UPDATE SET qty = inventory_counts.qty + EXCLUDED.qty, updated_at=now()
+      `,
       [sessionId, tenantId, productUuid, deviceId, user, qty]
     );
 
@@ -283,7 +296,8 @@ app.get('/inventory/sessions', authRequired, async (req, res) => {
   const client = await pool.connect();
   try {
     const r = await client.query(
-      `WITH snap AS (
+      `
+      WITH snap AS (
          SELECT session_id, COUNT(*)::int AS snapshot_lines
          FROM inventory_snapshot
          WHERE tenant_id = $1
@@ -308,7 +322,8 @@ app.get('/inventory/sessions', authRequired, async (req, res) => {
        LEFT JOIN snap sn ON sn.session_id = s.id
        LEFT JOIN cnt  cn ON cn.session_id = s.id
        WHERE s.tenant_id = $1
-       ORDER BY s.started_at DESC`,
+       ORDER BY s.started_at DESC
+      `,
       [tenantId]
     );
 
@@ -326,10 +341,12 @@ app.post('/inventory/close-all-open', authRequired, async (req, res) => {
   const client = await pool.connect();
   try {
     const r = await client.query(
-      `UPDATE inventory_sessions
+      `
+      UPDATE inventory_sessions
          SET status='closed', ended_at=now()
        WHERE tenant_id=$1 AND status='open'
-       RETURNING id, name, started_at, ended_at`,
+       RETURNING id, name, started_at, ended_at
+      `,
       [tenantId]
     );
     res.json({ ok: true, closed: r.rows });
@@ -357,7 +374,8 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
     }
 
     const r = await client.query(
-      `WITH summed AS (
+      `
+      WITH summed AS (
          SELECT produit_id, SUM(qty)::numeric AS counted_total
          FROM inventory_counts
          WHERE tenant_id=$1 AND session_id=$2
@@ -375,7 +393,8 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
        LEFT JOIN summed s
          ON s.produit_id = snap.product_id
        WHERE snap.tenant_id=$1 AND snap.session_id=$2
-       ORDER BY p.nom`,
+       ORDER BY p.nom
+      `,
       [tenantId, sessionId]
     );
 
@@ -398,11 +417,14 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Lock la session
     const st = await client.query(
-      `SELECT id, status, name, started_at, ended_at
-       FROM inventory_sessions
-       WHERE tenant_id=$1 AND id=$2
-       FOR UPDATE`,
+      `
+      SELECT id, status, name, started_at, ended_at
+      FROM inventory_sessions
+      WHERE tenant_id=$1 AND id=$2
+      FOR UPDATE
+      `,
       [tenantId, sessionId]
     );
     if (st.rowCount === 0) {
@@ -412,10 +434,12 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
     if (st.rows[0].status === 'closed') {
       await client.query('ROLLBACK');
       const rr = await pool.query(
-        `SELECT COUNT(*)::int AS lines,
-                COALESCE(SUM(delta_value),0)::numeric AS value
-         FROM inventory_adjust
-         WHERE tenant_id=$1 AND session_id=$2`,
+        `
+        SELECT COUNT(*)::int AS lines,
+               COALESCE(SUM(delta_value),0)::numeric AS value
+        FROM inventory_adjust
+        WHERE tenant_id=$1 AND session_id=$2
+        `,
         [tenantId, sessionId]
       );
       return res.json({
@@ -439,14 +463,18 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 
     if (st.rows[0].status === 'open') {
       await client.query(
-        `UPDATE inventory_sessions SET status='finalizing'
-         WHERE tenant_id=$1 AND id=$2`,
+        `
+        UPDATE inventory_sessions SET status='finalizing'
+        WHERE tenant_id=$1 AND id=$2
+        `,
         [tenantId, sessionId]
       );
     }
 
+    // Agrégat snapshot + comptages
     const agg = await client.query(
-      `WITH summed AS (
+      `
+      WITH summed AS (
          SELECT produit_id, SUM(qty)::numeric AS counted_total
          FROM inventory_counts
          WHERE tenant_id=$1 AND session_id=$2
@@ -462,7 +490,8 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
        JOIN produits p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
        LEFT JOIN summed sm ON sm.produit_id = s.product_id
        WHERE s.tenant_id=$1 AND s.session_id=$2
-       ORDER BY p.nom`,
+       ORDER BY p.nom
+      `,
       [tenantId, sessionId]
     );
 
@@ -480,14 +509,16 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
       const delta = counted - currentLive;
 
       await client.query(
-        `INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6, NULL, $7, now())
-         ON CONFLICT (session_id, tenant_id, product_id)
-         DO UPDATE SET
-            stock_start   = EXCLUDED.stock_start,
-            counted_total = EXCLUDED.counted_total,
-            delta         = EXCLUDED.delta,
-            delta_value   = EXCLUDED.delta_value`,
+        `
+        INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6, NULL, $7, now())
+        ON CONFLICT (session_id, tenant_id, product_id)
+        DO UPDATE SET
+           stock_start   = EXCLUDED.stock_start,
+           counted_total = EXCLUDED.counted_total,
+           delta         = EXCLUDED.delta,
+           delta_value   = EXCLUDED.delta_value
+        `,
         [sessionId, tenantId, pid, start, counted, delta, delta * prix]
       );
 
@@ -498,21 +529,25 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
       if (delta !== 0) {
         const sourceId = `inv:${sessionId}:${pid}`;
         await client.query(
-          `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id, created_at)
-           SELECT $1,$2,$3,'inventory_finalize',$4, now()
-           WHERE NOT EXISTS (
-             SELECT 1 FROM stock_movements WHERE tenant_id=$1 AND source_id=$4
-           )`,
+          `
+          INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id, created_at)
+          SELECT $1,$2,$3,'inventory_finalize',$4, now()
+          WHERE NOT EXISTS (
+            SELECT 1 FROM stock_movements WHERE tenant_id=$1 AND source_id=$4
+          )
+          `,
           [tenantId, pid, delta, sourceId]
         );
       }
     }
 
     const endUpd = await client.query(
-      `UPDATE inventory_sessions
+      `
+      UPDATE inventory_sessions
          SET status='closed', ended_at=now(), "user"=COALESCE("user",$3)
        WHERE tenant_id=$1 AND id=$2
-       RETURNING id, name, started_at, ended_at`,
+       RETURNING id, name, started_at, ended_at
+      `,
       [tenantId, sessionId, user || null]
     );
 
@@ -543,14 +578,6 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 /* =========================================================
  * SYNC (bootstrap / pull_refs / push_ops)
  * =======================================================*/
-function asUuidOrNull(x) {
-  const s = (x ?? '').toString().trim();
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    s
-  )
-    ? s
-    : null;
-}
 
 app.get('/sync/bootstrap_needed', authRequired, async (req, res) => {
   try {
@@ -564,149 +591,93 @@ app.get('/sync/bootstrap_needed', authRequired, async (req, res) => {
   }
 });
 
-/**
- * 🔁 pull_refs : maintenant renvoie aussi l'historique :
- * - ventes
- * - lignes_vente
- * - receptions
- * - lignes_reception
- * (cotisations/inventaire restent pour une prochaine étape)
- */
 app.get('/sync/pull_refs', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const client = await pool.connect();
   try {
-    const [
-      unites,
-      familles,
-      categories,
-      adherents,
-      fournisseurs,
-      produits,
-      modes_paiement,
-    ] = await Promise.all([
-      // UNITES
-      client.query(
-        `SELECT id, nom
-         FROM unites
-         WHERE tenant_id = $1
-         ORDER BY nom`,
-        [tenantId]
-      ),
-
-      // FAMILLES
-      client.query(
-        `SELECT id, nom
-         FROM familles
-         WHERE tenant_id = $1
-         ORDER BY nom`,
-        [tenantId]
-      ),
-
-      // CATEGORIES
-      client.query(
-        `SELECT id, nom, famille_id
-         FROM categories
-         WHERE tenant_id = $1
-         ORDER BY nom`,
-        [tenantId]
-      ),
-
-      // ADHERENTS (toutes les colonnes utiles pour le local)
-      client.query(
-        `SELECT
-           id,
-           nom,
-           prenom,
-           email1,
-           email2,
-           telephone1,
-           telephone2,
-           adresse,
-           code_postal,
-           ville,
-           nb_personnes_foyer,
-           tranche_age,
-           droit_entree,
-           date_inscription,
-           archive,
-           date_archivage,
-           date_reactivation
-         FROM adherents
-         WHERE tenant_id = $1
-         ORDER BY nom NULLS LAST, prenom NULLS LAST`,
-        [tenantId]
-      ),
-
-      // FOURNISSEURS
-      client.query(
-        `SELECT
-           id,
-           nom,
-           categorie_id,
-           contact,
-           email,
-           telephone,
-           adresse,
-           code_postal,
-           ville,
-           label
-         FROM fournisseurs
-         WHERE tenant_id = $1
-         ORDER BY nom`,
-        [tenantId]
-      ),
-
-      // PRODUITS avec stock calculé à partir de stock_movements
-      client.query(
-        `
-        SELECT
-          p.id,
-          p.nom,
-          p.reference,
-          p.prix,
-          p.code_barre,
-          p.unite_id,
-          p.fournisseur_id,
-          p.categorie_id,
-          p.updated_at,
-          COALESCE((
-            SELECT SUM(delta)::numeric
-            FROM stock_movements sm
-            WHERE sm.tenant_id = p.tenant_id
-              AND sm.produit_id = p.id
-          ), p.stock, 0) AS stock
-        FROM produits p
-        WHERE p.tenant_id = $1
-        ORDER BY p.nom
-        `,
-        [tenantId]
-      ),
-
-      // MODES DE PAIEMENT
-      client.query(
-        `SELECT
-           id,
-           nom,
-           taux_percent,
-           frais_fixe,
-           actif
-         FROM modes_paiement
-         WHERE tenant_id = $1
-         ORDER BY nom`,
-        [tenantId]
-      ),
-    ]);
+    const [unites, familles, categories, adherents, fournisseurs, produits, modes_paiement] =
+      await Promise.all([
+        client.query(
+          `
+          SELECT id, nom
+          FROM unites
+          WHERE tenant_id = $1
+          ORDER BY nom
+          `,
+          [tenantId]
+        ),
+        client.query(
+          `
+          SELECT id, nom
+          FROM familles
+          WHERE tenant_id = $1
+          ORDER BY nom
+          `,
+          [tenantId]
+        ),
+        client.query(
+          `
+          SELECT id, nom, famille_id
+          FROM categories
+          WHERE tenant_id = $1
+          ORDER BY nom
+          `,
+          [tenantId]
+        ),
+        client.query(
+          `
+          SELECT *
+          FROM adherents
+          WHERE tenant_id = $1
+          ORDER BY nom NULLS LAST
+          `,
+          [tenantId]
+        ),
+        client.query(
+          `
+          SELECT *
+          FROM fournisseurs
+          WHERE tenant_id = $1
+          ORDER BY nom
+          `,
+          [tenantId]
+        ),
+        client.query(
+          `
+          SELECT
+            p.id, p.nom, p.reference, p.prix, p.code_barre,
+            p.unite_id, p.fournisseur_id, p.categorie_id, p.updated_at,
+            COALESCE((
+              SELECT SUM(delta)::numeric
+              FROM stock_movements sm
+              WHERE sm.tenant_id = p.tenant_id AND sm.produit_id = p.id
+            ), p.stock, 0) AS stock
+          FROM produits p
+          WHERE p.tenant_id = $1
+          ORDER BY p.nom
+          `,
+          [tenantId]
+        ),
+        client.query(
+          `
+          SELECT id, nom, taux_percent, frais_fixe, actif
+          FROM modes_paiement
+          WHERE tenant_id = $1
+          ORDER BY nom
+          `,
+          [tenantId]
+        ),
+      ]);
 
     res.json({
       ok: true,
       data: {
-        unites:         unites.rows,
-        familles:       familles.rows,
-        categories:     categories.rows,
-        adherents:      adherents.rows,
-        fournisseurs:   fournisseurs.rows,
-        produits:       produits.rows,
+        unites: unites.rows,
+        familles: familles.rows,
+        categories: categories.rows,
+        adherents: adherents.rows,
+        fournisseurs: fournisseurs.rows,
+        produits: produits.rows,
         modes_paiement: modes_paiement.rows,
       },
     });
@@ -727,7 +698,12 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
   console.log('[API] /sync/push_ops received:', { deviceId, count: ops.length, tenantId });
 
-  const order = { 'adherent.created': 1, 'adherent.updated': 2, 'sale.created': 10, 'sale.updated': 11 };
+  const order = {
+    'adherent.created': 1,
+    'adherent.updated': 2,
+    'sale.created': 10,
+    'sale.updated': 11,
+  };
   ops.sort((a, b) => (order[a.op_type] || 100) - (order[b.op_type] || 100));
 
   const client = await pool.connect();
@@ -757,9 +733,11 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
       try {
         await client.query(
-          `INSERT INTO ops (id, tenant_id, device_id, op_type, entity_type, entity_id, payload)
-           VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
-           ON CONFLICT (id) DO NOTHING`,
+          `
+          INSERT INTO ops (id, tenant_id, device_id, op_type, entity_type, entity_id, payload)
+          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+          ON CONFLICT (id) DO NOTHING
+          `,
           [
             op.id,
             tenantId,
@@ -776,10 +754,9 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
       let p = payloadObj;
       try {
-        const r = await client.query(
-          `SELECT applied_at, payload FROM ops WHERE id = $1`,
-          [op.id]
-        );
+        const r = await client.query(`SELECT applied_at, payload FROM ops WHERE id = $1`, [
+          op.id,
+        ]);
         if (r.rowCount > 0) {
           if (r.rows[0]?.applied_at) {
             console.log('    (déjà appliquée)');
@@ -805,12 +782,14 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           const adherentId = asIntOrNull(p.adherentId);
 
           await client.query(
-            `INSERT INTO ventes (
+            `
+            INSERT INTO ventes (
                id, tenant_id, total, adherent_id, mode_paiement_id,
                sale_type, client_email, frais_paiement, cotisation
              )
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-             ON CONFLICT (tenant_id, id) DO NOTHING`,
+             ON CONFLICT (tenant_id, id) DO NOTHING
+            `,
             [
               venteId,
               tenantId,
@@ -858,19 +837,23 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             throw new Error('sale_not_found_for_tenant');
 
           const chk = await client.query(
-            `SELECT 1 FROM lignes_vente
+            `
+            SELECT 1 FROM lignes_vente
              WHERE tenant_id=$1 AND vente_id=$2 AND produit_id=$3 AND quantite=$4 AND prix=$5
-             LIMIT 1`,
+             LIMIT 1
+            `,
             [tenantId, venteId, produitId, quantite, prix]
           );
 
           if (chk.rowCount === 0) {
             if (ligneId != null) {
               await client.query(
-                `INSERT INTO lignes_vente
+                `
+                INSERT INTO lignes_vente
                    (id, tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-                 ON CONFLICT (tenant_id, id) DO NOTHING`,
+                 ON CONFLICT (tenant_id, id) DO NOTHING
+                `,
                 [
                   ligneId,
                   tenantId,
@@ -884,9 +867,11 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
               );
             } else {
               await client.query(
-                `INSERT INTO lignes_vente
+                `
+                INSERT INTO lignes_vente
                    (tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)
+                `,
                 [
                   tenantId,
                   venteId,
@@ -911,9 +896,11 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           }
 
           await client.query(
-            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+            `
+            INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
              VALUES ($1,$2,$3,'sale_line',$4)
-             ON CONFLICT DO NOTHING`,
+             ON CONFLICT DO NOTHING
+            `,
             [tenantId, produitId, -quantite, sourceKey]
           );
           console.log('    [+] stock_movements sale_line', {
@@ -949,14 +936,9 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             break;
           }
 
-          let rid =
-            p.receptionId != null && p.receptionId !== ''
-              ? Number(p.receptionId)
-              : null;
+          let rid = p.receptionId != null ? Number(p.receptionId) : null;
           const fournisseurId =
-            p.fournisseurId != null && p.fournisseurId !== ''
-              ? Number(p.fournisseurId)
-              : null;
+            p.fournisseurId != null ? Number(p.fournisseurId) : null;
 
           if (rid && Number.isInteger(rid) && rid > 0) {
             const chkR = await client.query(
@@ -965,42 +947,48 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             );
             if (chkR.rowCount === 0) {
               await client.query(
-                `INSERT INTO receptions (id, tenant_id, fournisseur_id, date, reference)
+                `
+                INSERT INTO receptions (id, tenant_id, fournisseur_id, date, reference)
                  VALUES ($1, $2, $3, now(), $4)
-                 ON CONFLICT (tenant_id, id) DO NOTHING`,
+                 ON CONFLICT (id) DO NOTHING
+                `,
                 [rid, tenantId, fournisseurId, p.reference || null]
               );
             }
           } else {
             const ins = await client.query(
-              `INSERT INTO receptions (tenant_id, fournisseur_id, date, reference)
+              `
+              INSERT INTO receptions (tenant_id, fournisseur_id, date, reference)
                VALUES ($1,$2, now(), $3)
-               RETURNING id`,
+               RETURNING id
+              `,
               [tenantId, fournisseurId, p.reference || null]
             );
             rid = ins.rows[0].id;
           }
 
           const ligneRecId =
-            p.ligneRecId != null && p.ligneRecId !== ''
-              ? Number(p.ligneRecId)
-              : null;
+            p.ligneRecId != null ? Number(p.ligneRecId) : null;
 
           if (ligneRecId && Number.isInteger(ligneRecId) && ligneRecId > 0) {
             await client.query(
-              `INSERT INTO lignes_reception (id, tenant_id, reception_id, produit_id, quantite, prix_unitaire)
+              `
+              INSERT INTO lignes_reception (id, tenant_id, reception_id, produit_id, quantite, prix_unitaire)
                VALUES ($1, $2, $3, $4, $5, $6)
-               ON CONFLICT (tenant_id, id) DO UPDATE SET
+               ON CONFLICT (id) DO UPDATE SET
                  reception_id  = EXCLUDED.reception_id,
                  produit_id    = EXCLUDED.produit_id,
                  quantite      = EXCLUDED.quantite,
-                 prix_unitaire = EXCLUDED.prix_unitaire`,
+                 prix_unitaire = EXCLUDED.prix_unitaire
+              `,
               [ligneRecId, tenantId, rid, pid, qte, p.prixUnitaire ?? null]
             );
           } else {
             await client.query(
-              `INSERT INTO lignes_reception (tenant_id, reception_id, produit_id, quantite, prix_unitaire)
-               VALUES ($1,$2,$3,$4,$5)`,
+              `
+              INSERT INTO lignes_reception (tenant_id, reception_id, produit_id, quantite, prix_unitaire)
+               VALUES ($1,$2,$3,$4,$5)
+              `,
               [tenantId, rid, pid, qte, p.prixUnitaire ?? null]
             );
           }
@@ -1018,9 +1006,11 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           const delta = target - currentStock;
 
           await client.query(
-            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+            `
+            INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
              VALUES ($1,$2,$3,'reception_line',$4)
-             ON CONFLICT DO NOTHING`,
+             ON CONFLICT DO NOTHING
+            `,
             [tenantId, pid, delta, String(ligneRecId || `${rid}:${pid}`)]
           );
           console.log('    [+] stock_movements reception_line', {
@@ -1030,9 +1020,11 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
           if (p.prixUnitaire != null) {
             await client.query(
-              `UPDATE produits
+              `
+              UPDATE produits
                  SET prix = $1, updated_at = now()
-               WHERE tenant_id = $2 AND id = $3`,
+               WHERE tenant_id = $2 AND id = $3
+              `,
               [p.prixUnitaire, tenantId, pid]
             );
             console.log('    [~] prix produit mis à jour', {
@@ -1054,9 +1046,11 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             break;
           }
           await client.query(
-            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+            `
+            INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
              VALUES ($1,$2,$3,'inventory_adjust',$4)
-             ON CONFLICT DO NOTHING`,
+             ON CONFLICT DO NOTHING
+            `,
             [tenantId, produitId, delta, String(op.id)]
           );
           console.log('    [+] stock_movements inventory_adjust', {
@@ -1070,6 +1064,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           const fields = [];
           const values = [];
           let idx = 2;
+
           if (p.nom != null) {
             fields.push(`nom = $${++idx}`);
             values.push(p.nom);
@@ -1100,11 +1095,12 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           }
 
           if (fields.length > 0) {
-            const sql = `UPDATE produits SET ${fields.join(
-              ', '
-            )}, updated_at = now() WHERE tenant_id = $1 AND id = $2`;
+            const sql = `
+              UPDATE produits
+                 SET ${fields.join(', ')}, updated_at = now()
+               WHERE tenant_id = $1 AND id = $2
+            `;
             await client.query(sql, [tenantId, asIntOrNull(p.id), ...values]);
-
             console.log('    [~] produit mis à jour', { id: p.id });
           }
           break;
@@ -1131,9 +1127,11 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
     await client.query('ROLLBACK');
     console.error('POST /sync/push_ops error:', e);
     if (e?.code === '42P01') {
-      return res
-        .status(500)
-        .json({ ok: false, error: 'missing_table', detail: e.message });
+      return res.status(500).json({
+        ok: false,
+        error: 'missing_table',
+        detail: e.message,
+      });
     }
     res.status(500).json({ ok: false, error: e.message });
   } finally {
@@ -1162,11 +1160,11 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
     for (const u of unites) {
       await client.query(
         `
-    INSERT INTO unites (id, tenant_id, nom)
-    VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3)
-    ON CONFLICT (tenant_id, nom) DO UPDATE
-      SET nom = EXCLUDED.nom
-  `,
+        INSERT INTO unites (id, tenant_id, nom)
+        VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3)
+        ON CONFLICT (tenant_id, nom) DO UPDATE
+          SET nom = EXCLUDED.nom
+        `,
         [asUuidOrNull(u.id), tenantId, u.nom]
       );
     }
@@ -1175,11 +1173,11 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
     for (const f of familles) {
       await client.query(
         `
-    INSERT INTO familles (id, tenant_id, nom)
-    VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3)
-    ON CONFLICT (tenant_id, nom) DO UPDATE
-      SET nom = EXCLUDED.nom
-  `,
+        INSERT INTO familles (id, tenant_id, nom)
+        VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3)
+        ON CONFLICT (tenant_id, nom) DO UPDATE
+          SET nom = EXCLUDED.nom
+        `,
         [asUuidOrNull(f.id), tenantId, f.nom]
       );
     }
@@ -1188,12 +1186,12 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
     for (const c of categories) {
       await client.query(
         `
-    INSERT INTO categories (id, tenant_id, nom, famille_id)
-    VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4)
-    ON CONFLICT (tenant_id, nom) DO UPDATE
-      SET nom = EXCLUDED.nom,
-          famille_id = COALESCE(EXCLUDED.famille_id, categories.famille_id)
-  `,
+        INSERT INTO categories (id, tenant_id, nom, famille_id)
+        VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4)
+        ON CONFLICT (tenant_id, nom) DO UPDATE
+          SET nom = EXCLUDED.nom,
+              famille_id = COALESCE(EXCLUDED.famille_id, categories.famille_id)
+        `,
         [asUuidOrNull(c.id), tenantId, c.nom, asUuidOrNull(c.famille_id)]
       );
     }
@@ -1210,7 +1208,7 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
           nom=$3, prenom=$4, email1=$5, email2=$6, telephone1=$7, telephone2=$8, adresse=$9, code_postal=$10, ville=$11,
           nb_personnes_foyer=$12, tranche_age=$13, droit_entree=$14, date_inscription=$15,
           archive=$16, date_archivage=$17, date_reactivation=$18
-      `,
+        `,
         [
           asUuidOrNull(a.id),
           tenantId,
@@ -1238,20 +1236,20 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
     for (const f of fournisseurs) {
       await client.query(
         `
-    INSERT INTO fournisseurs
-      (id, tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, label)
-    VALUES
-      (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    ON CONFLICT (tenant_id, nom) DO UPDATE SET
-      contact      = EXCLUDED.contact,
-      email        = EXCLUDED.email,
-      telephone    = EXCLUDED.telephone,
-      adresse      = EXCLUDED.adresse,
-      code_postal  = EXCLUDED.code_postal,
-      ville        = EXCLUDED.ville,
-      categorie_id = EXCLUDED.categorie_id,
-      label        = EXCLUDED.label
-  `,
+        INSERT INTO fournisseurs
+          (id, tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, label)
+        VALUES
+          (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (tenant_id, nom) DO UPDATE SET
+          contact      = EXCLUDED.contact,
+          email        = EXCLUDED.email,
+          telephone    = EXCLUDED.telephone,
+          adresse      = EXCLUDED.adresse,
+          code_postal  = EXCLUDED.code_postal,
+          ville        = EXCLUDED.ville,
+          categorie_id = EXCLUDED.categorie_id,
+          label        = EXCLUDED.label
+        `,
         [
           asUuidOrNull(f.id),
           tenantId,
@@ -1268,16 +1266,6 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
       );
     }
 
-    // helper normBarcode (si besoin plus tard)
-    function normBarcode(v) {
-      if (v == null) return null;
-      const s = String(v)
-        .replace(/\s+/g, '')
-        .replace(/\u00A0/g, '')
-        .replace(/[^\w]/g, '');
-      return s || null;
-    }
-
     // Produits
     for (const p of produits) {
       const prodId = asIntOrNull(p.id);
@@ -1288,21 +1276,21 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
 
       await client.query(
         `
-    INSERT INTO produits
-      (id, tenant_id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
-    VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-    ON CONFLICT (tenant_id, id) DO UPDATE SET
-      nom          = EXCLUDED.nom,
-      reference    = EXCLUDED.reference,
-      prix         = EXCLUDED.prix,
-      stock        = EXCLUDED.stock,
-      code_barre   = EXCLUDED.code_barre,
-      unite_id     = EXCLUDED.unite_id,
-      fournisseur_id = EXCLUDED.fournisseur_id,
-      categorie_id = EXCLUDED.categorie_id,
-      updated_at   = now()
-    `,
+        INSERT INTO produits
+          (id, tenant_id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
+        VALUES
+          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+        ON CONFLICT (tenant_id, id) DO UPDATE SET
+          nom          = EXCLUDED.nom,
+          reference    = EXCLUDED.reference,
+          prix         = EXCLUDED.prix,
+          stock        = EXCLUDED.stock,
+          code_barre   = EXCLUDED.code_barre,
+          unite_id     = EXCLUDED.unite_id,
+          fournisseur_id = EXCLUDED.fournisseur_id,
+          categorie_id = EXCLUDED.categorie_id,
+          updated_at   = now()
+        `,
         [
           prodId,
           tenantId,
@@ -1310,7 +1298,7 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
           p.reference || `P-${String(prodId).padStart(6, '0')}`,
           Number(p.prix || 0),
           Number(p.stock ?? 0),
-          normBarcode(p.code_barre) || null,
+          p.code_barre || null,
           asUuidOrNull(p.unite_id),
           asUuidOrNull(p.fournisseur_id),
           asUuidOrNull(p.categorie_id),
@@ -1322,15 +1310,15 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
     for (const mp of modes_paiement) {
       await client.query(
         `
-    INSERT INTO modes_paiement
-      (id, tenant_id, nom, taux_percent, frais_fixe, actif)
-    VALUES
-      (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6)
-    ON CONFLICT (tenant_id, nom) DO UPDATE SET
-      taux_percent = EXCLUDED.taux_percent,
-      frais_fixe   = EXCLUDED.frais_fixe,
-      actif        = EXCLUDED.actif
-  `,
+        INSERT INTO modes_paiement
+          (id, tenant_id, nom, taux_percent, frais_fixe, actif)
+        VALUES
+          (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6)
+        ON CONFLICT (tenant_id, nom) DO UPDATE SET
+          taux_percent = EXCLUDED.taux_percent,
+          frais_fixe   = EXCLUDED.frais_fixe,
+          actif        = EXCLUDED.actif
+        `,
         [
           asUuidOrNull(mp.id),
           tenantId,
@@ -1385,7 +1373,7 @@ app.post('/admin/backfill_stock', authRequired, async (req, res) => {
       SELECT $1, ts.produit_id, ts.qty, 'bootstrap', 'bootstrap:'||ts.produit_id::text
       FROM to_seed ts
       ON CONFLICT DO NOTHING
-      RETURNING *;
+      RETURNING *
       `,
       [tenantId]
     );
