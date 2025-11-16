@@ -2,22 +2,21 @@
 
 console.log('[API] build=no-mailer v1 (multi-tenant full)');
 
-
 function asIntOrNull(v) {
   if (v === null || v === undefined) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-
-
-
 import 'dotenv/config';
 
-console.log('[AUTH DEV] DEV_SUPERADMIN_ENABLED=', process.env.DEV_SUPERADMIN_ENABLED, 
-            'DEV_SUPERADMIN_EMAIL=', process.env.DEV_SUPERADMIN_EMAIL);
+console.log(
+  '[AUTH DEV] DEV_SUPERADMIN_ENABLED=',
+  process.env.DEV_SUPERADMIN_ENABLED,
+  'DEV_SUPERADMIN_EMAIL=',
+  process.env.DEV_SUPERADMIN_EMAIL
+);
 
-            
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -29,10 +28,24 @@ import { pool } from './db/index.js';
 import tenantsRouter from './routes/tenants.js';
 import authRoutes from './routes/auth.js';
 import tenantSettingsRoutes from './routes/tenantSettings.js';
-import makeBrandingRouter from './routes/branding.js'; // ✅ la factory correcte
+import makeBrandingRouter from './routes/branding.js';
 
 // Middleware
 import { authRequired } from './middleware/auth.js';
+
+// tests / anciens routers (je les laisse tels quels)
+import authRouter from './routes/auth.js';
+import settingsRouter from './routes/settings.js';
+import adherentsRoutes from './routes/adherents.js';
+
+import adherentsRouter from './routes/adherents.js';
+import fournisseursRouter from './routes/fournisseurs.js';
+import produitsRouter from './routes/produits.js';
+import receptionsRouter from './routes/receptions.js';
+import ventesRouter from './routes/ventes.js';
+import inventoryExtraRouter from './routes/inventory_extra.js';
+import inventoryRoutes from './routes/inventory.js';
+import inventoryExtra from './routes/inventory_extra.js';
 
 /* =========================
  * Checks de configuration
@@ -46,11 +59,13 @@ if (!process.env.DATABASE_URL) {
  * App & middlewares
  * =======================*/
 const app = express();
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
-  exposedHeaders: ['x-tenant-id'],
-}));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || '*',
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-id'],
+    exposedHeaders: ['x-tenant-id'],
+  })
+);
 app.use(express.json({ limit: '10mb' }));
 app.use((req, _res, next) => {
   console.log('[REQ]', req.method, req.url);
@@ -76,24 +91,9 @@ app.get('/health/db', async (_req, res) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use('/public', express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); 
-
-
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // tests //
-import authRouter from './routes/auth.js';
-import settingsRouter from './routes/settings.js';
-import adherentsRoutes from './routes/adherents.js';
-
-import adherentsRouter from './routes/adherents.js';
-import fournisseursRouter from './routes/fournisseurs.js';
-import produitsRouter from './routes/produits.js';
-import receptionsRouter from './routes/receptions.js';
-import ventesRouter from './routes/ventes.js';
-import inventoryExtraRouter from './routes/inventory_extra.js';
-import inventoryRoutes from './routes/inventory.js';
-import inventoryExtra from './routes/inventory_extra.js';
-
 app.use('/auth', authRouter);
 app.use(settingsRouter);
 app.use(adherentsRouter);
@@ -113,13 +113,10 @@ app.use('/inventory', inventoryRoutes);
 app.use('/auth', authRoutes);
 app.use('/tenant_settings', tenantSettingsRoutes);
 
-
 // =========================
 // Branding multi-tenant
 // =========================
-
 app.use('/branding', authRequired, makeBrandingRouter({ pool }));
-
 
 /* ============================================
  * Helper: stock actuel (multi-tenant)
@@ -148,13 +145,13 @@ async function getCurrentStock(client, tenantId, productId) {
 app.post('/inventory/start', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const { name, user, notes } = req.body || {};
-  if (!name) return res.status(400).json({ ok:false, error:'name_required' });
+  if (!name) return res.status(400).json({ ok: false, error: 'name_required' });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // 👇 AJOUT ICI : fermer toutes les autres sessions encore 'open' pour ce tenant
+    // Fermer toutes les autres sessions encore 'open' pour ce tenant
     await client.query(
       `UPDATE inventory_sessions
          SET status='closed', ended_at=now()
@@ -162,8 +159,6 @@ app.post('/inventory/start', authRequired, async (req, res) => {
       [tenantId]
     );
 
-    // (Optionnel) Si tu voulais "réutiliser" une session du même nom, ce code n'y arrivera plus
-    // puisqu'on vient de toutes les fermer. On laisse néanmoins le check pour robustesse.
     const existing = await client.query(
       `SELECT id, name, status, started_at
        FROM inventory_sessions
@@ -173,10 +168,9 @@ app.post('/inventory/start', authRequired, async (req, res) => {
     );
     if (existing.rowCount > 0) {
       await client.query('COMMIT');
-      return res.json({ ok:true, session: existing.rows[0], reused: true });
+      return res.json({ ok: true, session: existing.rows[0], reused: true });
     }
 
-    // Crée la nouvelle session ouverte
     const s = await client.query(
       `INSERT INTO inventory_sessions (tenant_id, name, "user", notes, status)
        VALUES ($1,$2,$3,$4,'open')
@@ -185,7 +179,6 @@ app.post('/inventory/start', authRequired, async (req, res) => {
     );
     const sessionId = s.rows[0].id;
 
-    // Snapshot initial de tous les produits
     const prods = await client.query(
       `SELECT id, prix FROM produits WHERE tenant_id=$1 ORDER BY id`,
       [tenantId]
@@ -201,11 +194,11 @@ app.post('/inventory/start', authRequired, async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json({ ok:true, session: s.rows[0], reused: false });
+    res.json({ ok: true, session: s.rows[0], reused: false });
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('POST /inventory/start', e);
-    res.status(500).json({ ok:false, error:e.message });
+    res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
   }
@@ -213,35 +206,36 @@ app.post('/inventory/start', authRequired, async (req, res) => {
 
 /** Ajouter un comptage (device) */
 app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
-  const tenantId  = req.tenantId;
+  const tenantId = req.tenantId;
   const sessionId = String(req.params.id || '');
-  let productIdOrKey = req.body?.product_id;  // uuid, ref, ou barcode
-  const qtyRaw   = req.body?.qty;
+  let productIdOrKey = req.body?.product_id;
+  const qtyRaw = req.body?.qty;
   const deviceId = req.body?.device_id;
-  const user     = req.body?.user || null;
+  const user = req.body?.user || null;
 
   const qty = Number(qtyRaw);
 
-  if (!sessionId) return res.status(400).json({ ok:false, error:'bad_session_id' });
-  if (!Number.isFinite(qty)) return res.status(400).json({ ok:false, error:'bad_qty' });
+  if (!sessionId) return res.status(400).json({ ok: false, error: 'bad_session_id' });
+  if (!Number.isFinite(qty)) return res.status(400).json({ ok: false, error: 'bad_qty' });
   if (!deviceId || typeof deviceId !== 'string') {
-    return res.status(400).json({ ok:false, error:'device_id_required' });
+    return res.status(400).json({ ok: false, error: 'device_id_required' });
   }
 
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const normStr = v => (v == null ? '' : String(v)).trim();
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const normStr = (v) => (v == null ? '' : String(v)).trim();
 
   const client = await pool.connect();
   try {
-    // Session ouverte ?
     const st = await client.query(
       `SELECT status FROM inventory_sessions WHERE tenant_id=$1 AND id=$2`,
       [tenantId, sessionId]
     );
-    if (st.rowCount === 0) return res.status(404).json({ ok:false, error:'session_not_found' });
-    if (st.rows[0].status !== 'open') return res.status(409).json({ ok:false, error:'session_locked' });
+    if (st.rowCount === 0)
+      return res.status(404).json({ ok: false, error: 'session_not_found' });
+    if (st.rows[0].status !== 'open')
+      return res.status(409).json({ ok: false, error: 'session_locked' });
 
-    // Résoudre le produit → id (uuid)
     let productUuid = null;
     const key = normStr(productIdOrKey);
 
@@ -257,17 +251,16 @@ app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
       if (!productUuid) {
         const r2 = await client.query(
           `SELECT id FROM produits WHERE tenant_id=$1 AND code_barre = $2 LIMIT 1`,
-          [tenantId, key.replace(/\s+/g,'')]
+          [tenantId, key.replace(/\s+/g, '')]
         );
         if (r2.rowCount > 0) productUuid = String(r2.rows[0].id);
       }
     }
 
     if (!productUuid) {
-      return res.status(400).json({ ok:false, error:'product_resolution_failed' });
+      return res.status(400).json({ ok: false, error: 'product_resolution_failed' });
     }
 
-    // Upsert comptage (schéma: produit_id, qty)
     await client.query(
       `INSERT INTO inventory_counts (session_id, tenant_id, produit_id, device_id, "user", qty, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6, now())
@@ -276,10 +269,10 @@ app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
       [sessionId, tenantId, productUuid, deviceId, user, qty]
     );
 
-    return res.json({ ok:true });
+    return res.json({ ok: true });
   } catch (e) {
     console.error('POST /inventory/:id/count-add', e);
-    return res.status(500).json({ ok:false, error:e.message });
+    return res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
   }
@@ -322,7 +315,7 @@ app.get('/inventory/sessions', authRequired, async (req, res) => {
     res.json({ ok: true, items: r.rows });
   } catch (e) {
     console.error('GET /inventory/sessions', e);
-    res.status(500).json({ ok:false, error:e.message });
+    res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
   }
@@ -339,20 +332,19 @@ app.post('/inventory/close-all-open', authRequired, async (req, res) => {
        RETURNING id, name, started_at, ended_at`,
       [tenantId]
     );
-    res.json({ ok:true, closed: r.rows });
+    res.json({ ok: true, closed: r.rows });
   } catch (e) {
     console.error('POST /inventory/close-all-open', e);
-    res.status(500).json({ ok:false, error:e.message });
+    res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
   }
 });
 
-
 app.get('/inventory/:id/summary', authRequired, async (req, res) => {
-  const tenantId  = req.tenantId;
+  const tenantId = req.tenantId;
   const sessionId = String(req.params.id || '');
-  if (!sessionId) return res.status(400).json({ ok:false, error:'bad_session_id' });
+  if (!sessionId) return res.status(400).json({ ok: false, error: 'bad_session_id' });
 
   const client = await pool.connect();
   try {
@@ -361,7 +353,7 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
       [tenantId, sessionId]
     );
     if (s.rowCount === 0) {
-      return res.status(404).json({ ok:false, error:'session_not_found' });
+      return res.status(404).json({ ok: false, error: 'session_not_found' });
     }
 
     const r = await client.query(
@@ -387,29 +379,27 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
       [tenantId, sessionId]
     );
 
-    res.json({ ok:true, lines: r.rows });
+    res.json({ ok: true, lines: r.rows });
   } catch (e) {
     console.error('GET /inventory/:id/summary', e);
-    res.status(500).json({ ok:false, error: e.message });
+    res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
   }
 });
 
-
 app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const sessionId = String(req.params.id || '');
   const { user } = req.body || {};
-  if (!sessionId) return res.status(400).json({ ok:false, error:'bad_session_id' });
+  if (!sessionId) return res.status(400).json({ ok: false, error: 'bad_session_id' });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Lock la session
     const st = await client.query(
-      `SELECT id, status, name, started_at
+      `SELECT id, status, name, started_at, ended_at
        FROM inventory_sessions
        WHERE tenant_id=$1 AND id=$2
        FOR UPDATE`,
@@ -417,11 +407,10 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
     );
     if (st.rowCount === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ ok:false, error:'session_not_found' });
+      return res.status(404).json({ ok: false, error: 'session_not_found' });
     }
     if (st.rows[0].status === 'closed') {
       await client.query('ROLLBACK');
-      // renvoie un petit récap existant
       const rr = await pool.query(
         `SELECT COUNT(*)::int AS lines,
                 COALESCE(SUM(delta_value),0)::numeric AS value
@@ -430,12 +419,21 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
         [tenantId, sessionId]
       );
       return res.json({
-        ok:true,
-        recap:{
-          session:{ id: sessionId, name: st.rows[0].name, started_at: st.rows[0].started_at, ended_at: st.rows[0].ended_at || null },
-          stats:{ linesInserted: rr.rows[0].lines, countedProducts: rr.rows[0].lines, inventoryValue: Number(rr.rows[0].value) }
+        ok: true,
+        recap: {
+          session: {
+            id: sessionId,
+            name: st.rows[0].name,
+            started_at: st.rows[0].started_at,
+            ended_at: st.rows[0].ended_at || null,
+          },
+          stats: {
+            linesInserted: rr.rows[0].lines,
+            countedProducts: rr.rows[0].lines,
+            inventoryValue: Number(rr.rows[0].value),
+          },
         },
-        alreadyClosed:true
+        alreadyClosed: true,
       });
     }
 
@@ -447,7 +445,6 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
       );
     }
 
-    // Agrégat snapshot + comptages (les non-comptés tombent à 0)
     const agg = await client.query(
       `WITH summed AS (
          SELECT produit_id, SUM(qty)::numeric AS counted_total
@@ -469,21 +466,19 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
       [tenantId, sessionId]
     );
 
-    let linesInserted = 0, countedProducts = 0, inventoryValue = 0;
+    let linesInserted = 0,
+      countedProducts = 0,
+      inventoryValue = 0;
 
     for (const r of agg.rows) {
-      const pid     = String(r.product_id);
-      const start   = Number(r.stock_start || 0);
+      const pid = String(r.product_id);
+      const start = Number(r.stock_start || 0);
       const counted = Number(r.counted_total || 0);
-      const prix    = Number(r.prix || 0);
+      const prix = Number(r.prix || 0);
 
-      // Stock "live" actuel (après ventes/réceptions éventuelles entre temps)
       const currentLive = await getCurrentStock(client, tenantId, pid);
-
-      // 👉 delta à appliquer pour amener le stock AU COMPTÉ (0 si non-compté)
       const delta = counted - currentLive;
 
-      // Upsert de la ligne d'ajustement (1 par produit)
       await client.query(
         `INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
          VALUES ($1,$2,$3,$4,$5,$6, NULL, $7, now())
@@ -500,7 +495,6 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
       if (counted !== 0) countedProducts++;
       inventoryValue += counted * prix;
 
-      // Mouvement de stock si nécessaire (source_id unique par session+produit)
       if (delta !== 0) {
         const sourceId = `inv:${sessionId}:${pid}`;
         await client.query(
@@ -526,16 +520,21 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 
     const sess = endUpd.rows[0];
     res.json({
-      ok:true,
-      recap:{
-        session:{ id: sess.id, name: sess.name, started_at: sess.started_at, ended_at: sess.ended_at },
-        stats:{ linesInserted, countedProducts, inventoryValue }
-      }
+      ok: true,
+      recap: {
+        session: {
+          id: sess.id,
+          name: sess.name,
+          started_at: sess.started_at,
+          ended_at: sess.ended_at,
+        },
+        stats: { linesInserted, countedProducts, inventoryValue },
+      },
     });
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('POST /inventory/:id/finalize', e);
-    res.status(500).json({ ok:false, error:e.message });
+    res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
   }
@@ -544,10 +543,13 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 /* =========================================================
  * SYNC (bootstrap / pull_refs / push_ops)
  * =======================================================*/
-// Helper: retourne l'id si c'est un UUID v4 plausible, sinon null (forcera uuid_generate_v4() côté SQL)
 function asUuidOrNull(x) {
   const s = (x ?? '').toString().trim();
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s) ? s : null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    s
+  )
+    ? s
+    : null;
 }
 
 app.get('/sync/bootstrap_needed', authRequired, async (req, res) => {
@@ -556,58 +558,123 @@ app.get('/sync/bootstrap_needed', authRequired, async (req, res) => {
       `SELECT COUNT(*)::int AS n FROM produits WHERE tenant_id = $1`,
       [req.tenantId]
     );
-    res.json({ ok: true, needed: (r.rows[0].n === 0) });
+    res.json({ ok: true, needed: r.rows[0].n === 0 });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message, needed: true });
   }
 });
 
+/**
+ * 🔁 pull_refs : maintenant renvoie aussi l'historique :
+ * - ventes
+ * - lignes_vente
+ * - receptions
+ * - lignes_reception
+ * (cotisations/inventaire restent pour une prochaine étape)
+ */
 app.get('/sync/pull_refs', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const client = await pool.connect();
   try {
     const [
-      unites, familles, categories, adherents, fournisseurs, produits, modes_paiement
+      unites,
+      familles,
+      categories,
+      adherents,
+      fournisseurs,
+      produits,
+      modes_paiement,
     ] = await Promise.all([
+      // UNITES
       client.query(
         `SELECT id, nom
          FROM unites
          WHERE tenant_id = $1
-         ORDER BY nom`, [tenantId]
+         ORDER BY nom`,
+        [tenantId]
       ),
+
+      // FAMILLES
       client.query(
         `SELECT id, nom
          FROM familles
          WHERE tenant_id = $1
-         ORDER BY nom`, [tenantId]
+         ORDER BY nom`,
+        [tenantId]
       ),
+
+      // CATEGORIES
       client.query(
         `SELECT id, nom, famille_id
          FROM categories
          WHERE tenant_id = $1
-         ORDER BY nom`, [tenantId]
+         ORDER BY nom`,
+        [tenantId]
       ),
+
+      // ADHERENTS (toutes les colonnes utiles pour le local)
       client.query(
-        `SELECT *
+        `SELECT
+           id,
+           nom,
+           prenom,
+           email1,
+           email2,
+           telephone1,
+           telephone2,
+           adresse,
+           code_postal,
+           ville,
+           nb_personnes_foyer,
+           tranche_age,
+           droit_entree,
+           date_inscription,
+           archive,
+           date_archivage,
+           date_reactivation
          FROM adherents
          WHERE tenant_id = $1
-         ORDER BY nom NULLS LAST`, [tenantId]
+         ORDER BY nom NULLS LAST, prenom NULLS LAST`,
+        [tenantId]
       ),
+
+      // FOURNISSEURS
       client.query(
-        `SELECT *
+        `SELECT
+           id,
+           nom,
+           categorie_id,
+           contact,
+           email,
+           telephone,
+           adresse,
+           code_postal,
+           ville,
+           label
          FROM fournisseurs
          WHERE tenant_id = $1
-         ORDER BY nom`, [tenantId]
+         ORDER BY nom`,
+        [tenantId]
       ),
+
+      // PRODUITS avec stock calculé à partir de stock_movements
       client.query(
         `
         SELECT
-          p.id, p.nom, p.reference, p.prix, p.code_barre,
-          p.unite_id, p.fournisseur_id, p.categorie_id, p.updated_at,
+          p.id,
+          p.nom,
+          p.reference,
+          p.prix,
+          p.code_barre,
+          p.unite_id,
+          p.fournisseur_id,
+          p.categorie_id,
+          p.updated_at,
           COALESCE((
             SELECT SUM(delta)::numeric
             FROM stock_movements sm
-            WHERE sm.tenant_id = p.tenant_id AND sm.produit_id = p.id
+            WHERE sm.tenant_id = p.tenant_id
+              AND sm.produit_id = p.id
           ), p.stock, 0) AS stock
         FROM produits p
         WHERE p.tenant_id = $1
@@ -615,23 +682,34 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
         `,
         [tenantId]
       ),
+
+      // MODES DE PAIEMENT
       client.query(
-        `SELECT id, nom, taux_percent, frais_fixe, actif
+        `SELECT
+           id,
+           nom,
+           taux_percent,
+           frais_fixe,
+           actif
          FROM modes_paiement
          WHERE tenant_id = $1
-         ORDER BY nom`, [tenantId]
+         ORDER BY nom`,
+        [tenantId]
       ),
     ]);
 
-    res.json({ ok: true, data: {
-      unites: unites.rows,
-      familles: familles.rows,
-      categories: categories.rows,
-      adherents: adherents.rows,
-      fournisseurs: fournisseurs.rows,
-      produits: produits.rows,
-      modes_paiement: modes_paiement.rows
-    }});
+    res.json({
+      ok: true,
+      data: {
+        unites:         unites.rows,
+        familles:       familles.rows,
+        categories:     categories.rows,
+        adherents:      adherents.rows,
+        fournisseurs:   fournisseurs.rows,
+        produits:       produits.rows,
+        modes_paiement: modes_paiement.rows,
+      },
+    });
   } catch (e) {
     console.error('GET /sync/pull_refs error:', e);
     res.status(500).json({ ok: false, error: e.message });
@@ -659,19 +737,38 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
     for (const op of ops) {
       let payloadObj;
       try {
-        payloadObj = typeof op.payload_json === 'string' ? JSON.parse(op.payload_json) : (op.payload_json || {});
+        payloadObj =
+          typeof op.payload_json === 'string'
+            ? JSON.parse(op.payload_json)
+            : op.payload_json || {};
       } catch {
         payloadObj = {};
       }
 
-      console.log('  → op:', op.op_type, 'entity:', op.entity_type, op.entity_id, 'payload:', payloadObj);
+      console.log(
+        '  → op:',
+        op.op_type,
+        'entity:',
+        op.entity_type,
+        op.entity_id,
+        'payload:',
+        payloadObj
+      );
 
       try {
         await client.query(
           `INSERT INTO ops (id, tenant_id, device_id, op_type, entity_type, entity_id, payload)
            VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
            ON CONFLICT (id) DO NOTHING`,
-          [op.id, tenantId, deviceId, op.op_type, op.entity_type || null, String(op.entity_id || ''), JSON.stringify(payloadObj)]
+          [
+            op.id,
+            tenantId,
+            deviceId,
+            op.op_type,
+            op.entity_type || null,
+            String(op.entity_id || ''),
+            JSON.stringify(payloadObj),
+          ]
         );
       } catch (e) {
         if (e?.code !== '42P01') throw e;
@@ -679,14 +776,21 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
       let p = payloadObj;
       try {
-        const r = await client.query(`SELECT applied_at, payload FROM ops WHERE id = $1`, [op.id]);
+        const r = await client.query(
+          `SELECT applied_at, payload FROM ops WHERE id = $1`,
+          [op.id]
+        );
         if (r.rowCount > 0) {
           if (r.rows[0]?.applied_at) {
             console.log('    (déjà appliquée)');
             continue;
           }
           let fromDb = r.rows[0]?.payload;
-          if (typeof fromDb === 'string') { try { fromDb = JSON.parse(fromDb); } catch {} }
+          if (typeof fromDb === 'string') {
+            try {
+              fromDb = JSON.parse(fromDb);
+            } catch {}
+          }
           if (fromDb && typeof fromDb === 'object') p = fromDb;
         }
       } catch (e) {
@@ -695,69 +799,64 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
       if (!p || typeof p !== 'object') p = {};
 
       switch (op.op_type) {
-                case 'sale.created': {
-  const venteId    = asIntOrNull(p.venteId);
-  const mpId       = asIntOrNull(p.modePaiementId);
-  const adherentId = asIntOrNull(p.adherentId);
+        case 'sale.created': {
+          const venteId = asIntOrNull(p.venteId);
+          const mpId = asIntOrNull(p.modePaiementId);
+          const adherentId = asIntOrNull(p.adherentId);
 
-  await client.query(
-    `INSERT INTO ventes (
-       id, tenant_id, total, adherent_id, mode_paiement_id,
-       sale_type, client_email, frais_paiement, cotisation
-     )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     ON CONFLICT (tenant_id, id) DO NOTHING`,
-    [
-      venteId,
-      tenantId,
-      p.total ?? null,
-      adherentId,
-      mpId,
-      p.saleType || 'adherent',
-      p.clientEmail || null,
-      p.fraisPaiement ?? null,
-      p.cotisation ?? null,
-    ]
-  );
-  console.log('    [+] vente header enregistrée id=', venteId);
-  break;
-}
-
-
+          await client.query(
+            `INSERT INTO ventes (
+               id, tenant_id, total, adherent_id, mode_paiement_id,
+               sale_type, client_email, frais_paiement, cotisation
+             )
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+             ON CONFLICT (tenant_id, id) DO NOTHING`,
+            [
+              venteId,
+              tenantId,
+              p.total ?? null,
+              adherentId,
+              mpId,
+              p.saleType || 'adherent',
+              p.clientEmail || null,
+              p.fraisPaiement ?? null,
+              p.cotisation ?? null,
+            ]
+          );
+          console.log('    [+] vente header enregistrée id=', venteId);
+          break;
+        }
 
         case 'sale.line_added': {
-          // IDs locaux = entiers
-          const venteId   = asIntOrNull(p.venteId);
+          const venteId = asIntOrNull(p.venteId);
           const produitId = asIntOrNull(p.produitId);
-          const ligneId   = asIntOrNull(p.ligneId);
+          const ligneId = asIntOrNull(p.ligneId);
 
-          if (!venteId)  throw new Error('invalid_vente_id_int');
+          if (!venteId) throw new Error('invalid_vente_id_int');
           if (!produitId) throw new Error('invalid_produit_id_int');
 
           const quantite = Number(p.quantite || 0);
-          const prix     = Number(p.prix || 0);
+          const prix = Number(p.prix || 0);
 
-          // clé idempotente pour stock_movements
           const sourceKey =
-            (ligneId != null)
+            ligneId != null
               ? `lv:${ligneId}`
               : `sale:${venteId}:${produitId}:${quantite}:${prix}`;
 
-          // Produit doit exister pour ce tenant
           const checkProd = await client.query(
             `SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`,
             [tenantId, produitId]
           );
-          if (checkProd.rowCount === 0) throw new Error('product_not_found_for_tenant');
+          if (checkProd.rowCount === 0)
+            throw new Error('product_not_found_for_tenant');
 
-          // Vente doit exister pour ce tenant
           const checkVente = await client.query(
             `SELECT 1 FROM ventes WHERE tenant_id=$1 AND id=$2`,
             [tenantId, venteId]
           );
-          if (checkVente.rowCount === 0) throw new Error('sale_not_found_for_tenant');
+          if (checkVente.rowCount === 0)
+            throw new Error('sale_not_found_for_tenant');
 
-          // Idempotence: même ligne déjà présente ?
           const chk = await client.query(
             `SELECT 1 FROM lignes_vente
              WHERE tenant_id=$1 AND vente_id=$2 AND produit_id=$3 AND quantite=$4 AND prix=$5
@@ -767,68 +866,98 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
           if (chk.rowCount === 0) {
             if (ligneId != null) {
-              // On a un id local → on le pousse explicitement
               await client.query(
                 `INSERT INTO lignes_vente
                    (id, tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
                  ON CONFLICT (tenant_id, id) DO NOTHING`,
-                [ligneId, tenantId, venteId, produitId, quantite, prix, p.prixUnitaire ?? null, p.remisePercent ?? 0]
+                [
+                  ligneId,
+                  tenantId,
+                  venteId,
+                  produitId,
+                  quantite,
+                  prix,
+                  p.prixUnitaire ?? null,
+                  p.remisePercent ?? 0,
+                ]
               );
             } else {
-              // Pas d'id → on laisse Postgres (BIGSERIAL) le générer
               await client.query(
                 `INSERT INTO lignes_vente
                    (tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
                  VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-                [tenantId, venteId, produitId, quantite, prix, p.prixUnitaire ?? null, p.remisePercent ?? 0]
+                [
+                  tenantId,
+                  venteId,
+                  produitId,
+                  quantite,
+                  prix,
+                  p.prixUnitaire ?? null,
+                  p.remisePercent ?? 0,
+                ]
               );
             }
-            console.log('    [+] ligne_vente ajoutée vente=', venteId, 'prod=', produitId, 'qte=', quantite);
+            console.log(
+              '    [+] ligne_vente ajoutée vente=',
+              venteId,
+              'prod=',
+              produitId,
+              'qte=',
+              quantite
+            );
           } else {
             console.log('    [=] ligne_vente déjà présente');
           }
 
-          // Mouvement de stock associé
           await client.query(
             `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
              VALUES ($1,$2,$3,'sale_line',$4)
              ON CONFLICT DO NOTHING`,
             [tenantId, produitId, -quantite, sourceKey]
           );
-          console.log('    [+] stock_movements sale_line', { produit_id: produitId, delta: -quantite });
+          console.log('    [+] stock_movements sale_line', {
+            produit_id: produitId,
+            delta: -quantite,
+          });
           break;
         }
 
-
         case 'reception.line_added': {
-          // ➜ Chez toi, les IDs produits / réceptions / fournisseurs sont des entiers (SQLite),
-          // donc on les traite comme des BIGINT côté Postgres, pas comme des UUID.
           console.log('  → reception.line_added payload:', p);
 
           const pid = Number(p.produitId);
           const qte = Number(p.quantite || 0);
 
           if (!Number.isInteger(pid) || pid <= 0) {
-            console.warn('    [!] reception.line_added ignorée — produitId invalide', p.produitId);
+            console.warn(
+              '    [!] reception.line_added ignorée — produitId invalide',
+              p.produitId
+            );
             break;
           }
 
-          // Vérifier que le produit existe bien pour ce tenant
           const chkP = await client.query(
             `SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`,
             [tenantId, pid]
           );
           if (chkP.rowCount === 0) {
-            console.warn('    [!] reception.line_added ignorée — produit inconnu pour tenant', { tenantId, pid });
+            console.warn(
+              '    [!] reception.line_added ignorée — produit inconnu pour tenant',
+              { tenantId, pid }
+            );
             break;
           }
 
-          // IDs numériques pour réception et fournisseur
-          let rid = p.receptionId != null ? Number(p.receptionId) : null;
-          const fournisseurId = p.fournisseurId != null ? Number(p.fournisseurId) : null;
+          let rid =
+            p.receptionId != null && p.receptionId !== ''
+              ? Number(p.receptionId)
+              : null;
+          const fournisseurId =
+            p.fournisseurId != null && p.fournisseurId !== ''
+              ? Number(p.fournisseurId)
+              : null;
 
-          // Créer / vérifier la réception
           if (rid && Number.isInteger(rid) && rid > 0) {
             const chkR = await client.query(
               `SELECT 1 FROM receptions WHERE tenant_id=$1 AND id=$2`,
@@ -838,7 +967,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
               await client.query(
                 `INSERT INTO receptions (id, tenant_id, fournisseur_id, date, reference)
                  VALUES ($1, $2, $3, now(), $4)
-                 ON CONFLICT (id) DO NOTHING`,
+                 ON CONFLICT (tenant_id, id) DO NOTHING`,
                 [rid, tenantId, fournisseurId, p.reference || null]
               );
             }
@@ -852,14 +981,16 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             rid = ins.rows[0].id;
           }
 
-          // Ligne de réception (id numérique optionnel)
-          const ligneRecId = p.ligneRecId != null ? Number(p.ligneRecId) : null;
+          const ligneRecId =
+            p.ligneRecId != null && p.ligneRecId !== ''
+              ? Number(p.ligneRecId)
+              : null;
 
           if (ligneRecId && Number.isInteger(ligneRecId) && ligneRecId > 0) {
             await client.query(
               `INSERT INTO lignes_reception (id, tenant_id, reception_id, produit_id, quantite, prix_unitaire)
                VALUES ($1, $2, $3, $4, $5, $6)
-               ON CONFLICT (id) DO UPDATE SET
+               ON CONFLICT (tenant_id, id) DO UPDATE SET
                  reception_id  = EXCLUDED.reception_id,
                  produit_id    = EXCLUDED.produit_id,
                  quantite      = EXCLUDED.quantite,
@@ -874,16 +1005,17 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             );
           }
 
-          // Stock courant → delta → mouvement
           const currentStock = await getCurrentStock(client, tenantId, pid);
-          const stockCorrige = (p.stockCorrige !== undefined && p.stockCorrige !== null)
-            ? Number(p.stockCorrige)
-            : null;
-          const base = (stockCorrige !== null && !Number.isNaN(stockCorrige))
-            ? stockCorrige
-            : currentStock;
+          const stockCorrige =
+            p.stockCorrige !== undefined && p.stockCorrige !== null
+              ? Number(p.stockCorrige)
+              : null;
+          const base =
+            stockCorrige !== null && !Number.isNaN(stockCorrige)
+              ? stockCorrige
+              : currentStock;
           const target = base + qte;
-          const delta  = target - currentStock;
+          const delta = target - currentStock;
 
           await client.query(
             `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
@@ -891,9 +1023,11 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
              ON CONFLICT DO NOTHING`,
             [tenantId, pid, delta, String(ligneRecId || `${rid}:${pid}`)]
           );
-          console.log('    [+] stock_movements reception_line', { produit_id: pid, delta });
+          console.log('    [+] stock_movements reception_line', {
+            produit_id: pid,
+            delta,
+          });
 
-          // éventuelle mise à jour du prix produit
           if (p.prixUnitaire != null) {
             await client.query(
               `UPDATE produits
@@ -901,45 +1035,75 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
                WHERE tenant_id = $2 AND id = $3`,
               [p.prixUnitaire, tenantId, pid]
             );
-            console.log('    [~] prix produit mis à jour', { produit_id: pid, prix: p.prixUnitaire });
+            console.log('    [~] prix produit mis à jour', {
+              produit_id: pid,
+              prix: p.prixUnitaire,
+            });
           }
 
           break;
         }
 
         case 'inventory.adjust': {
-  const produitId = asIntOrNull(p.produitId);
-  const delta = Number(p.delta || 0);
-  if (!produitId || !Number.isFinite(delta) || delta === 0) {
-    console.warn('    [!] inventory.adjust ignorée — produitId/delta invalide');
-    break;
-  }
-  await client.query(
-    `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
-     VALUES ($1,$2,$3,'inventory_adjust',$4)
-     ON CONFLICT DO NOTHING`,
-    [tenantId, produitId, delta, String(op.id)]
-  );
-  console.log('    [+] stock_movements inventory_adjust', { produit_id: produitId, delta });
-  break;
-}
-
+          const produitId = asIntOrNull(p.produitId);
+          const delta = Number(p.delta || 0);
+          if (!produitId || !Number.isFinite(delta) || delta === 0) {
+            console.warn(
+              '    [!] inventory.adjust ignorée — produitId/delta invalide'
+            );
+            break;
+          }
+          await client.query(
+            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+             VALUES ($1,$2,$3,'inventory_adjust',$4)
+             ON CONFLICT DO NOTHING`,
+            [tenantId, produitId, delta, String(op.id)]
+          );
+          console.log('    [+] stock_movements inventory_adjust', {
+            produit_id: produitId,
+            delta,
+          });
+          break;
+        }
 
         case 'product.updated': {
           const fields = [];
           const values = [];
           let idx = 2;
-          if (p.nom != null)           { fields.push(`nom = $${++idx}`);           values.push(p.nom); }
-          if (p.reference != null)     { fields.push(`reference = $${++idx}`);     values.push(p.reference); }
-          if (p.code_barre != null)    { fields.push(`code_barre = $${++idx}`);    values.push(p.code_barre); }
-          if (p.prix != null)          { fields.push(`prix = $${++idx}`);          values.push(p.prix); }
-          if (p.categorie_id != null)  { fields.push(`categorie_id = $${++idx}`);  values.push(asUuidOrNull(p.categorie_id)); }
-          if (p.unite_id != null)      { fields.push(`unite_id = $${++idx}`);      values.push(asUuidOrNull(p.unite_id)); }
-          if (p.fournisseur_id != null){ fields.push(`fournisseur_id = $${++idx}`);values.push(asUuidOrNull(p.fournisseur_id)); }
+          if (p.nom != null) {
+            fields.push(`nom = $${++idx}`);
+            values.push(p.nom);
+          }
+          if (p.reference != null) {
+            fields.push(`reference = $${++idx}`);
+            values.push(p.reference);
+          }
+          if (p.code_barre != null) {
+            fields.push(`code_barre = $${++idx}`);
+            values.push(p.code_barre);
+          }
+          if (p.prix != null) {
+            fields.push(`prix = $${++idx}`);
+            values.push(p.prix);
+          }
+          if (p.categorie_id != null) {
+            fields.push(`categorie_id = $${++idx}`);
+            values.push(asUuidOrNull(p.categorie_id));
+          }
+          if (p.unite_id != null) {
+            fields.push(`unite_id = $${++idx}`);
+            values.push(asUuidOrNull(p.unite_id));
+          }
+          if (p.fournisseur_id != null) {
+            fields.push(`fournisseur_id = $${++idx}`);
+            values.push(asUuidOrNull(p.fournisseur_id));
+          }
 
           if (fields.length > 0) {
-            const sql = `UPDATE produits SET ${fields.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND id = $2`;
-await client.query(sql, [tenantId, asIntOrNull(p.id), ...values]);
+            const sql = `UPDATE produits SET ${fields.join(
+              ', '
+            )}, updated_at = now() WHERE tenant_id = $1 AND id = $2`;
+            await client.query(sql, [tenantId, asIntOrNull(p.id), ...values]);
 
             console.log('    [~] produit mis à jour', { id: p.id });
           }
@@ -952,7 +1116,9 @@ await client.query(sql, [tenantId, asIntOrNull(p.id), ...values]);
       }
 
       try {
-        await client.query(`UPDATE ops SET applied_at = now() WHERE id=$1`, [op.id]);
+        await client.query(`UPDATE ops SET applied_at = now() WHERE id=$1`, [
+          op.id,
+        ]);
       } catch (e) {
         if (e?.code !== '42P01') throw e;
       }
@@ -965,7 +1131,9 @@ await client.query(sql, [tenantId, asIntOrNull(p.id), ...values]);
     await client.query('ROLLBACK');
     console.error('POST /sync/push_ops error:', e);
     if (e?.code === '42P01') {
-      return res.status(500).json({ ok:false, error: 'missing_table', detail: e.message });
+      return res
+        .status(500)
+        .json({ ok: false, error: 'missing_table', detail: e.message });
     }
     res.status(500).json({ ok: false, error: e.message });
   } finally {
@@ -977,51 +1145,63 @@ await client.query(sql, [tenantId, asIntOrNull(p.id), ...values]);
 app.post('/sync/bootstrap', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const {
-    unites = [], familles = [], categories = [], adherents = [],
-    fournisseurs = [], produits = [], modes_paiement = []
+    unites = [],
+    familles = [],
+    categories = [],
+    adherents = [],
+    fournisseurs = [],
+    produits = [],
+    modes_paiement = [],
   } = req.body || {};
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
- // Unités
-for (const u of unites) {
-  await client.query(`
+    // Unités
+    for (const u of unites) {
+      await client.query(
+        `
     INSERT INTO unites (id, tenant_id, nom)
     VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3)
     ON CONFLICT (tenant_id, nom) DO UPDATE
       SET nom = EXCLUDED.nom
-  `, [asUuidOrNull(u.id), tenantId, u.nom]);
-}
+  `,
+        [asUuidOrNull(u.id), tenantId, u.nom]
+      );
+    }
 
-
-// Familles
-for (const f of familles) {
-  await client.query(`
+    // Familles
+    for (const f of familles) {
+      await client.query(
+        `
     INSERT INTO familles (id, tenant_id, nom)
     VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3)
     ON CONFLICT (tenant_id, nom) DO UPDATE
       SET nom = EXCLUDED.nom
-  `, [asUuidOrNull(f.id), tenantId, f.nom]);
-}
+  `,
+        [asUuidOrNull(f.id), tenantId, f.nom]
+      );
+    }
 
-
-// Catégories
-for (const c of categories) {
-  await client.query(`
+    // Catégories
+    for (const c of categories) {
+      await client.query(
+        `
     INSERT INTO categories (id, tenant_id, nom, famille_id)
     VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4)
     ON CONFLICT (tenant_id, nom) DO UPDATE
       SET nom = EXCLUDED.nom,
           famille_id = COALESCE(EXCLUDED.famille_id, categories.famille_id)
-  `, [asUuidOrNull(c.id), tenantId, c.nom, asUuidOrNull(c.famille_id)]);
-}
-
+  `,
+        [asUuidOrNull(c.id), tenantId, c.nom, asUuidOrNull(c.famille_id)]
+      );
+    }
 
     // Adhérents
     for (const a of adherents) {
-      await client.query(`
+      await client.query(
+        `
         INSERT INTO adherents
          (id, tenant_id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
           nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation)
@@ -1030,18 +1210,34 @@ for (const c of categories) {
           nom=$3, prenom=$4, email1=$5, email2=$6, telephone1=$7, telephone2=$8, adresse=$9, code_postal=$10, ville=$11,
           nb_personnes_foyer=$12, tranche_age=$13, droit_entree=$14, date_inscription=$15,
           archive=$16, date_archivage=$17, date_reactivation=$18
-      `, [
-        asUuidOrNull(a.id), tenantId,
-        a.nom || null, a.prenom || null, a.email1 || null, a.email2 || null, a.telephone1 || null, a.telephone2 || null,
-        a.adresse || null, a.code_postal || null, a.ville || null,
-        a.nb_personnes_foyer || null, a.tranche_age || null, a.droit_entree || null, a.date_inscription || null,
-        a.archive || null, a.date_archivage || null, a.date_reactivation || null
-      ]);
+      `,
+        [
+          asUuidOrNull(a.id),
+          tenantId,
+          a.nom || null,
+          a.prenom || null,
+          a.email1 || null,
+          a.email2 || null,
+          a.telephone1 || null,
+          a.telephone2 || null,
+          a.adresse || null,
+          a.code_postal || null,
+          a.ville || null,
+          a.nb_personnes_foyer || null,
+          a.tranche_age || null,
+          a.droit_entree || null,
+          a.date_inscription || null,
+          a.archive || null,
+          a.date_archivage || null,
+          a.date_reactivation || null,
+        ]
+      );
     }
 
     // Fournisseurs
- for (const f of fournisseurs) {
-  await client.query(`
+    for (const f of fournisseurs) {
+      await client.query(
+        `
     INSERT INTO fournisseurs
       (id, tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, label)
     VALUES
@@ -1055,40 +1251,43 @@ for (const c of categories) {
       ville        = EXCLUDED.ville,
       categorie_id = EXCLUDED.categorie_id,
       label        = EXCLUDED.label
-  `, [
-    asUuidOrNull(f.id),           // $1
-    tenantId,                     // $2
-    f.nom,                        // $3
-    f.contact || null,            // $4
-    f.email || null,              // $5
-    f.telephone || null,          // $6
-    f.adresse || null,            // $7
-    f.code_postal || null,        // $8
-    f.ville || null,              // $9
-    asUuidOrNull(f.categorie_id), // $10
-    f.label || null               // $11
-  ]);
-}
+  `,
+        [
+          asUuidOrNull(f.id),
+          tenantId,
+          f.nom,
+          f.contact || null,
+          f.email || null,
+          f.telephone || null,
+          f.adresse || null,
+          f.code_postal || null,
+          f.ville || null,
+          asUuidOrNull(f.categorie_id),
+          f.label || null,
+        ]
+      );
+    }
 
+    // helper normBarcode (si besoin plus tard)
+    function normBarcode(v) {
+      if (v == null) return null;
+      const s = String(v)
+        .replace(/\s+/g, '')
+        .replace(/\u00A0/g, '')
+        .replace(/[^\w]/g, '');
+      return s || null;
+    }
 
-    // normalise un code-barres (supprime espaces/insécables/séparateurs)
-function normBarcode(v) {
-  if (v == null) return null;
-  const s = String(v).replace(/\s+/g, '').replace(/\u00A0/g, '').replace(/[^\w]/g, '');
-  return s || null;
-}
+    // Produits
+    for (const p of produits) {
+      const prodId = asIntOrNull(p.id);
+      if (!prodId) {
+        console.warn('[bootstrap] Produit ignoré car id invalide :', p);
+        continue;
+      }
 
-
-// ========= Produits (FK unite_id, fournisseur_id, categorie_id) =========
-for (const p of produits) {
-  const prodId = asIntOrNull(p.id);
-  if (!prodId) {
-    console.warn('[bootstrap] Produit ignoré car id invalide :', p);
-    continue;
-  }
-
-  await client.query(
-    `
+      await client.query(
+        `
     INSERT INTO produits
       (id, tenant_id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
     VALUES
@@ -1104,24 +1303,25 @@ for (const p of produits) {
       categorie_id = EXCLUDED.categorie_id,
       updated_at   = now()
     `,
-    [
-      prodId,                            // BIGINT
-      tenantId,
-      p.nom,
-      p.reference || `P-${String(prodId).padStart(6, '0')}`,
-      Number(p.prix || 0),
-      Number(p.stock ?? 0),
-      p.code_barre || null,
-      asUuidOrNull(p.unite_id),
-      asUuidOrNull(p.fournisseur_id),
-      asUuidOrNull(p.categorie_id),
-    ]
-  );
-}
+        [
+          prodId,
+          tenantId,
+          p.nom,
+          p.reference || `P-${String(prodId).padStart(6, '0')}`,
+          Number(p.prix || 0),
+          Number(p.stock ?? 0),
+          normBarcode(p.code_barre) || null,
+          asUuidOrNull(p.unite_id),
+          asUuidOrNull(p.fournisseur_id),
+          asUuidOrNull(p.categorie_id),
+        ]
+      );
+    }
 
- // --- Bootstrap: modes de paiement (UPSERT sur (tenant_id, nom))
-for (const mp of modes_paiement) {
-  await client.query(`
+    // Modes de paiement
+    for (const mp of modes_paiement) {
+      await client.query(
+        `
     INSERT INTO modes_paiement
       (id, tenant_id, nom, taux_percent, frais_fixe, actif)
     VALUES
@@ -1130,27 +1330,35 @@ for (const mp of modes_paiement) {
       taux_percent = EXCLUDED.taux_percent,
       frais_fixe   = EXCLUDED.frais_fixe,
       actif        = EXCLUDED.actif
-  `, [
-    asUuidOrNull(mp.id),               // $1
-    tenantId,                          // $2
-    String(mp.nom || '').trim(),       // $3
-    Number(mp.taux_percent) || 0,      // $4
-    Number(mp.frais_fixe)   || 0,      // $5
-    !!mp.actif                          // $6
-  ]);
-}
-
+  `,
+        [
+          asUuidOrNull(mp.id),
+          tenantId,
+          String(mp.nom || '').trim(),
+          Number(mp.taux_percent) || 0,
+          Number(mp.frais_fixe) || 0,
+          !!mp.actif,
+        ]
+      );
+    }
 
     await client.query('COMMIT');
-    res.json({ ok: true, counts: {
-      unites: unites.length, familles: familles.length, categories: categories.length,
-      adherents: adherents.length, fournisseurs: fournisseurs.length, produits: produits.length,
-      modes_paiement: modes_paiement.length
-    }});
+    res.json({
+      ok: true,
+      counts: {
+        unites: unites.length,
+        familles: familles.length,
+        categories: categories.length,
+        adherents: adherents.length,
+        fournisseurs: fournisseurs.length,
+        produits: produits.length,
+        modes_paiement: modes_paiement.length,
+      },
+    });
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('POST /sync/bootstrap error:', e);
-    res.status(500).json({ ok:false, error: e.message });
+    res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
   }
