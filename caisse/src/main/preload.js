@@ -74,6 +74,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
 
+  syncHydrateOnStartup: () => ipcRenderer.invoke('sync:hydrateOnStartup'),
+
+
+
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
   getProduits:    () => ipcRenderer.invoke('get-produits'),

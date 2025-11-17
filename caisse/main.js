@@ -66,6 +66,17 @@ const { getDeviceId } = require('./src/main/device');
 const { runBootstrap } = require('./src/main/bootstrap');
 const sync = require('./src/main/sync'); // hydrateOnStartup, pullAll, pushOpsNow, startAutoSync
 
+
+ipcMain.handle('sync:hydrateOnStartup', async () => {
+  try {
+    const r = await sync.hydrateOnStartup();
+    return { ok: true, result: r };
+  } catch (e) {
+    console.error('hydrateOnStartup IPC error:', e);
+    return { ok: false, error: String(e) };
+  }
+});
+
 // --- cache local des infos d'auth (rempli au login / au startup)
 const authCache = {
   token: null,

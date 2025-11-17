@@ -10,5 +10,6 @@
     "ventes_exterieur": true,
     "stocks": true
   },
-  "ventes_exterieur_margin_percent": 30
+  "ventes_exterieur_margin_percent": 30,
+  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OWRiMTI4Mi02ZjJjLTQyNTktYWQwNS1jOGRmYWQwYjU5NjUiLCJ1c2VyX2lkIjoiNjlkYjEyODItNmYyYy00MjU5LWFkMDUtYzhkZmFkMGI1OTY1IiwidGVuYW50X2lkIjoiZTc3ODRhYTItN2VmNy00ODUxLWI5MWUtYWM3NzVlMzQwNzU3Iiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJ0ZXN0QHRlc3QuZnIiLCJpc19zdXBlcl9hZG1pbiI6ZmFsc2UsImlhdCI6MTc2MzM4Nzk0NiwiZXhwIjoxNzYzOTkyNzQ2fQ.oTweyYU_f7Tj2vOWwLwM1mo6QnfC5-d6zz3HVZQHzkM"
 }

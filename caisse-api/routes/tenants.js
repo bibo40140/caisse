@@ -1,78 +1,92 @@
-// caisse-api/routes/tenants.js
+// routes/tenants.js
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import { pool } from '../db/index.js';
-import { authRequired, superAdminOnly } from '../middleware/auth.js';
+import { seedTenantDefaults } from '../seed/seedTenantDefaults.js';
 
 const router = express.Router();
 
-let HAS_DELETED_AT = null;
-async function ensureDeletedAtFlag() {
-  if (HAS_DELETED_AT !== null) return HAS_DELETED_AT;
-  const r = await pool.query(`
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_name='tenants' AND column_name='deleted_at'
-    LIMIT 1
-  `);
-  HAS_DELETED_AT = r.rowCount > 0;
-  return HAS_DELETED_AT;
-}
-
-router.get('/', authRequired, superAdminOnly, async (_req, res) => {
-  try {
-    const hasDeleted = await ensureDeletedAtFlag();
-
-    const sql = `
-      SELECT
-        t.id,
-        t.name,
-        ts.company_name,
-        u.admin_email
-      FROM tenants t
-      LEFT JOIN tenant_settings ts ON ts.tenant_id = t.id
-      LEFT JOIN LATERAL (
-        SELECT email AS admin_email
-        FROM users
-        WHERE tenant_id = t.id AND role = 'admin'
-        ORDER BY id ASC
-        LIMIT 1
-      ) u ON TRUE
-      ${hasDeleted ? 'WHERE t.deleted_at IS NULL' : ''}
-      ORDER BY t.name COLLATE "C";
-    `;
-
-    const q = await pool.query(sql);
-    return res.json({ tenants: q.rows || [] });
-  } catch (e) {
-    console.error('[GET /tenants] error:', e);
-    return res.status(500).json({ error: 'tenants list failed' });
+/**
+ * Route DEV : crée un tenant + user admin + tenant_settings
+ * et lance le seed par défaut (familles, catégories, unités, modes de paiement).
+ *
+ * POST /tenants/dev-bootstrap
+ * body: {
+ *   tenantName: "Ma Coop",
+ *   adminEmail: "fabien.hicauber@gmail.com",
+ *   adminPassword: "monmdp"
+ * }
+ */
+router.post('/dev-bootstrap', async (req, res) => {
+  // Sécurité minimale : uniquement si DEV_SUPERADMIN_ENABLED=1
+  if (process.env.DEV_SUPERADMIN_ENABLED !== '1') {
+    return res.status(403).json({ ok: false, error: 'DEV_SUPERADMIN_DISABLED' });
   }
-});
 
-router.delete('/:id', authRequired, superAdminOnly, async (req, res) => {
-  const id = req.params.id;
-  const hard = String(req.query.hard || '0') === '1';
+  const { tenantName, adminEmail, adminPassword } = req.body || {};
+
+  if (!tenantName || !adminEmail || !adminPassword) {
+    return res.status(400).json({ ok: false, error: 'tenantName_adminEmail_adminPassword_required' });
+  }
+
+  const emailNorm = String(adminEmail).trim().toLowerCase();
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const hasDeleted = await ensureDeletedAtFlag();
+    // 1) Créer le tenant
+    const t = await client.query(
+      `INSERT INTO tenants (name) VALUES ($1) RETURNING id, name, created_at`,
+      [tenantName]
+    );
+    const tenantId = t.rows[0].id;
 
-    if (hard || !hasDeleted) {
-      await client.query(`DELETE FROM tenants WHERE id = $1`, [id]);
-    } else {
-      await client.query(`UPDATE tenants SET deleted_at = NOW() WHERE id = $1`, [id]);
-    }
+    // 2) Créer tenant_settings minimal
+    await client.query(
+      `INSERT INTO tenant_settings (tenant_id, modules, modules_json, smtp_json, onboarded)
+       VALUES ($1, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, false)
+       ON CONFLICT (tenant_id) DO NOTHING`,
+      [tenantId]
+    );
+
+    // 3) Créer user admin
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    const u = await client.query(
+      `INSERT INTO users (tenant_id, email, password_hash, role)
+       VALUES ($1, $2, $3, 'admin')
+       RETURNING id, email, role, created_at`,
+      [tenantId, emailNorm, passwordHash]
+    );
+
+    // 4) Seed par défaut pour ce tenant
+    await seedTenantDefaults(client, tenantId, { withPayments: true });
 
     await client.query('COMMIT');
-    return res.json({ ok: true, hard: hard || !hasDeleted });
+
+    res.json({
+      ok: true,
+      tenant: t.rows[0],
+      admin: u.rows[0],
+    });
   } catch (e) {
     await client.query('ROLLBACK');
-    console.error('[DELETE /tenants/:id] error:', e);
-    return res.status(500).json({ ok: false, error: e.message });
+    console.error('POST /tenants/dev-bootstrap error', e);
+    res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
+  }
+});
+
+// (Optionnel) petit GET pour debug : liste des tenants
+router.get('/', async (_req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, name, created_at FROM tenants ORDER BY created_at DESC`
+    );
+    res.json({ ok: true, tenants: r.rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
