@@ -76,8 +76,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   syncHydrateOnStartup: () => ipcRenderer.invoke('sync:hydrateOnStartup'),
 
-
-
   /* -------------- Produits ----------------------- */
   ajouterProduit: (produit) => ipcRenderer.invoke('ajouter-produit', produit),
   getProduits:    () => ipcRenderer.invoke('get-produits'),
@@ -290,6 +288,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   goMain: () => ipcRenderer.invoke('app:go-main'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   ensureAuth: () => ipcRenderer.invoke('auth:ensure'),
+
+  // 🔥 NOUVEAU : récupérer ce qu’on a sauvegardé (email + tenant) pour pré-remplir le login
+  getSavedAuth: () => ipcRenderer.invoke('auth:getSavedAuth'),
 
   // Super admin (tenants root)
   adminRegisterTenant: (payload) => ipcRenderer.invoke('admin:registerTenant', payload),

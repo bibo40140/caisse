@@ -319,15 +319,35 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
     // 2) PERSISTE dans config.json pour les futures actions (push/pull/ensureAuth)
     try {
       const { setConfig } = require('./src/main/config');  // ← on utilise le même module que ensureAuth()
-      setConfig({ auth_token: js.token });                 // (inutile d’écrire tenant_id; il est dans le JWT)
+      // 🔥 on stocke aussi le dernier email pour pré-remplir le login
+      setConfig({ auth_token: js.token, last_email: email });
     } catch (e) {
-      console.warn('[auth:login] impossible d’écrire auth_token dans config.json:', e?.message || e);
+      console.warn('[auth:login] impossible d’écrire auth_token/last_email dans config.json:', e?.message || e);
     }
 
     // 3) email handlers
     ensureEmailHandlers();
 
     return { ok: true, token: js.token, role: js.role, is_super_admin: js.is_super_admin };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// 🔥 NOUVEAU : pour pré-remplir le login (email + tenant info éventuelle)
+ipcMain.handle('auth:getSavedAuth', async () => {
+  try {
+    const cfg = await getConfig();
+    const email = cfg?.last_email || null;
+    const token = cfg?.auth_token || null;
+
+    let tenant_id = null;
+    if (token) {
+      const info = computeAuthInfoFromToken(token);
+      tenant_id = info.tenant_id;
+    }
+
+    return { ok: true, email, tenant_id };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -641,9 +661,9 @@ const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
   // 🔒 Purge défensive des secrets dans config.json
-// (désactivé) on ne purge plus le token au démarrage
-// pour éviter de casser ensureAuth() lors des opérations.
-// Utiliser le bouton "Se déconnecter" pour purger proprement.
+  // (désactivé) on ne purge plus le token au démarrage
+  // pour éviter de casser ensureAuth() lors des opérations.
+  // Utiliser le bouton "Se déconnecter" pour purger proprement.
 
   // 1) Config → API base (avec fallback ENV/localhost)
   try {
@@ -675,10 +695,11 @@ app.whenReady().then(async () => {
     console.error('[auth] ensureAuth error:', e?.message || e);
   }
 
-  // ⚠️ DEV : on désactive l’auto-login pour forcer la fenêtre de login à chaque démarrage
-const FORCE_ALWAYS_LOGIN = true;
+  // 🔥 PROD : auto-login si token présent, sinon login
+  // (pour forcer le login à chaque démarrage en dev : FORCE_ALWAYS_LOGIN=1 dans les variables d'env)
+  const FORCE_ALWAYS_LOGIN = process.env.FORCE_ALWAYS_LOGIN === '1';
 
-if (!FORCE_ALWAYS_LOGIN && auth && auth.token) {
+  if (!FORCE_ALWAYS_LOGIN && auth && auth.token) {
     setAuthToken(auth.token);
 
     // remplir le cache d'emblée
