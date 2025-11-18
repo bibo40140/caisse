@@ -55,10 +55,6 @@ function isUuid(v) {
   );
 }
 
-
-
-
-
 /* -------------------------------------------------
    PULL refs depuis Neon -> Sauvegarde locale
 --------------------------------------------------*/
@@ -428,7 +424,7 @@ function countPendingOps() {
  * - deviceId: identifiant de ce poste (par défaut = DEVICE_ID)
  * - options.skipPull: si true, n'appelle PAS pullRefs() après le push
  */
-async function pushOpsNow(deviceId, options = {}) {
+async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
   const { skipPull = false } = options || {};
 
   const ops = takePendingOps(200);
@@ -500,7 +496,7 @@ async function pushOpsNow(deviceId, options = {}) {
 
 /**
  * 🔁 Background sync déclenché après une action (création / modif / vente, etc.)
- * On l’exporte pour que les handlers puissent l’appeler.
+ * On l’exporte pour que les DB puissent l’appeler.
  */
 let _bgSyncInFlight = false;
 function triggerBackgroundSync(deviceId = DEVICE_ID) {
@@ -583,6 +579,8 @@ function collectLocalRefs() {
   };
 }
 
+// ⚠️ On garde bootstrapIfNeeded pour un usage manuel/exceptionnel,
+// mais on NE L’APPELLE PLUS automatiquement au démarrage.
 async function bootstrapIfNeeded() {
   let needed = false;
   try {
@@ -628,9 +626,10 @@ async function bootstrapIfNeeded() {
   return { ok: true, bootstrapped: true, counts: js?.counts || {} };
 }
 
+// 🆕 Version simple : au démarrage, on fait juste un pull
+// (le bootstrap automatique est géré ailleurs ou manuellement)
 async function hydrateOnStartup() {
   setState('pulling', { phase: 'startup' });
-  await bootstrapIfNeeded();
   const r = await pullRefs();
   setState('online', { phase: 'startup_done' });
   return r;
@@ -688,7 +687,7 @@ async function pushBootstrapRefs() {
 }
 
 // Remplace l’ancienne version de syncPushAll par celle-ci
-async function syncPushAll(deviceId) {
+async function syncPushAll(deviceId = DEVICE_ID) {
   try {
     // 1) push des opérations en attente
     const pushRes = await pushOpsNow(deviceId);
@@ -698,7 +697,10 @@ async function syncPushAll(deviceId) {
     try {
       pullRes = await pullRefs();
     } catch (e) {
-      setState('online', { phase: 'pull_failed_after_push_all', error: String(e) });
+      setState('online', {
+        phase: 'pull_failed_after_push_all',
+        error: String(e),
+      });
     }
 
     setState('online', { phase: 'idle', pending: countPendingOps() });
@@ -722,4 +724,5 @@ module.exports = {
   countPendingOps,
   pushBootstrapRefs,
   syncPushAll,
+  triggerBackgroundSync,   // 👈 IMPORTANT pour les DB métiers
 };
