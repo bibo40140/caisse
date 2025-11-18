@@ -63,7 +63,6 @@ const { ensureLocalSchema } = require('./src/main/db/schema');
 ensureLocalSchema(db);
 
 const { getDeviceId } = require('./src/main/device');
-const { runBootstrap } = require('./src/main/bootstrap');
 const sync = require('./src/main/sync'); // hydrateOnStartup, pullAll, pushOpsNow, startAutoSync
 
 
@@ -660,10 +659,6 @@ const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
-  // 🔒 Purge défensive des secrets dans config.json
-  // (désactivé) on ne purge plus le token au démarrage
-  // pour éviter de casser ensureAuth() lors des opérations.
-  // Utiliser le bouton "Se déconnecter" pour purger proprement.
 
   // 1) Config → API base (avec fallback ENV/localhost)
   try {
@@ -677,7 +672,7 @@ app.whenReady().then(async () => {
     console.warn('[config] lecture impossible, fallback API_BASE_URL =', fallback, '-', e?.message || e);
   }
 
-  // 👉 Option pour forcer l'écran de login (ne pas auto-reprendre un token)
+  // 👉 Option pour forcer l'écran de login
   try {
     if (process.env.FORCE_LOGIN === '1') {
       removeAuthToken && removeAuthToken();
@@ -695,8 +690,6 @@ app.whenReady().then(async () => {
     console.error('[auth] ensureAuth error:', e?.message || e);
   }
 
-  // 🔥 PROD : auto-login si token présent, sinon login
-  // (pour forcer le login à chaque démarrage en dev : FORCE_ALWAYS_LOGIN=1 dans les variables d'env)
   const FORCE_ALWAYS_LOGIN = process.env.FORCE_ALWAYS_LOGIN === '1';
 
   if (!FORCE_ALWAYS_LOGIN && auth && auth.token) {
@@ -721,26 +714,26 @@ app.whenReady().then(async () => {
     return;
   }
 
-  // 3) Auto-sync
+    // 3) 🔥 PUSH AVANT PULL : vider la file locale dès le démarrage
+  if (process.env.SKIP_PUSH_ON_STARTUP !== '1') {
+    try {
+      const r = await sync.pushOpsNow(DEVICE_ID, { skipPull: true });
+      console.log('[sync] initial pushOpsNow done:', r);
+    } catch (e) {
+      console.warn('[sync] initial pushOpsNow failed:', e?.message || e);
+    }
+  } else {
+    console.log('[sync] initial push SKIPPED (env SKIP_PUSH_ON_STARTUP=1)');
+  }
+
+  // 4) Auto-sync (pousse périodiquement les ops en arrière-plan)
   try {
     sync.startAutoSync(DEVICE_ID);
   } catch (e) {
     console.warn('[sync] startAutoSync warning:', e?.message || e);
   }
 
-  // 4) Bootstrap (local -> Neon) if allowed
-  if (process.env.SKIP_BOOTSTRAP !== '1') {
-    try {
-      const r = await runBootstrap();
-      console.log('[bootstrap] OK:', r);
-    } catch (e) {
-      console.error('[bootstrap] ERROR:', e?.message || e);
-    }
-  } else {
-    console.log('[bootstrap] SKIPPED (env SKIP_BOOTSTRAP=1)');
-  }
-
-  // 5) Hydrate (Neon -> local) if allowed
+  // 5) Hydrate (Neon -> local) + bootstrapIfNeeded côté sync.js
   if (process.env.SKIP_HYDRATE !== '1') {
     try {
       const r = await sync.hydrateOnStartup();
@@ -752,7 +745,8 @@ app.whenReady().then(async () => {
     console.log('[hydrate] SKIPPED (env SKIP_HYDRATE=1)');
   }
 
-  // 6) Route to Onboarding or Main
+
+  // 7) Route vers Onboarding ou Main
   try {
     const r = await apiFetch('/tenant_settings/onboarding_status', { headers: { accept: 'application/json' } });
     const js = await safeJson(r);
@@ -769,6 +763,8 @@ app.whenReady().then(async () => {
     createMainWindow();
   }
 });
+
+
 
 
 
@@ -821,12 +817,13 @@ safeHandle('sync:drain', async () => {
   try {
     const a = await ensureAuth();
     if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
-    const r = await sync.pushOpsNow();
+    const r = await sync.pushOpsNow(DEVICE_ID);
     return r?.ok ? r : { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
 });
+
 
 // Handlers Sync principaux
 safeHandle('sync:pushBootstrapRefs', async () => {

@@ -4,8 +4,12 @@
 const { BrowserWindow } = require('electron');
 const db = require('./db/db');
 const { apiFetch } = require('./apiClient');
+const { getDeviceId } = require('./device');
 
-// helpers
+// ID du device (stable pour ce poste)
+const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
+
+// helpers simples
 const b2i = (v) => (v ? 1 : 0);
 
 function notifyRenderer(channel, payload) {
@@ -41,6 +45,19 @@ function asIntOrNull(v) {
   const n = Number(v);
   return Number.isInteger(n) ? n : null;
 }
+
+function isUuid(v) {
+  return (
+    typeof v === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      v
+    )
+  );
+}
+
+
+
+
 
 /* -------------------------------------------------
    PULL refs depuis Neon -> Sauvegarde locale
@@ -406,7 +423,14 @@ function countPendingOps() {
   return r?.n || 0;
 }
 
-async function pushOpsNow(deviceId) {
+/**
+ * Pousse immédiatement les opérations en file.
+ * - deviceId: identifiant de ce poste (par défaut = DEVICE_ID)
+ * - options.skipPull: si true, n'appelle PAS pullRefs() après le push
+ */
+async function pushOpsNow(deviceId, options = {}) {
+  const { skipPull = false } = options || {};
+
   const ops = takePendingOps(200);
   if (ops.length === 0) {
     setState('online', { phase: 'idle', pending: 0 });
@@ -421,7 +445,8 @@ async function pushOpsNow(deviceId) {
       id: o.id,
       op_type: o.op_type,
       entity_type: o.entity_type,
-      entity_id: o.entity_id,
+      // ⚠️ IMPORTANT : on n’envoie un entity_id que si c’est un vrai UUID
+      entity_id: isUuid(o.entity_id) ? o.entity_id : null,
       payload_json: o.payload_json,
     })),
   };
@@ -459,15 +484,38 @@ async function pushOpsNow(deviceId) {
 
   notifyRenderer('ops:pushed', { count: ids.length });
 
-  try {
-    await pullRefs();
-  } catch (e) {
-    setState('online', { phase: 'pull_failed', error: String(e) });
+  // Pull refs après push, sauf si on est dans un cas spécial (startup push-before-pull)
+  if (!skipPull) {
+    try {
+      await pullRefs();
+    } catch (e) {
+      setState('online', { phase: 'pull_failed', error: String(e) });
+    }
   }
 
   const left = countPendingOps();
   setState('online', { phase: 'idle', pending: left });
   return { ok: true, sent: ids.length, pending: left };
+}
+
+/**
+ * 🔁 Background sync déclenché après une action (création / modif / vente, etc.)
+ * On l’exporte pour que les handlers puissent l’appeler.
+ */
+let _bgSyncInFlight = false;
+function triggerBackgroundSync(deviceId = DEVICE_ID) {
+  if (_bgSyncInFlight) return;
+  _bgSyncInFlight = true;
+
+  setImmediate(async () => {
+    try {
+      await pushOpsNow(deviceId);
+    } catch (_) {
+      // on ne casse jamais l’UI sur une erreur réseau ici
+    } finally {
+      _bgSyncInFlight = false;
+    }
+  });
 }
 
 /* -------------------------------------------------
@@ -605,7 +653,7 @@ function stopAutoSync() {
   }
 }
 
-function startAutoSync(deviceId) {
+function startAutoSync(deviceId = DEVICE_ID) {
   if (_autoTimer) return;
   const loop = async () => {
     try {
@@ -639,27 +687,29 @@ async function pushBootstrapRefs() {
   return { ok: true, counts: js?.counts || {} };
 }
 
-async function syncPushAll() {
-  const payload = collectLocalRefs();
-  let res;
+// Remplace l’ancienne version de syncPushAll par celle-ci
+async function syncPushAll(deviceId) {
   try {
-    res = await apiFetch('/sync/bootstrap', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  } catch (e) {
-    return { ok: false, error: `Network error: ${String(e)}` };
-  }
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    return { ok: false, error: `HTTP ${res.status} ${txt}` };
-  }
-  const js = await res.json().catch(() => ({}));
-  if (!js?.ok) return { ok: false, error: js?.error || 'Unknown bootstrap error' };
+    // 1) push des opérations en attente
+    const pushRes = await pushOpsNow(deviceId);
 
-  notifyRenderer('data:refreshed', { from: 'push_all' });
-  setState('online', { phase: 'idle' });
-  return { ok: true, counts: js.counts || {} };
+    // 2) puis pull complet pour rafraîchir les refs
+    let pullRes = null;
+    try {
+      pullRes = await pullRefs();
+    } catch (e) {
+      setState('online', { phase: 'pull_failed_after_push_all', error: String(e) });
+    }
+
+    setState('online', { phase: 'idle', pending: countPendingOps() });
+    return {
+      ok: true,
+      push: pushRes,
+      pull: pullRes,
+    };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
 }
 
 module.exports = {
