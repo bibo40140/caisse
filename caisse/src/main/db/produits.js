@@ -189,40 +189,94 @@ function rechercherProduitParNomEtFournisseur(nom, fournisseur_id) {
 // ÉCRITURE
 // ─────────────────────────────────────────────────────────────
 function ajouterProduit(p = {}) {
-  const nom = p.nom || 'Nouveau produit';
-  const reference = p.reference || genRefFromName(nom);
-  const prix = toNumber(p.prix, 0);
-  const code_barre = p.code_barre || null;
-const unite_id = resolveUniteId(p);
+  const nom         = p.nom || 'Nouveau produit';
+  const reference   = p.reference || genRefFromName(nom);
+  const prix        = toNumber(p.prix, 0);
+  const code_barre  = p.code_barre || null;
+  const unite_id    = resolveUniteId(p);
   const fournisseur_id = p.fournisseur_id ?? null;
-  const categorie_id = p.categorie_id ?? null;
-  const stockInit = toNumber(p.stock, 0);
+  const categorie_id   = p.categorie_id ?? null;
+  const stockInit   = toNumber(p.stock, 0);
 
   const tx = db.transaction(() => {
     const r = db.prepare(`
-      INSERT INTO produits (nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
+      INSERT INTO produits (
+        nom, reference, prix, stock, code_barre,
+        unite_id, fournisseur_id, categorie_id, updated_at
+      )
       VALUES (?,?,?,?,?,?,?,?, datetime('now','localtime'))
-    `).run(nom, reference, prix, stockInit, code_barre, unite_id, fournisseur_id, categorie_id);
+    `).run(
+      nom,
+      reference,
+      prix,
+      stockInit,
+      code_barre,
+      unite_id,
+      fournisseur_id,
+      categorie_id
+    );
+
     const id = r.lastInsertRowid;
 
-    if (stockInit !== 0) {
+    // 🔵 1) Opération "product.created" pour Néon
+    try {
       enqueueOp({
         deviceId: DEVICE_ID,
-        opType: 'inventory.adjust',
+        opType: 'product.created',
         entityType: 'produit',
-        entityId: String(id),
-        payload: { produitId: id, delta: stockInit, reason: 'create.initial_stock' },
+        entityId: String(id), // pour plus tard si on mappe à un UUID distant
+        payload: {
+          local_id: id,
+          nom,
+          reference,
+          prix,
+          stock: stockInit,
+          code_barre,
+          unite_id,
+          fournisseur_id,
+          categorie_id,
+        },
       });
+    } catch (e) {
+      console.error('[ajouterProduit] enqueueOp product.created error:', e);
     }
 
+    // 🟢 2) Stock initial → inventory.adjust (journal des mouvements)
+    if (stockInit !== 0) {
+      try {
+        enqueueOp({
+          deviceId: DEVICE_ID,
+          opType: 'inventory.adjust',
+          entityType: 'produit',
+          entityId: String(id),
+          payload: {
+            produitId: id,
+            delta: stockInit,
+            reason: 'create.initial_stock',
+          },
+        });
+      } catch (e) {
+        console.error('[ajouterProduit] enqueueOp inventory.adjust error:', e);
+      }
+    }
+
+    // 🛰️ 3) Push en arrière-plan (best effort)
     try {
       const { pushOpsNow } = require('../sync');
-      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
-    } catch {}
+      if (typeof pushOpsNow === 'function') {
+        // on ne bloque pas l’UI sur la sync
+        pushOpsNow(DEVICE_ID).catch(() => {});
+      }
+    } catch {
+      // pas bloquant
+    }
+
     return id;
   });
+
   return tx();
 }
+
 
 /**
  * Modifier un produit.

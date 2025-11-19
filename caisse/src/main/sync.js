@@ -460,13 +460,25 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
 
   setState('pushing', { pending: ops.length });
 
+  // 🔐 Normalise l'id des ops pour qu'il soit toujours un UUID valide
+  const normalizeOpId = (raw) => {
+    const s = (raw ?? '').toString().trim();
+    if (isUuid(s)) return s;
+
+    // Si c'est un nombre (1,2,3,...) -> on fabrique un uuid stable
+    const n = Number(s);
+    const hex = Number.isFinite(n) ? n.toString(16) : '0';
+    const suffix = hex.padStart(12, '0').slice(-12);
+    return `00000000-0000-0000-0000-${suffix}`;
+  };
+
   const payload = {
     deviceId,
     ops: ops.map((o) => ({
-      id: o.id,
+      id: normalizeOpId(o.id),                 // 👈 très important
       op_type: o.op_type,
       entity_type: o.entity_type,
-      // ⚠️ IMPORTANT : on n’envoie un entity_id que si c’est un vrai UUID
+      // on n'envoie entity_id que si c'est déjà un UUID
       entity_id: isUuid(o.entity_id) ? o.entity_id : null,
       payload_json: o.payload_json,
     })),
@@ -505,7 +517,6 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
 
   notifyRenderer('ops:pushed', { count: ids.length });
 
-  // Pull refs après push, sauf si on est dans un cas spécial (startup push-before-pull)
   if (!skipPull) {
     try {
       await pullRefs();
@@ -518,6 +529,9 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
   setState('online', { phase: 'idle', pending: left });
   return { ok: true, sent: ids.length, pending: left };
 }
+
+
+
 
 /**
  * 🔁 Background sync déclenché après une action (création / modif / vente, etc.)

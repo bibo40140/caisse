@@ -1,5 +1,5 @@
 // src/main/handlers/fournisseurs.js
-const { ipcMain, BrowserWindow } = require('electron');
+const { ipcMain } = require('electron');
 const {
   getFournisseurs,
   ajouterFournisseur,
@@ -8,7 +8,6 @@ const {
   rechercherFournisseurParNom,
   resoudreConflitFournisseur,
 } = require('../db/fournisseurs');
-
 const { enqueueOp } = require('../db/ops');
 const { getDeviceId } = require('../device');
 
@@ -26,29 +25,15 @@ function safeTriggerSync() {
     if (syncMod && typeof syncMod.triggerBackgroundSync === 'function') {
       setImmediate(() => {
         try {
-          syncMod.triggerBackgroundSync(); // pas de .catch ici
+          syncMod.triggerBackgroundSync();
         } catch (e) {
-          console.warn(
-            '[sync] triggerBackgroundSync error (background):',
-            e?.message || e
-          );
+          console.warn('[sync] triggerBackgroundSync error (fournisseurs):', e.message || e);
         }
       });
     }
   } catch {
     // on ne casse jamais le flux à cause de la sync
   }
-}
-
-function notifyRefresh() {
-  try {
-    BrowserWindow.getAllWindows().forEach((w) => {
-      w.webContents.send('data:refreshed', {
-        from: 'fournisseurs',
-        ts: Date.now(),
-      });
-    });
-  } catch {}
 }
 
 function registerFournisseurHandlers() {
@@ -61,18 +46,14 @@ function registerFournisseurHandlers() {
     'rechercher-fournisseur-par-nom',
     'resoudre-conflit-fournisseur',
   ];
-  channels.forEach((ch) => {
-    try {
-      ipcMain.removeHandler(ch);
-    } catch {}
-  });
+  channels.forEach((ch) => ipcMain.removeHandler(ch));
 
   // 📋 Liste
   ipcMain.handle('get-fournisseurs', async () => {
     return getFournisseurs();
   });
 
-  // ➕ Ajouter (local + op + sync)
+  // ➕ Ajouter (retourne l'objet avec id)
   ipcMain.handle('ajouter-fournisseur', async (_event, f = {}) => {
     try {
       if (!f.nom || !String(f.nom).trim()) {
@@ -81,13 +62,13 @@ function registerFournisseurHandlers() {
 
       const created = ajouterFournisseur(f);
 
+      // enqueue op pour Neon
       try {
         enqueueOp({
           deviceId: DEVICE_ID,
           opType: 'fournisseur.created',
           entityType: 'fournisseur',
           entityId: String(created.id),
-          // 🛈 pour l’instant on ne synchronise pas categorie_id/referent_id vers Neon
           payload: {
             nom: created.nom,
             contact: created.contact,
@@ -97,6 +78,9 @@ function registerFournisseurHandlers() {
             code_postal: created.code_postal,
             ville: created.ville,
             label: created.label,
+            // on envoie aussi les ids locaux pour préparer la suite
+            categorie_id: created.categorie_id ?? null,
+            referent_id: created.referent_id ?? null,
           },
         });
       } catch (e) {
@@ -104,21 +88,22 @@ function registerFournisseurHandlers() {
       }
 
       safeTriggerSync();
-      notifyRefresh();
 
       return { ok: true, id: created.id, fournisseur: created };
     } catch (err) {
       console.error('[ajouter-fournisseur] error:', err);
-      throw new Error(err?.message || 'Erreur lors de l’ajout du fournisseur');
+      throw new Error(err.message || "Erreur lors de l’ajout du fournisseur");
     }
   });
 
-  // ✏️ Modifier (local + op + sync)
+  // ✏️ Modifier (retourne l'objet avec id)
   ipcMain.handle('modifier-fournisseur', async (_event, f = {}) => {
     try {
       if (!f.id) throw new Error("Champ 'id' requis");
+
       const updated = modifierFournisseur({ ...f, id: Number(f.id) });
 
+      // enqueue op de mise à jour
       try {
         enqueueOp({
           deviceId: DEVICE_ID,
@@ -134,6 +119,8 @@ function registerFournisseurHandlers() {
             code_postal: updated.code_postal,
             ville: updated.ville,
             label: updated.label,
+            categorie_id: updated.categorie_id ?? null,
+            referent_id: updated.referent_id ?? null,
           },
         });
       } catch (e) {
@@ -141,31 +128,25 @@ function registerFournisseurHandlers() {
       }
 
       safeTriggerSync();
-      notifyRefresh();
 
       return { ok: true, id: updated.id, fournisseur: updated };
     } catch (err) {
       console.error('[modifier-fournisseur] error:', err);
-      throw new Error(
-        err?.message || 'Erreur lors de la modification du fournisseur'
-      );
+      throw new Error(err.message || "Erreur lors de la modification du fournisseur");
     }
   });
 
-  // ❌ Supprimer (pour l’instant uniquement local)
+  // ❌ Supprimer
   ipcMain.handle('supprimer-fournisseur', async (_event, id) => {
     try {
       if (!id) throw new Error("Champ 'id' requis");
       supprimerFournisseur(Number(id));
-      // (on pourrait plus tard faire un op fournisseur.deleted)
+      // (si un jour on veut sync la suppression, on ajoutera une op fournisseur.deleted ici)
       safeTriggerSync();
-      notifyRefresh();
       return { ok: true };
     } catch (err) {
       console.error('[supprimer-fournisseur] error:', err);
-      throw new Error(
-        err?.message || 'Erreur lors de la suppression du fournisseur'
-      );
+      throw new Error(err.message || "Erreur lors de la suppression du fournisseur");
     }
   });
 
@@ -174,20 +155,16 @@ function registerFournisseurHandlers() {
     return rechercherFournisseurParNom(nom);
   });
 
-  // 🔁 Résoudre conflit (resté local pour le moment)
+  // 🔁 Résoudre conflit
   ipcMain.handle(
     'resoudre-conflit-fournisseur',
     async (_event, action, nouveau, existantId) => {
       try {
         const result = resoudreConflitFournisseur(action, nouveau, existantId);
-        safeTriggerSync();
-        notifyRefresh();
         return { ok: true, result };
       } catch (err) {
         console.error('[resoudre-conflit-fournisseur] error:', err);
-        throw new Error(
-          err?.message || 'Erreur lors de la résolution du conflit'
-        );
+        throw new Error(err.message || 'Erreur lors de la résolution du conflit');
       }
     }
   );

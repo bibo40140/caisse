@@ -833,13 +833,23 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
   console.log('[API] /sync/push_ops received:', { deviceId, count: ops.length, tenantId });
 
   const order = {
+    // Adhérents
     'adherent.created': 1,
     'adherent.updated': 2,
-    'fournisseur.created': 3,
-    'fournisseur.updated': 4,
+
+    // Produits
+    'product.created': 3,
+    'product.updated': 4,
+
+    // Ventes
     'sale.created': 10,
     'sale.updated': 11,
+
+    // Stock & réceptions
+    'reception.line_added': 20,
+    'inventory.adjust': 30,
   };
+
 
   ops.sort((a, b) => (order[a.op_type] || 100) - (order[b.op_type] || 100));
 
@@ -1205,58 +1215,72 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
          * INVENTAIRE / PRODUITS
          * ────────────────────────────*/
         case 'inventory.adjust': {
-          const produitId = asIntOrNull(p.produitId);
+          const produitIdLocal = asIntOrNull(p.produitId);
           const delta = Number(p.delta || 0);
-          if (!produitId || !Number.isFinite(delta) || delta === 0) {
-            console.warn(
-              '    [!] inventory.adjust ignorée — produitId/delta invalide'
-            );
-            break;
-          }
-          await client.query(
-            `
-            INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
-             VALUES ($1,$2,$3,'inventory_adjust',$4)
-             ON CONFLICT DO NOTHING
-            `,
-            [tenantId, produitId, delta, String(op.id)]
-          );
-          console.log('    [+] stock_movements inventory_adjust', {
-            produit_id: produitId,
-            delta,
-          });
-          break;
-        }
 
-        case 'product.created': {
-          const id = asIntOrNull(p.local_id ?? p.id);
-          if (!id) {
+          if (!produitIdLocal || !Number.isFinite(delta) || delta === 0) {
             console.warn(
-              '    [!] product.created ignorée — id manquant ou invalide',
+              '    [!] inventory.adjust ignorée — produitId/delta invalide',
               p
             );
             break;
           }
 
+          // ❗ TODO multi-poste :
+          // Ici il faudrait mapper l’ID local du produit (SQLite) vers l’UUID Neon (produits.id),
+          // puis insérer un mouvement de stock côté Neon.
+          // Tant que ce mapping n’est pas en place, on ne fait RIEN pour éviter l’erreur "invalid uuid".
+          console.warn(
+            '    [!] inventory.adjust non appliquée côté Neon (mapping produit local→uuid pas encore implémenté)',
+            { produitIdLocal, delta }
+          );
+          break;
+        }
+
+
+        // case 'inventory.adjust': {
+        //   const produitId = asIntOrNull(p.produitId);
+        //   const delta = Number(p.delta || 0);
+        //   if (!produitId || !Number.isFinite(delta) || delta === 0) {
+        //     console.warn(
+        //       '    [!] inventory.adjust ignorée — produitId/delta invalide'
+        //     );
+        //     break;
+        //   }
+        //   await client.query(
+        //     `
+        //     INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+        //      VALUES ($1,$2,$3,'inventory_adjust',$4)
+        //      ON CONFLICT DO NOTHING
+        //     `,
+        //     [tenantId, produitId, delta, String(op.id)]
+        //   );
+        //   console.log('    [+] stock_movements inventory_adjust', {
+        //     produit_id: produitId,
+        //     delta,
+        //   });
+        //   break;
+        // }
+
+        case 'product.created': {
+          // id local sqlite (entier) – on NE L’UTILISE PAS comme id distant
+          const localId = asIntOrNull(p.local_id ?? p.id);
+          if (!localId) {
+            console.warn('    [!] product.created ignorée — local_id manquant ou invalide', p);
+            break;
+          }
+
+          // Pour l’instant : on laisse Neon générer son propre UUID (id produit)
+          // et on n’essaie pas encore de faire un mapping fin local ↔ distant.
           await client.query(
             `
             INSERT INTO produits
-              (id, tenant_id, nom, reference, prix, stock, code_barre,
+              (tenant_id, nom, reference, prix, stock, code_barre,
                unite_id, fournisseur_id, categorie_id, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
-            ON CONFLICT (tenant_id, id) DO UPDATE SET
-              nom           = EXCLUDED.nom,
-              reference     = EXCLUDED.reference,
-              prix          = EXCLUDED.prix,
-              stock         = EXCLUDED.stock,
-              code_barre    = EXCLUDED.code_barre,
-              unite_id      = EXCLUDED.unite_id,
-              fournisseur_id= EXCLUDED.fournisseur_id,
-              categorie_id  = EXCLUDED.categorie_id,
-              updated_at    = now()
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
+            ON CONFLICT DO NOTHING
             `,
             [
-              id,
               tenantId,
               p.nom ?? null,
               p.reference ?? null,
@@ -1268,7 +1292,12 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
               asUuidOrNull(p.categorie_id),
             ]
           );
-          console.log('    [+] produit créé/mis à jour', { id });
+
+          console.log('    [+] produit créé côté Neon', {
+            local_id: localId,
+            nom: p.nom,
+            reference: p.reference,
+          });
           break;
         }
 
