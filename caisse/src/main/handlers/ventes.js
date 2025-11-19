@@ -142,16 +142,21 @@ module.exports = function registerVentesHandlers(ipcMain) {
 
       const venteId = ventesDb.enregistrerVente(venteObj, lignes);
 
-      // 🔄 Déclenche une synchro en arrière-plan si dispo (non bloquant)
+    // 🔄 Déclenche une synchro en arrière-plan si dispo (non bloquant)
+try {
+  if (syncMod && typeof syncMod.triggerBackgroundSync === 'function') {
+    setImmediate(() => {
       try {
-        if (syncMod && typeof syncMod.triggerBackgroundSync === 'function') {
-          setImmediate(() => {
-            syncMod.triggerBackgroundSync().catch(() => {});
-          });
-        }
-      } catch (_) {
-        // on ignore toute erreur de synchro pour ne pas impacter la vente
+        syncMod.triggerBackgroundSync();
+      } catch (e) {
+        console.warn('[sync] triggerBackgroundSync error (ventes):', e.message || e);
       }
+    });
+  }
+} catch (_) {
+  // on ignore toute erreur de synchro pour ne pas impacter la vente
+}
+
 
       return { ok: true, venteId };
     } catch (e) {

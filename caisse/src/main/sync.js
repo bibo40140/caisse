@@ -117,6 +117,13 @@ async function pullRefs({ since = null } = {}) {
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `);
 
+    // Pour préserver categorie_id / referent_id locaux lors d'un pull
+  const selectAllFours = db.prepare(`
+    SELECT nom, categorie_id, referent_id
+    FROM fournisseurs
+  `);
+
+
   // FOURNISSEURS
   const insFour = db.prepare(`
     INSERT INTO fournisseurs
@@ -163,11 +170,26 @@ async function pullRefs({ since = null } = {}) {
   const fourUuidToLocalId = new Map();
 
   // === Transaction locale ===
-  const tx = db.transaction(() => {
+const tx = db.transaction(() => {
     // RESET des tables de référentiels pour le tenant courant
     db.prepare('DELETE FROM modes_paiement').run();
     db.prepare('DELETE FROM produits').run();
+
+    // 🟡 Fournisseurs : avant de supprimer, on mémorise categorie_id / referent_id par nom
+    const existingFours = selectAllFours.all();
+    const existingByName = new Map();
+    for (const f of existingFours) {
+      const key = (f.nom || '').trim().toLowerCase();
+      if (!key) continue;
+      if (!existingByName.has(key)) {
+        existingByName.set(key, {
+          categorie_id: f.categorie_id ?? null,
+          referent_id: f.referent_id ?? null,
+        });
+      }
+    }
     db.prepare('DELETE FROM fournisseurs').run();
+
     db.prepare('DELETE FROM adherents').run();
     db.prepare('DELETE FROM categories').run();
     db.prepare('DELETE FROM familles').run();
@@ -251,11 +273,13 @@ async function pullRefs({ since = null } = {}) {
     }
 
     // ----- FOURNISSEURS -----
-    for (const r of fournisseurs) {
+     for (const r of fournisseurs) {
       const nom = (r.nom || '').trim();
       if (!nom) continue;
 
       const remoteId = r.id ? String(r.id) : '';
+      const key = nom.toLowerCase();
+      const prev = existingByName.get(key) || {};
 
       const base = [
         nom,
@@ -265,8 +289,9 @@ async function pullRefs({ since = null } = {}) {
         r.adresse || null,
         r.code_postal || null,
         r.ville || null,
-        null, // categorie_id (mapping UUID -> local si on veut l'étendre plus tard)
-        null, // referent_id (non géré côté Neon pour l'instant)
+        // 🔁 on garde l'ancienne catégorie / référent si on en avait une en local
+        prev.categorie_id ?? null,
+        prev.referent_id ?? null,
         r.label ?? null,
       ];
 
@@ -724,5 +749,5 @@ module.exports = {
   countPendingOps,
   pushBootstrapRefs,
   syncPushAll,
-  triggerBackgroundSync,   // 👈 IMPORTANT pour les DB métiers
+  triggerBackgroundSync,   // 👈 on l’exporte
 };

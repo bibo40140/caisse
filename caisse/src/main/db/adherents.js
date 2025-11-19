@@ -1,32 +1,15 @@
 // src/main/db/adherents.js
 const db = require('./db');
-const { enqueueOp } = require('./ops');
-const { getDeviceId } = require('../device');
-
-const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
-
-/**
- * Petite aide : déclenche une sync en arrière-plan sans casser l'UI.
- */
-function bgSyncSafe() {
-  try {
-    const { triggerBackgroundSync } = require('../sync');
-    if (typeof triggerBackgroundSync === 'function') {
-      triggerBackgroundSync(DEVICE_ID);
-    }
-  } catch (_) {
-    // on ignore en silence si sync n'est pas dispo (évite les cycles)
-  }
-}
 
 function getAdherents(archive = 0) {
   return db
-    .prepare(
-      'SELECT * FROM adherents WHERE archive = ? ORDER BY nom, prenom'
-    )
-    .all(archive);
+    .prepare('SELECT * FROM adherents WHERE archive = ? ORDER BY nom, prenom')
+    .all(Number(archive) || 0);
 }
 
+/**
+ * Ajoute un adhérent en base locale et retourne l’objet créé avec son id.
+ */
 function ajouterAdherent(data) {
   const stmt = db.prepare(`
     INSERT INTO adherents 
@@ -36,50 +19,38 @@ function ajouterAdherent(data) {
   `);
 
   const info = stmt.run(
-    data.nom,
-    data.prenom,
-    data.email1,
-    data.email2,
-    data.telephone1,
-    data.telephone2,
-    data.adresse,
-    data.code_postal,
-    data.ville,
-    data.nb_personnes_foyer,
-    data.tranche_age,
+    data.nom || null,
+    data.prenom || null,
+    data.email1 || null,
+    data.email2 || null,
+    data.telephone1 || null,
+    data.telephone2 || null,
+    data.adresse || null,
+    data.code_postal || null,
+    data.ville || null,
+    data.nb_personnes_foyer || null,
+    data.tranche_age || null,
     data.statut || 'actif'
   );
 
-  const localId = info.lastInsertRowid;
+  const id = info.lastInsertRowid;
 
-  // Enfile l'opération "adherent.created"
-  enqueueOp({
-    deviceId: DEVICE_ID,
-    opType: 'adherent.created',
-    entityType: 'adherent',
-    // ⚠️ on laisse entityId avec l'id local, mais il sera ignoré côté push s'il n'est pas UUID
-    entityId: String(localId),
-    payload: {
-      local_id: localId,
-      nom: data.nom || '',
-      prenom: data.prenom || '',
-      email1: data.email1 || null,
-      email2: data.email2 || null,
-      telephone1: data.telephone1 || null,
-      telephone2: data.telephone2 || null,
-      adresse: data.adresse || null,
-      code_postal: data.code_postal || null,
-      ville: data.ville || null,
-      nb_personnes_foyer: data.nb_personnes_foyer ?? null,
-      tranche_age: data.tranche_age || null,
-      statut: data.statut || 'actif',
-      archive: 0,
-    },
-  });
-
-  bgSyncSafe();
-
-  return localId;
+  return {
+    id,
+    nom: data.nom || null,
+    prenom: data.prenom || null,
+    email1: data.email1 || null,
+    email2: data.email2 || null,
+    telephone1: data.telephone1 || null,
+    telephone2: data.telephone2 || null,
+    adresse: data.adresse || null,
+    code_postal: data.code_postal || null,
+    ville: data.ville || null,
+    nb_personnes_foyer: data.nb_personnes_foyer || null,
+    tranche_age: data.tranche_age || null,
+    statut: data.statut || 'actif',
+    archive: 0,
+  };
 }
 
 function modifierAdherent(data) {
@@ -91,82 +62,39 @@ function modifierAdherent(data) {
     WHERE id = ?
   `);
   stmt.run(
-    data.nom,
-    data.prenom,
-    data.email1,
-    data.email2,
-    data.telephone1,
-    data.telephone2,
-    data.adresse,
-    data.code_postal,
-    data.ville,
-    data.nb_personnes_foyer,
-    data.tranche_age,
+    data.nom || null,
+    data.prenom || null,
+    data.email1 || null,
+    data.email2 || null,
+    data.telephone1 || null,
+    data.telephone2 || null,
+    data.adresse || null,
+    data.code_postal || null,
+    data.ville || null,
+    data.nb_personnes_foyer || null,
+    data.tranche_age || null,
     data.statut || 'actif',
     data.id
   );
 
-  enqueueOp({
-    deviceId: DEVICE_ID,
-    opType: 'adherent.updated',
-    entityType: 'adherent',
-    entityId: String(data.id),
-    payload: {
-      id: data.id,
-      nom: data.nom || '',
-      prenom: data.prenom || '',
-      email1: data.email1 || null,
-      email2: data.email2 || null,
-      telephone1: data.telephone1 || null,
-      telephone2: data.telephone2 || null,
-      adresse: data.adresse || null,
-      code_postal: data.code_postal || null,
-      ville: data.ville || null,
-      nb_personnes_foyer: data.nb_personnes_foyer ?? null,
-      tranche_age: data.tranche_age || null,
-      statut: data.statut || 'actif',
-    },
-  });
-
-  bgSyncSafe();
-
-  return { ok: true };
+  // on retourne au moins l'id, pratique côté handler
+  return { id: data.id };
 }
 
 function archiverAdherent(id) {
   db.prepare(
-    `UPDATE adherents SET archive = 1, date_archivage = CURRENT_TIMESTAMP WHERE id = ?`
+    `UPDATE adherents 
+        SET archive = 1, date_archivage = CURRENT_TIMESTAMP 
+      WHERE id = ?`
   ).run(id);
-
-  enqueueOp({
-    deviceId: DEVICE_ID,
-    opType: 'adherent.archived',
-    entityType: 'adherent',
-    entityId: String(id),
-    payload: { id, archive: 1 },
-  });
-
-  bgSyncSafe();
-
-  return { ok: true };
 }
 
 function reactiverAdherent(id) {
   db.prepare(
-    `UPDATE adherents SET archive = 0, date_reactivation = CURRENT_TIMESTAMP WHERE id = ?`
+    `UPDATE adherents 
+        SET archive = 0, date_reactivation = CURRENT_TIMESTAMP 
+      WHERE id = ?`
   ).run(id);
-
-  enqueueOp({
-    deviceId: DEVICE_ID,
-    opType: 'adherent.reactivated',
-    entityType: 'adherent',
-    entityId: String(id),
-    payload: { id, archive: 0 },
-  });
-
-  bgSyncSafe();
-
-  return { ok: true };
 }
 
 module.exports = {

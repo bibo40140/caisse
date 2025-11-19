@@ -85,9 +85,19 @@ function registerReceptionHandlers(ipcMain) {
 
       // Best-effort: trigger sync en arrière-plan
       try {
-        if (syncMod && typeof syncMod.triggerBackgroundSync === 'function') {
-          setImmediate(() => { syncMod.triggerBackgroundSync().catch(() => {}); });
-        }
+      // Best-effort: trigger sync en arrière-plan
+try {
+  if (syncMod && typeof syncMod.triggerBackgroundSync === 'function') {
+    setImmediate(() => {
+      try {
+        syncMod.triggerBackgroundSync();
+      } catch (e) {
+        console.warn('[sync] triggerBackgroundSync error (receptions):', e.message || e);
+      }
+    });
+  }
+} catch {}
+
       } catch {}
 
        // 🔔 Notifie les renderer d’un refresh des données

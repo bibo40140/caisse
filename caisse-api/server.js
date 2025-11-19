@@ -136,6 +136,99 @@ async function getCurrentStock(client, tenantId, productId) {
   return Number(r.rows[0]?.stock || 0);
 }
 
+/* ============================================
+ * Helpers SYNC adhérents
+ * ==========================================*/
+
+/**
+ * Applique une création d'adhérent reçue depuis une op "adherent.created"
+ * - client: client PG transactionnel
+ * - tenantId: UUID du tenant
+ * - payload: objet envoyé depuis l'app Electron (voir logs push_ops)
+ */
+async function applyAdherentCreated(client, tenantId, payload) {
+  const p = payload || {};
+
+  const nom    = (p.nom || '').trim() || null;
+  const prenom = (p.prenom || '').trim() || null;
+
+  const email1Norm = (p.email1 || '').trim().toLowerCase();
+  const email1 = email1Norm || null;
+  const email2 = (p.email2 || '').trim() || null;
+
+  const telephone1 = (p.telephone1 || '').trim() || null;
+  const telephone2 = (p.telephone2 || '').trim() || null;
+
+  const adresse     = (p.adresse || '').trim() || null;
+  const codePostal  = (p.code_postal || '').trim() || null;
+  const ville       = (p.ville || '').trim() || null;
+
+  const nbPersFoyer = p.nb_personnes_foyer ?? null;
+  const trancheAge  = p.tranche_age ?? null;
+  const droitEntree = p.droit_entree != null ? Number(p.droit_entree) : null;
+
+  const dateInscription = p.date_inscription || null;
+  const archive         = !!p.archive;
+  const dateArchivage   = p.date_archivage || null;
+  const dateReactivation = p.date_reactivation || null;
+
+  // 🔁 Idempotence / anti-doublon : si un adhérent avec le même email1 existe déjà → on ne recrée pas.
+  if (email1) {
+    const ex = await client.query(
+      `
+      SELECT id
+      FROM adherents
+      WHERE tenant_id = $1
+        AND LOWER(COALESCE(email1, '')) = $2
+      LIMIT 1
+      `,
+      [tenantId, email1]
+    );
+    if (ex.rowCount > 0) {
+      console.log('    [=] adherent déjà présent pour email1 =', email1);
+      return ex.rows[0].id;
+    }
+  }
+
+  // Insertion (sans colonne "statut")
+  const r = await client.query(
+    `
+    INSERT INTO adherents
+      (tenant_id, nom, prenom,
+       email1, email2,
+       telephone1, telephone2,
+       adresse, code_postal, ville,
+       nb_personnes_foyer, tranche_age,
+       droit_entree, date_inscription,
+       archive, date_archivage, date_reactivation)
+    VALUES
+      ($1,$2,$3,
+       $4,$5,
+       $6,$7,
+       $8,$9,$10,
+       $11,$12,
+       $13,
+       COALESCE($14::timestamptz, now()),
+       $15,$16,$17)
+    RETURNING id
+    `,
+    [
+      tenantId,
+      nom, prenom,
+      email1, email2,
+      telephone1, telephone2,
+      adresse, codePostal, ville,
+      nbPersFoyer, trancheAge,
+      droitEntree,
+      dateInscription,
+      archive, dateArchivage, dateReactivation,
+    ]
+  );
+
+  const newId = r.rows[0]?.id;
+  console.log('    [+] adherent créé / réutilisé, id =', newId);
+  return newId;
+}
 /* =========================================================
  * INVENTAIRE — version multi-tenant + nouveau schéma stock
  * =======================================================*/
@@ -579,6 +672,47 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
  * SYNC (bootstrap / pull_refs / push_ops)
  * =======================================================*/
 
+async function applyFournisseurUpsert(client, tenantId, p = {}) {
+  const nom = (p.nom || '').trim();
+  if (!nom) return;
+
+  await client.query(
+    `
+    INSERT INTO fournisseurs
+      (tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, label)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    ON CONFLICT (tenant_id, nom) DO UPDATE SET
+      contact     = EXCLUDED.contact,
+      email       = EXCLUDED.email,
+      telephone   = EXCLUDED.telephone,
+      adresse     = EXCLUDED.adresse,
+      code_postal = EXCLUDED.code_postal,
+      ville       = EXCLUDED.ville,
+      label       = EXCLUDED.label
+    `,
+    [
+      tenantId,
+      nom,
+      p.contact || null,
+      p.email || null,
+      p.telephone || null,
+      p.adresse || null,
+      p.code_postal || null,
+      p.ville || null,
+      p.label || null,
+    ]
+  );
+}
+
+async function applyFournisseurCreated(client, tenantId, p) {
+  return applyFournisseurUpsert(client, tenantId, p);
+}
+
+async function applyFournisseurUpdated(client, tenantId, p) {
+  return applyFournisseurUpsert(client, tenantId, p);
+}
+
+
 app.get('/sync/bootstrap_needed', authRequired, async (req, res) => {
   try {
     const r = await pool.query(
@@ -701,9 +835,12 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
   const order = {
     'adherent.created': 1,
     'adherent.updated': 2,
+    'fournisseur.created': 3,
+    'fournisseur.updated': 4,
     'sale.created': 10,
     'sale.updated': 11,
   };
+
   ops.sort((a, b) => (order[a.op_type] || 100) - (order[b.op_type] || 100));
 
   const client = await pool.connect();
@@ -731,6 +868,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
         payloadObj
       );
 
+      // Enregistre l'op dans la table ops (idempotent)
       try {
         await client.query(
           `
@@ -775,7 +913,31 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
       }
       if (!p || typeof p !== 'object') p = {};
 
-      switch (op.op_type) {
+           switch (op.op_type) {
+        /* ─────────────────────────────
+         * ADHERENTS
+         * ────────────────────────────*/
+        case 'adherent.created': {
+          await applyAdherentCreated(client, tenantId, p);
+          break;
+        }
+
+        /* ─────────────────────────────
+         * FOURNISSEURS
+         * ────────────────────────────*/
+        case 'fournisseur.created': {
+          await applyFournisseurCreated(client, tenantId, p);
+          break;
+        }
+
+        case 'fournisseur.updated': {
+          await applyFournisseurUpdated(client, tenantId, p);
+          break;
+        }
+
+        /* ─────────────────────────────
+         * VENTES
+         * ────────────────────────────*/
         case 'sale.created': {
           const venteId = asIntOrNull(p.venteId);
           const mpId = asIntOrNull(p.modePaiementId);
@@ -910,6 +1072,9 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           break;
         }
 
+        /* ─────────────────────────────
+         * RÉCEPTIONS
+         * ────────────────────────────*/
         case 'reception.line_added': {
           console.log('  → reception.line_added payload:', p);
 
@@ -1036,6 +1201,9 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           break;
         }
 
+        /* ─────────────────────────────
+         * INVENTAIRE / PRODUITS
+         * ────────────────────────────*/
         case 'inventory.adjust': {
           const produitId = asIntOrNull(p.produitId);
           const delta = Number(p.delta || 0);
@@ -1057,6 +1225,50 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             produit_id: produitId,
             delta,
           });
+          break;
+        }
+
+        case 'product.created': {
+          const id = asIntOrNull(p.local_id ?? p.id);
+          if (!id) {
+            console.warn(
+              '    [!] product.created ignorée — id manquant ou invalide',
+              p
+            );
+            break;
+          }
+
+          await client.query(
+            `
+            INSERT INTO produits
+              (id, tenant_id, nom, reference, prix, stock, code_barre,
+               unite_id, fournisseur_id, categorie_id, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+            ON CONFLICT (tenant_id, id) DO UPDATE SET
+              nom           = EXCLUDED.nom,
+              reference     = EXCLUDED.reference,
+              prix          = EXCLUDED.prix,
+              stock         = EXCLUDED.stock,
+              code_barre    = EXCLUDED.code_barre,
+              unite_id      = EXCLUDED.unite_id,
+              fournisseur_id= EXCLUDED.fournisseur_id,
+              categorie_id  = EXCLUDED.categorie_id,
+              updated_at    = now()
+            `,
+            [
+              id,
+              tenantId,
+              p.nom ?? null,
+              p.reference ?? null,
+              Number(p.prix ?? 0),
+              Number(p.stock ?? 0),
+              p.code_barre ?? null,
+              asUuidOrNull(p.unite_id),
+              asUuidOrNull(p.fournisseur_id),
+              asUuidOrNull(p.categorie_id),
+            ]
+          );
+          console.log('    [+] produit créé/mis à jour', { id });
           break;
         }
 
@@ -1110,6 +1322,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           console.log('    [?] op ignorée', op.op_type);
           break;
       }
+
 
       try {
         await client.query(`UPDATE ops SET applied_at = now() WHERE id=$1`, [
@@ -1196,39 +1409,56 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
       );
     }
 
-    // Adhérents
-    for (const a of adherents) {
-      await client.query(
-        `
-        INSERT INTO adherents
-         (id, tenant_id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
-          nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation)
-        VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-        ON CONFLICT (id) DO UPDATE SET
-          nom=$3, prenom=$4, email1=$5, email2=$6, telephone1=$7, telephone2=$8, adresse=$9, code_postal=$10, ville=$11,
-          nb_personnes_foyer=$12, tranche_age=$13, droit_entree=$14, date_inscription=$15,
-          archive=$16, date_archivage=$17, date_reactivation=$18
-        `,
-        [
-          asUuidOrNull(a.id),
-          tenantId,
-          a.nom || null,
-          a.prenom || null,
-          a.email1 || null,
-          a.email2 || null,
-          a.telephone1 || null,
-          a.telephone2 || null,
-          a.adresse || null,
-          a.code_postal || null,
-          a.ville || null,
-          a.nb_personnes_foyer || null,
-          a.tranche_age || null,
-          a.droit_entree || null,
-          a.date_inscription || null,
-          a.archive || null,
-          a.date_archivage || null,
-          a.date_reactivation || null,
-        ]
+    // ⚠️ Adhérents
+    // On ne bootstrap les adhérents que si le tenant n'en a pas déjà,
+    // pour éviter les doublons à chaque nouveau bootstrap.
+    const adhCountRes = await client.query(
+      `SELECT COUNT(*)::int AS n FROM adherents WHERE tenant_id=$1`,
+      [tenantId]
+    );
+    const adhAlready = adhCountRes.rows[0]?.n || 0;
+
+    if (adhAlready === 0 && adherents.length > 0) {
+      console.log(
+        `[bootstrap] insertion des adherents pour tenant=${tenantId}, count=${adherents.length}`
+      );
+      for (const a of adherents) {
+        await client.query(
+          `
+          INSERT INTO adherents
+           (id, tenant_id, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
+            nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation)
+          VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+          ON CONFLICT (id) DO UPDATE SET
+            nom=$3, prenom=$4, email1=$5, email2=$6, telephone1=$7, telephone2=$8, adresse=$9, code_postal=$10, ville=$11,
+            nb_personnes_foyer=$12, tranche_age=$13, droit_entree=$14, date_inscription=$15,
+            archive=$16, date_archivage=$17, date_reactivation=$18
+          `,
+          [
+            asUuidOrNull(a.id),
+            tenantId,
+            a.nom || null,
+            a.prenom || null,
+            a.email1 || null,
+            a.email2 || null,
+            a.telephone1 || null,
+            a.telephone2 || null,
+            a.adresse || null,
+            a.code_postal || null,
+            a.ville || null,
+            a.nb_personnes_foyer || null,
+            a.tranche_age || null,
+            a.droit_entree || null,
+            a.date_inscription || null,
+            a.archive || null,
+            a.date_archivage || null,
+            a.date_reactivation || null,
+          ]
+        );
+      }
+    } else if (adhAlready > 0 && adherents.length > 0) {
+      console.log(
+        `[bootstrap] adherents ignorés pour tenant=${tenantId} (déjà ${adhAlready} en base)`
       );
     }
 
