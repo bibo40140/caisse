@@ -56,7 +56,22 @@ function isUuid(v) {
 }
 
 /* -------------------------------------------------
-   PULL refs depuis Neon -> Sauvegarde locale
+   PULL refs depuis Neon -> (pour l’instant) lecture seule
+
+   ⚠️ Version "safe" : on ne MODIFIE PAS la base locale.
+   - On interroge Neon
+   - On met à jour l’état de sync + on renvoie juste les counts
+   - AUCUN DELETE / INSERT / UPDATE dans SQLite ici.
+
+   ➜ La vérité reste 100% locale pour :
+     - unites / familles / categories
+     - adherents
+     - fournisseurs / produits
+     - modes_paiement
+
+   ➜ Neon reçoit les données via push_ops (création d’adhérents,
+     fournisseurs, produits, ventes, réceptions...). On ajoutera
+     plus tard un vrai pull "fine-grain" quand tout sera figé.
 --------------------------------------------------*/
 async function pullRefs({ since = null } = {}) {
   const qs = since ? `?since=${encodeURIComponent(since)}` : '';
@@ -88,323 +103,9 @@ async function pullRefs({ since = null } = {}) {
     modes_paiement = [],
   } = d;
 
-  // --- préparations SQLite ---
-
-  // UNITÉS
-  const insUniteByName = db.prepare(`INSERT INTO unites(nom) VALUES (?)`);
-  const selUniteIdByName = db.prepare(`SELECT id FROM unites WHERE nom = ?`);
-
-  // FAMILLES
-  const insFamByName = db.prepare(`INSERT INTO familles(nom) VALUES (?)`);
-  const selFamIdByName = db.prepare(`SELECT id FROM familles WHERE nom = ?`);
-
-  // CATÉGORIES
-  const insCatByName = db.prepare(
-    `INSERT INTO categories(nom, famille_id) VALUES (?, ?)`
-  );
-  const selCatIdByName = db.prepare(
-    `SELECT id, famille_id FROM categories WHERE nom = ?`
-  );
-  const updCatFamily = db.prepare(
-    `UPDATE categories SET famille_id = ? WHERE id = ?`
-  );
-
-  // ADHÉRENTS (on réécrit tout, pas besoin d'upsert compliqué)
-  const insAdh = db.prepare(`
-    INSERT INTO adherents
-      (nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,
-       nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `);
-
-    // Pour préserver categorie_id / referent_id locaux lors d'un pull
-  const selectAllFours = db.prepare(`
-    SELECT nom, categorie_id, referent_id
-    FROM fournisseurs
-  `);
-
-
-  // FOURNISSEURS
-  const insFour = db.prepare(`
-    INSERT INTO fournisseurs
-      (nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label)
-    VALUES (?,?,?,?,?,?,?,?,?,?)
-  `);
-  const selFourIdByName = db.prepare(
-    `SELECT id FROM fournisseurs WHERE LOWER(nom) = LOWER(?) LIMIT 1`
-  );
-
-  // MODES DE PAIEMENT
-  const insMode = db.prepare(`
-    INSERT INTO modes_paiement (nom, taux_percent, frais_fixe, actif)
-    VALUES (?,?,?,?)
-  `);
-
-  // PRODUITS : colonnes dynamiques
-  const produitsHasUnite = hasCol('produits', 'unite_id');
-  const produitsHasFournisseur = hasCol('produits', 'fournisseur_id');
-  const produitsHasCategorie = hasCol('produits', 'categorie_id');
-  const produitsHasRemote = hasCol('produits', 'remote_uuid');
-  const produitsHasUpdatedAt = hasCol('produits', 'updated_at');
-
-  const insProdBaseColumns = (() => {
-    const cols = ['nom', 'reference', 'prix', 'stock', 'code_barre'];
-    if (produitsHasUnite) cols.push('unite_id');
-    if (produitsHasFournisseur) cols.push('fournisseur_id');
-    if (produitsHasCategorie) cols.push('categorie_id');
-    if (produitsHasRemote) cols.push('remote_uuid');
-    if (produitsHasUpdatedAt) cols.push('updated_at');
-    const placeholders = cols.map(() => '?').join(',');
-    return { cols, placeholders };
-  })();
-
-  const insProd = db.prepare(`
-    INSERT INTO produits (${insProdBaseColumns.cols.join(',')})
-    VALUES (${insProdBaseColumns.placeholders})
-  `);
-
-  // Maps remote → local IDs
-  const uniteUuidToLocalId = new Map();
-  const famUuidToLocalId = new Map();
-  const catUuidToLocalId = new Map();
-  const fourUuidToLocalId = new Map();
-
-  // === Transaction locale ===
-const tx = db.transaction(() => {
-    // RESET des tables de référentiels pour le tenant courant
-    db.prepare('DELETE FROM modes_paiement').run();
-    db.prepare('DELETE FROM produits').run();
-
-    // 🟡 Fournisseurs : avant de supprimer, on mémorise categorie_id / referent_id par nom
-    const existingFours = selectAllFours.all();
-    const existingByName = new Map();
-    for (const f of existingFours) {
-      const key = (f.nom || '').trim().toLowerCase();
-      if (!key) continue;
-      if (!existingByName.has(key)) {
-        existingByName.set(key, {
-          categorie_id: f.categorie_id ?? null,
-          referent_id: f.referent_id ?? null,
-        });
-      }
-    }
-    db.prepare('DELETE FROM fournisseurs').run();
-
-    db.prepare('DELETE FROM adherents').run();
-    db.prepare('DELETE FROM categories').run();
-    db.prepare('DELETE FROM familles').run();
-    db.prepare('DELETE FROM unites').run();
-
-    // ----- UNITÉS -----
-    for (const r of unites) {
-      const name = (r.nom || '').trim();
-      const remoteId = r.id ? String(r.id) : '';
-      if (!name || !remoteId) continue;
-
-      insUniteByName.run(name);
-      const row = selUniteIdByName.get(name);
-      if (row && row.id != null) {
-        uniteUuidToLocalId.set(remoteId, row.id);
-      }
-    }
-
-    // ----- FAMILLES -----
-    for (const r of familles) {
-      const name = (r.nom || '').trim();
-      const remoteId = r.id ? String(r.id) : '';
-      if (!name || !remoteId) continue;
-
-      insFamByName.run(name);
-      const row = selFamIdByName.get(name);
-      if (row && row.id != null) {
-        famUuidToLocalId.set(remoteId, row.id);
-      }
-    }
-
-    // ----- CATÉGORIES -----
-    for (const r of categories) {
-      const name = (r.nom || '').trim();
-      if (!name) continue;
-
-      const remoteCatId = r.id ? String(r.id) : '';
-      let localFamId = null;
-      const remoteFamId = r.famille_id ? String(r.famille_id) : '';
-      if (remoteFamId && famUuidToLocalId.has(remoteFamId)) {
-        localFamId = famUuidToLocalId.get(remoteFamId);
-      }
-
-      insCatByName.run(name, localFamId);
-      const existing = selCatIdByName.get(name);
-      if (existing && existing.id != null) {
-        const needMove =
-          (existing.famille_id || null) !== (localFamId || null);
-        if (needMove) updCatFamily.run(localFamId, existing.id);
-
-        if (remoteCatId) {
-          catUuidToLocalId.set(remoteCatId, existing.id);
-        }
-      }
-    }
-
-    // ----- ADHÉRENTS -----
-    for (const r of adherents) {
-      const email = (r.email1 || '').trim().toLowerCase() || null;
-
-      const base = [
-        r.nom || '',
-        r.prenom || '',
-        email,
-        r.email2 || null,
-        r.telephone1 || null,
-        r.telephone2 || null,
-        r.adresse || null,
-        r.code_postal || null,
-        r.ville || null,
-        r.nb_personnes_foyer || null,
-        r.tranche_age || null,
-        Number(r.droit_entree ?? 0),
-        r.date_inscription || null,
-        b2i(r.archive),
-        r.date_archivage || null,
-        r.date_reactivation || null,
-      ];
-
-      insAdh.run(...base);
-    }
-
-    // ----- FOURNISSEURS -----
-     for (const r of fournisseurs) {
-      const nom = (r.nom || '').trim();
-      if (!nom) continue;
-
-      const remoteId = r.id ? String(r.id) : '';
-      const key = nom.toLowerCase();
-      const prev = existingByName.get(key) || {};
-
-      const base = [
-        nom,
-        r.contact || null,
-        r.email || null,
-        r.telephone || null,
-        r.adresse || null,
-        r.code_postal || null,
-        r.ville || null,
-        // 🔁 on garde l'ancienne catégorie / référent si on en avait une en local
-        prev.categorie_id ?? null,
-        prev.referent_id ?? null,
-        r.label ?? null,
-      ];
-
-      insFour.run(...base);
-      const row = selFourIdByName.get(nom);
-      if (remoteId && row && row.id != null) {
-        fourUuidToLocalId.set(remoteId, row.id);
-      }
-    }
-
-    // ----- PRODUITS -----
-    for (const r of produits) {
-      const remoteProdId =
-        r.id !== undefined && r.id !== null ? String(r.id) : null;
-
-      // mappe les FKs si les colonnes existent côté SQLite
-      let localUniteId = null;
-      if (produitsHasUnite && r.unite_id) {
-        const key = String(r.unite_id);
-        if (uniteUuidToLocalId.has(key)) {
-          localUniteId = uniteUuidToLocalId.get(key);
-        }
-      }
-
-      let localFourId = null;
-      if (produitsHasFournisseur && r.fournisseur_id) {
-        const key = String(r.fournisseur_id);
-        if (fourUuidToLocalId.has(key)) {
-          localFourId = fourUuidToLocalId.get(key);
-        }
-      }
-
-      let localCatId = null;
-      if (produitsHasCategorie && r.categorie_id) {
-        const key = String(r.categorie_id);
-        if (catUuidToLocalId.has(key)) {
-          localCatId = catUuidToLocalId.get(key);
-        }
-      }
-
-      // construit la liste de valeurs dans le même ordre que les colonnes
-      const values = [];
-      for (const col of insProdBaseColumns.cols) {
-        switch (col) {
-          case 'nom':
-            values.push(r.nom ?? null);
-            break;
-          case 'reference':
-            values.push(r.reference ?? null);
-            break;
-          case 'prix':
-            values.push(Number(r.prix ?? 0));
-            break;
-          case 'stock':
-            values.push(Number(r.stock ?? 0));
-            break;
-          case 'code_barre':
-            values.push(r.code_barre ?? null);
-            break;
-          case 'unite_id':
-            values.push(localUniteId);
-            break;
-          case 'fournisseur_id':
-            values.push(localFourId);
-            break;
-          case 'categorie_id':
-            values.push(localCatId);
-            break;
-          case 'remote_uuid':
-            values.push(remoteProdId);
-            break;
-          case 'updated_at':
-            values.push(r.updated_at || null);
-            break;
-          default:
-            values.push(null);
-        }
-      }
-
-      try {
-        insProd.run(...values);
-      } catch (e) {
-        console.error('[pullRefs] insert produit error:', e, 'row=', r);
-      }
-    }
-
-    // ----- MODES DE PAIEMENT -----
-    for (const m of modes_paiement) {
-      const nom = (m.nom || '').trim();
-      if (!nom) continue;
-
-      const taux = Number(m.taux_percent ?? 0);
-      const frais = Number(m.frais_fixe ?? 0);
-      const actif = b2i(!!m.actif);
-
-      try {
-        insMode.run(nom, taux, frais, actif);
-      } catch (e) {
-        console.error('[pullRefs] insert mode_paiement error:', e, 'row=', m);
-      }
-    }
-  }); // fin transaction
-
-  // Couper / réactiver les FK autour de la transaction
-  try {
-    db.exec('PRAGMA foreign_keys = OFF;');
-    tx();
-  } catch (e) {
-    console.error('[pullRefs] TX error:', e);
-    throw e;
-  } finally {
-    db.exec('PRAGMA foreign_keys = ON;');
-  }
+  // 🔸 IMPORTANT :
+  // Pour cette version stable, on ne touche PAS à la base locale ici.
+  // On se contente de signaler à l’UI qu’un pull a eu lieu.
 
   notifyRenderer('data:refreshed', { from: 'pull_refs' });
   setState('online', { phase: 'pulled' });
@@ -422,6 +123,7 @@ const tx = db.transaction(() => {
     },
   };
 }
+
 
 /* -------------------------------------------------
    OPS queue → push vers Neon
@@ -460,12 +162,10 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
 
   setState('pushing', { pending: ops.length });
 
-  // 🔐 Normalise l'id des ops pour qu'il soit toujours un UUID valide
   const normalizeOpId = (raw) => {
     const s = (raw ?? '').toString().trim();
     if (isUuid(s)) return s;
 
-    // Si c'est un nombre (1,2,3,...) -> on fabrique un uuid stable
     const n = Number(s);
     const hex = Number.isFinite(n) ? n.toString(16) : '0';
     const suffix = hex.padStart(12, '0').slice(-12);
@@ -475,10 +175,9 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
   const payload = {
     deviceId,
     ops: ops.map((o) => ({
-      id: normalizeOpId(o.id),                 // 👈 très important
+      id: normalizeOpId(o.id),
       op_type: o.op_type,
       entity_type: o.entity_type,
-      // on n'envoie entity_id que si c'est déjà un UUID
       entity_id: isUuid(o.entity_id) ? o.entity_id : null,
       payload_json: o.payload_json,
     })),
@@ -508,11 +207,51 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
     };
   }
 
+  // 🧠 Nouveau : tenter de lire le JSON de réponse pour récupérer les mappings
+  let body = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+
+  // Si le serveur renvoie des mappings produits, on met à jour produits.remote_uuid en local
+  try {
+    if (body && body.mappings && Array.isArray(body.mappings.produits)) {
+      const stmt = db.prepare(
+        `UPDATE produits
+            SET remote_uuid = ?
+          WHERE id = ?
+            AND (remote_uuid IS NULL OR remote_uuid = '')`
+      );
+
+      for (const m of body.mappings.produits) {
+        if (!m) continue;
+        const localId = Number(m.local_id);
+        const remoteUuid = m.remote_uuid;
+        if (!localId || !remoteUuid) continue;
+
+        try {
+          stmt.run(remoteUuid, localId);
+          console.log('[sync] remote_uuid mis à jour en local', {
+            localId,
+            remoteUuid,
+          });
+        } catch (e) {
+          console.warn('[sync] erreur UPDATE produits.remote_uuid:', e?.message || e);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[sync] traitement des mappings échoué:', e?.message || e);
+  }
+
   const ids = ops.map((o) => o.id);
   db.prepare(
-    `UPDATE ops_queue SET ack = 1, sent_at = datetime('now','localtime') WHERE id IN (${ids
-      .map(() => '?')
-      .join(',')})`
+    `UPDATE ops_queue
+        SET ack = 1,
+            sent_at = datetime('now','localtime')
+      WHERE id IN (${ids.map(() => '?').join(',')})`
   ).run(...ids);
 
   notifyRenderer('ops:pushed', { count: ids.length });

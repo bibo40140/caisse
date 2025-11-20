@@ -54,7 +54,7 @@ function broadcastConfigOnReady() {
 }
 
 // === Auth & API config ===
-const { ensureAuth, getConfig } = require('./src/main/config');
+const { ensureAuth, getConfig, setConfig } = require('./src/main/config');
 const { setApiBase, getApiBase, setAuthToken, getAuthToken, apiFetch, logout } = require('./src/main/apiClient');
 
 // === App modules existants ===
@@ -657,11 +657,30 @@ ipcMain.handle('admin:tenant:delete', async (_e, { tenantId, hard = false }) => 
 // ---------------------------------
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
+function purgeLocalAuth() {
+  try { removeAuthToken && removeAuthToken(); } catch {}
+  try { resetConfigOnLogout(); } catch {}
+  try {
+    const { setConfig } = require('./src/main/config');
+    if (typeof setConfig === 'function') {
+      // On ne touche qu'au token, on laisse le reste (modules, last_email, etc.)
+      setConfig({ auth_token: null });
+    }
+  } catch (e) {
+    console.warn('[auth] purgeLocalAuth setConfig failed:', e?.message || e);
+  }
+
+  delete process.env.API_AUTH_TOKEN;
+  delete process.env.TENANT_ID;
+}
+
+
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
 
   // 1) Config → API base (avec fallback ENV/localhost)
   try {
+    const { getConfig } = require('./src/main/config');
     const cfg = await getConfig();
     const fromCfg = cfg?.api_base_url && String(cfg.api_base_url).trim();
     const fallback = process.env.API_BASE_URL || 'http://localhost:3001';
@@ -672,96 +691,13 @@ app.whenReady().then(async () => {
     console.warn('[config] lecture impossible, fallback API_BASE_URL =', fallback, '-', e?.message || e);
   }
 
-  // 👉 Option pour forcer l'écran de login
-  try {
-    if (process.env.FORCE_LOGIN === '1') {
-      removeAuthToken && removeAuthToken();
-      delete process.env.API_AUTH_TOKEN;
-      delete process.env.TENANT_ID;
-      console.log('[auth] FORCE_LOGIN=1 → token purgé, on affichera la page de login.');
-    }
-  } catch {}
+  // 2) 🔥 POUR L’INSTANT : on désactive complètement l’auto-auth
+  //    → on purge tout token éventuellement présent
+  //    → on ouvre DIRECTEMENT la fenêtre de login
+  console.warn('[startup] AUTO-AUTH désactivée → purge token + ouverture écran de login.');
+  try { purgeLocalAuth(); } catch {}
 
-  // 2) Auth (token or login via config creds)
-  let auth = { ok: false };
-  try {
-    auth = await ensureAuth();
-  } catch (e) {
-    console.error('[auth] ensureAuth error:', e?.message || e);
-  }
-
-  const FORCE_ALWAYS_LOGIN = process.env.FORCE_ALWAYS_LOGIN === '1';
-
-  if (!FORCE_ALWAYS_LOGIN && auth && auth.token) {
-    setAuthToken(auth.token);
-
-    // remplir le cache d'emblée
-    authCache.token = auth.token;
-    const info = computeAuthInfoFromToken(auth.token);
-    authCache.role = info.role;
-    authCache.is_super_admin = info.is_super_admin;
-    authCache.tenant_id = info.tenant_id;
-    authCache.user_id = info.user_id;
-
-    if (auth.tenant_id) process.env.TENANT_ID = auth.tenant_id;
-    process.env.API_AUTH_TOKEN = auth.token;
-    console.log('[auth] OK — tenant =', auth.tenant_id || '(inconnu)');
-
-    ensureEmailHandlers(); // dès que l’auth auto est OK
-  } else {
-    console.warn('[auth] Pas de token API — on ouvre la fenêtre de login.');
-    createLoginWindow();
-    return;
-  }
-
-    // 3) 🔥 PUSH AVANT PULL : vider la file locale dès le démarrage
-  if (process.env.SKIP_PUSH_ON_STARTUP !== '1') {
-    try {
-      const r = await sync.pushOpsNow(DEVICE_ID, { skipPull: true });
-      console.log('[sync] initial pushOpsNow done:', r);
-    } catch (e) {
-      console.warn('[sync] initial pushOpsNow failed:', e?.message || e);
-    }
-  } else {
-    console.log('[sync] initial push SKIPPED (env SKIP_PUSH_ON_STARTUP=1)');
-  }
-
-  // 4) Auto-sync (pousse périodiquement les ops en arrière-plan)
-  try {
-    sync.startAutoSync(DEVICE_ID);
-  } catch (e) {
-    console.warn('[sync] startAutoSync warning:', e?.message || e);
-  }
-
-  // 5) Hydrate (Neon -> local) + bootstrapIfNeeded côté sync.js
-  if (process.env.SKIP_HYDRATE !== '1') {
-    try {
-      const r = await sync.hydrateOnStartup();
-      console.log('[hydrate] OK:', r);
-    } catch (e) {
-      console.error('[hydrate] ERROR:', e?.message || e);
-    }
-  } else {
-    console.log('[hydrate] SKIPPED (env SKIP_HYDRATE=1)');
-  }
-
-
-  // 7) Route vers Onboarding ou Main
-  try {
-    const r = await apiFetch('/tenant_settings/onboarding_status', { headers: { accept: 'application/json' } });
-    const js = await safeJson(r);
-
-    ensureEmailHandlers(); // sécurité
-
-    if (js.status?.onboarded) {
-      createMainWindow();
-    } else {
-      createOnboardingWindow();
-    }
-  } catch {
-    // API KO → on ouvre la main en mode local
-    createMainWindow();
-  }
+  createLoginWindow();
 });
 
 
