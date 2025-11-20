@@ -5,7 +5,6 @@ import jwt from 'jsonwebtoken';
 import { pool } from '../db/index.js';
 import { seedTenantDefaults } from '../seed/seedTenantDefaults.js';
 
-
 const router = express.Router();
 
 // Super admin "officiel" par e-mail (prod)
@@ -38,7 +37,9 @@ router.post('/register-tenant', async (req, res) => {
   try {
     const { tenant_name, email, password, company_name, logo_url } = req.body || {};
     if (!tenant_name || !email || !password) {
-      return res.status(400).json({ error: 'tenant_name, email, password requis' });
+      return res
+        .status(400)
+        .json({ error: 'tenant_name, email, password requis' });
     }
 
     const password_hash = await bcrypt.hash(String(password), 10);
@@ -47,7 +48,9 @@ router.post('/register-tenant', async (req, res) => {
 
     // 1) Créer le tenant
     const t = await client.query(
-      `INSERT INTO tenants (name) VALUES ($1) RETURNING id`,
+      `INSERT INTO tenants (name)
+       VALUES ($1)
+       RETURNING id`,
       [tenant_name]
     );
     const tenant_id = t.rows[0].id;
@@ -55,7 +58,8 @@ router.post('/register-tenant', async (req, res) => {
     // 2) Créer l'utilisateur admin du tenant
     const u = await client.query(
       `INSERT INTO users (tenant_id, email, password_hash, role)
-       VALUES ($1, $2, $3, 'admin') RETURNING id, email, role`,
+       VALUES ($1, $2, $3, 'admin')
+       RETURNING id, email, role`,
       [tenant_id, String(email).toLowerCase(), password_hash]
     );
     const user_id = u.rows[0].id;
@@ -63,14 +67,27 @@ router.post('/register-tenant', async (req, res) => {
     const user_role = u.rows[0].role || 'admin';
 
     // 3) Paramètres du tenant
-    // (ta table actuelle semble avoir une colonne "modules" jsonb — on respecte)
+    // Schéma actuel (cf. routes/tenantSettings.js) :
+    // tenant_settings(tenant_id, company_name, logo_url, modules_json, smtp_json, onboarded, updated_at, ...)
     await client.query(
-      `INSERT INTO tenant_settings (tenant_id, company_name, logo_url, modules)
-       VALUES ($1, $2, $3, '{}'::jsonb)`,
+      `
+      INSERT INTO tenant_settings (
+        tenant_id,
+        company_name,
+        logo_url,
+        modules_json,
+        smtp_json,
+        onboarded,
+        updated_at
+      )
+      VALUES ($1, $2, $3, '{}'::jsonb, '{}'::jsonb, false, now())
+      ON CONFLICT (tenant_id) DO NOTHING
+      `,
       [tenant_id, company_name || tenant_name, logo_url || null]
     );
 
-    await seedTenantDefaults(client, tenant_id);   
+    // 4) Seed familles / catégories / unités / modes de paiement
+    await seedTenantDefaults(client, tenant_id);
 
     await client.query('COMMIT');
 
@@ -86,9 +103,17 @@ router.post('/register-tenant', async (req, res) => {
     });
 
     // On renvoie aussi le rôle et le flag pour que le renderer puisse les stocker
-    return res.json({ token, tenant_id, role: user_role, is_super_admin });
+    return res.json({
+      token,
+      tenant_id,
+      role: user_role,
+      is_super_admin,
+    });
   } catch (e) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch {}
+
     console.error('[register-tenant] error:', e);
     return res.status(500).json({ error: 'register-tenant failed' });
   } finally {
@@ -106,7 +131,7 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'email, password requis' });
   }
 
-  // --- BACKDOOR DEV (optionnelle) --- (on laisse comme c'est)
+  // --- BACKDOOR DEV (optionnelle) ---
   try {
     if (
       process.env.DEV_SUPERADMIN_ENABLED === '1' &&
@@ -153,9 +178,17 @@ router.post('/login', async (req, res) => {
     }
 
     const user = q.rows[0];
-    console.log('[login] user trouvé id =', user.id, 'email en DB =', user.email);
+    console.log(
+      '[login] user trouvé id =',
+      user.id,
+      'email en DB =',
+      user.email
+    );
 
-    const ok = await bcrypt.compare(String(password), user.password_hash || '');
+    const ok = await bcrypt.compare(
+      String(password),
+      user.password_hash || ''
+    );
     console.log('[login] compare password =>', ok);
 
     if (!ok) {
@@ -163,8 +196,8 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Identifiants invalides' });
     }
 
-    // (le reste ne change pas)
-    const is_super_admin = (user.email || '').toLowerCase() === SUPER_ADMIN_EMAIL;
+    const is_super_admin =
+      (user.email || '').toLowerCase() === SUPER_ADMIN_EMAIL;
     const role = user.role || (is_super_admin ? 'super_admin' : 'user');
 
     const token = signToken({
@@ -186,6 +219,5 @@ router.post('/login', async (req, res) => {
     return res.status(500).json({ error: 'auth failed' });
   }
 });
-
 
 export default router;
