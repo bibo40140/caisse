@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('rechercher-produit-par-nom-et-fournisseur', nom, fournisseurId),
   resoudreConflitProduit: (action, nouveau, existantId) =>
     ipcRenderer.invoke('resoudre-conflit-produit', action, nouveau, existantId),
+  produitHasRemoteUuid: (produitId) => ipcRenderer.invoke('produit:has-remote-uuid', produitId),
 
   /* -------------- Mode de paiements ----------------------- */
   mp_getAll:   () => ipcRenderer.invoke('mp:getAll'),
@@ -103,6 +104,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Outils
   opsPushNow: () => ipcRenderer.invoke('ops:push-now'),
   opsPendingCount: () => ipcRenderer.invoke('ops:pending-count'),
+  // retry failed ops (manual)
+  retryFailedOps: (ids) => ipcRenderer.invoke('sync:retry_failed', ids),
 
   /* -------------- Fournisseurs ------------------- */
   getFournisseurs: () => ipcRenderer.invoke('get-fournisseurs'),

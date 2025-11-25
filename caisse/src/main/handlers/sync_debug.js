@@ -46,6 +46,23 @@ function registerSyncDebug(ipcMain) {
   });
 
   /**
+   * sync:failed_ops
+   * -> renvoie les ops en erreur (retry_count > 0 et ack = 0)
+   */
+  safeHandle('sync:failed_ops', async () => {
+    try {
+      const rows = db
+        .prepare(
+          `SELECT id, device_id, created_at, op_type, entity_type, entity_id, payload_json, retry_count, last_error, failed_at FROM ops_queue WHERE ack = 0 AND retry_count > 0 ORDER BY failed_at DESC LIMIT 200`
+        )
+        .all();
+      return { ok: true, rows };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
+  /**
    * sync:drain
    *  -> appelé par le bouton "Pousser maintenant"
    *  -> vide la file d'attente via sync.pushOpsNow()
@@ -78,6 +95,43 @@ function registerSyncDebug(ipcMain) {
         ok: false,
         error: e?.message || String(e),
       };
+    }
+  });
+
+  /**
+   * sync:retry_failed
+   * -> réinitialise retry_count/last_error/failed_at pour les ops en erreur
+   *    si un tableau d'ids est passé, ne concerne que ces ids.
+   * -> lance un push immédiat via sync.pushOpsNow()
+   */
+  safeHandle('sync:retry_failed', async (_event, ids) => {
+    try {
+      let rows = 0;
+      if (Array.isArray(ids) && ids.length) {
+        const placeholders = ids.map(() => '?').join(',');
+        const res = db
+          .prepare(
+            `UPDATE ops_queue SET retry_count = 0, last_error = NULL, failed_at = NULL WHERE ack = 0 AND id IN (${placeholders})`
+          )
+          .run(...ids);
+        rows = res?.changes || 0;
+      } else {
+        const res = db
+          .prepare(
+            `UPDATE ops_queue SET retry_count = 0, last_error = NULL, failed_at = NULL WHERE ack = 0 AND COALESCE(retry_count,0) > 0`
+          )
+          .run();
+        rows = res?.changes || 0;
+      }
+
+      let pushRes = null;
+      if (typeof sync.pushOpsNow === 'function') {
+        pushRes = await sync.pushOpsNow();
+      }
+
+      return { ok: true, reset: rows, push: pushRes };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
     }
   });
 }

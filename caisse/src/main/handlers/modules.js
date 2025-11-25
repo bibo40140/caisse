@@ -53,12 +53,46 @@ function registerModulesHandlers() {
   try { ipcMain.removeHandler('modules:save'); } catch {}
 
   // GETTERS (deux alias pour compat)
-  ipcMain.handle('get-modules', () => {
+  // 🔥 Ces handlers essaient d'abord de lire les modules depuis le serveur (tenant_settings),
+  //    sinon fallback sur config.json local
+  ipcMain.handle('get-modules', async () => {
+    try {
+      // Tenter de récupérer les modules du tenant depuis l'API
+      const { apiFetch, getAuthToken } = require('../apiClient');
+      const token = getAuthToken && getAuthToken();
+      if (token) {
+        const r = await apiFetch('/tenant_settings/modules', {
+          headers: { 'accept': 'application/json' }
+        });
+        if (r.ok) {
+          const js = await r.json();
+          if (js.ok && js.modules) return js.modules;
+        }
+      }
+    } catch (e) {
+      console.warn('[modules:get] impossible de récupérer depuis serveur:', e?.message || e);
+    }
+    // Fallback : config local
     const cfg = readConfig();
     return cfg.modules || {};
   });
 
-  ipcMain.handle('modules:get', () => {
+  ipcMain.handle('modules:get', async () => {
+    try {
+      const { apiFetch, getAuthToken } = require('../apiClient');
+      const token = getAuthToken && getAuthToken();
+      if (token) {
+        const r = await apiFetch('/tenant_settings/modules', {
+          headers: { 'accept': 'application/json' }
+        });
+        if (r.ok) {
+          const js = await r.json();
+          if (js.ok && js.modules) return js.modules;
+        }
+      }
+    } catch (e) {
+      console.warn('[modules:get] impossible de récupérer depuis serveur:', e?.message || e);
+    }
     const cfg = readConfig();
     return cfg.modules || {};
   });

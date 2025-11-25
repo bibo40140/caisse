@@ -172,6 +172,7 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
     return `00000000-0000-0000-0000-${suffix}`;
   };
 
+  const idsForOps = ops.map((o) => o.id);
   const payload = {
     deviceId,
     ops: ops.map((o) => ({
@@ -190,19 +191,37 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
       body: JSON.stringify(payload),
     });
   } catch (e) {
-    setState('offline', { error: String(e), pending: countPendingOps() });
-    return { ok: false, error: String(e), pending: countPendingOps() };
+    const err = String(e);
+    try {
+      const upd = db.prepare(
+        `UPDATE ops_queue SET retry_count = COALESCE(retry_count,0) + 1, last_error = ?, failed_at = datetime('now','localtime') WHERE id IN (${idsForOps.map(() => '?').join(',')})`
+      );
+      upd.run(err, ...idsForOps);
+    } catch (ee) {
+      console.warn('[sync] failed to mark ops retry:', ee?.message || ee);
+    }
+    setState('offline', { error: err, pending: countPendingOps() });
+    return { ok: false, error: err, pending: countPendingOps() };
   }
 
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
+    const err = `HTTP ${res.status} ${txt}`;
+    try {
+      const upd2 = db.prepare(
+        `UPDATE ops_queue SET retry_count = COALESCE(retry_count,0) + 1, last_error = ?, failed_at = datetime('now','localtime') WHERE id IN (${idsForOps.map(() => '?').join(',')})`
+      );
+      upd2.run(err, ...idsForOps);
+    } catch (ee) {
+      console.warn('[sync] failed to mark ops retry after HTTP error:', ee?.message || ee);
+    }
     setState('offline', {
       error: `HTTP ${res.status}`,
       pending: countPendingOps(),
     });
     return {
       ok: false,
-      error: `HTTP ${res.status} ${txt}`,
+      error: err,
       pending: countPendingOps(),
     };
   }
@@ -242,6 +261,93 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
         }
       }
     }
+    // Si le serveur renvoie des mappings pour inventory_sessions, on met à jour inventory_sessions.remote_uuid
+    if (body && body.mappings && Array.isArray(body.mappings.inventory_sessions)) {
+      const stmtSess = db.prepare(
+        `UPDATE inventory_sessions
+            SET remote_uuid = ?
+          WHERE id = ?
+            AND (remote_uuid IS NULL OR remote_uuid = '')`
+      );
+      for (const m of body.mappings.inventory_sessions) {
+        if (!m) continue;
+        const localId = Number(m.local_id);
+        const remoteUuid = m.remote_uuid;
+        if (!localId || !remoteUuid) continue;
+        try {
+          stmtSess.run(remoteUuid, localId);
+          console.log('[sync] inventory_sessions.remote_uuid mis à jour en local', { localId, remoteUuid });
+        } catch (e) {
+          console.warn('[sync] erreur UPDATE inventory_sessions.remote_uuid:', e?.message || e);
+        }
+      }
+    }
+    
+    // 🔥 Si le serveur renvoie des mappings pour ventes, on met à jour ventes.remote_uuid
+    if (body && body.mappings && Array.isArray(body.mappings.ventes)) {
+      const stmtVente = db.prepare(
+        `UPDATE ventes
+            SET remote_uuid = ?
+          WHERE id = ?
+            AND (remote_uuid IS NULL OR remote_uuid = '')`
+      );
+      for (const m of body.mappings.ventes) {
+        if (!m) continue;
+        const localId = Number(m.local_id);
+        const remoteUuid = m.remote_uuid;
+        if (!localId || !remoteUuid) continue;
+        try {
+          stmtVente.run(remoteUuid, localId);
+          console.log('[sync] ventes.remote_uuid mis à jour en local', { localId, remoteUuid });
+        } catch (e) {
+          console.warn('[sync] erreur UPDATE ventes.remote_uuid:', e?.message || e);
+        }
+      }
+    }
+
+    // 🔥 Si le serveur renvoie des mappings pour receptions, on met à jour receptions.remote_uuid
+    if (body && body.mappings && Array.isArray(body.mappings.receptions)) {
+      const stmtReception = db.prepare(
+        `UPDATE receptions
+            SET remote_uuid = ?
+          WHERE id = ?
+            AND (remote_uuid IS NULL OR remote_uuid = '')`
+      );
+      for (const m of body.mappings.receptions) {
+        if (!m) continue;
+        const localId = Number(m.local_id);
+        const remoteUuid = m.remote_uuid;
+        if (!localId || !remoteUuid) continue;
+        try {
+          stmtReception.run(remoteUuid, localId);
+          console.log('[sync] receptions.remote_uuid mis à jour en local', { localId, remoteUuid });
+        } catch (e) {
+          console.warn('[sync] erreur UPDATE receptions.remote_uuid:', e?.message || e);
+        }
+      }
+    }
+
+    // 🔥 Si le serveur renvoie des mappings pour fournisseurs, on met à jour fournisseurs.remote_uuid
+    if (body && body.mappings && Array.isArray(body.mappings.fournisseurs)) {
+      const stmtFournisseur = db.prepare(
+        `UPDATE fournisseurs
+            SET remote_uuid = ?
+          WHERE id = ?
+            AND (remote_uuid IS NULL OR remote_uuid = '')`
+      );
+      for (const m of body.mappings.fournisseurs) {
+        if (!m) continue;
+        const localId = Number(m.local_id);
+        const remoteUuid = m.remote_uuid;
+        if (!localId || !remoteUuid) continue;
+        try {
+          stmtFournisseur.run(remoteUuid, localId);
+          console.log('[sync] fournisseurs.remote_uuid mis à jour en local', { localId, remoteUuid });
+        } catch (e) {
+          console.warn('[sync] erreur UPDATE fournisseurs.remote_uuid:', e?.message || e);
+        }
+      }
+    }
   } catch (e) {
     console.warn('[sync] traitement des mappings échoué:', e?.message || e);
   }
@@ -249,10 +355,13 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
   const ids = ops.map((o) => o.id);
   db.prepare(
     `UPDATE ops_queue
-        SET ack = 1,
-            sent_at = datetime('now','localtime')
+      SET ack = 1,
+        sent_at = datetime('now','localtime'),
+        retry_count = 0,
+        last_error = NULL,
+        failed_at = NULL
       WHERE id IN (${ids.map(() => '?').join(',')})`
-  ).run(...ids);
+    ).run(...ids);
 
   notifyRenderer('ops:pushed', { count: ids.length });
 
@@ -290,6 +399,99 @@ function triggerBackgroundSync(deviceId = DEVICE_ID) {
       _bgSyncInFlight = false;
     }
   });
+}
+
+// Auto sync loop control
+let _autoSyncTimer = null;
+let _autoSyncIntervalMs = 5000; // valeur de base
+
+function jitter(ms) {
+  // jitter +/- 20%
+  const frac = 0.2;
+  const delta = Math.floor(ms * frac);
+  return ms - delta + Math.floor(Math.random() * (delta * 2 + 1));
+}
+
+/**
+ * Démarre l'auto-sync qui adapte l'intervalle selon l'échec des ops.
+ * Backoff exponentiel basé sur le retry_count maximum présent dans la file.
+ */
+function startAutoSync(deviceId = DEVICE_ID) {
+  // clear existing timer
+  if (_autoSyncTimer) {
+    clearTimeout(_autoSyncTimer);
+    _autoSyncTimer = null;
+  }
+
+  const MAX_RETRY_ATTEMPTS = 5;
+  const BASE_INTERVAL_MS = 5000; // 5s
+  const MAX_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+  async function runOnce() {
+    try {
+      // Count pending
+      const pending = countPendingOps();
+      if (pending === 0) {
+        setState('online', { phase: 'idle', pending: 0 });
+        // schedule next check at base interval
+        _autoSyncTimer = setTimeout(runOnce, BASE_INTERVAL_MS);
+        return;
+      }
+
+      // get max retry_count among pending ops
+      let maxRetry = 0;
+      try {
+        const row = db.prepare('SELECT MAX(COALESCE(retry_count,0)) AS m FROM ops_queue WHERE ack = 0').get();
+        maxRetry = row?.m || 0;
+      } catch (e) {
+        maxRetry = 0;
+      }
+
+      if (maxRetry >= MAX_RETRY_ATTEMPTS) {
+        // Too many retries — don't auto-retry these ops, notify UI and sleep longer
+        const row = db.prepare('SELECT COUNT(*) AS n FROM ops_queue WHERE ack = 0 AND COALESCE(retry_count,0) >= ?').get(MAX_RETRY_ATTEMPTS);
+        const countBlocked = row?.n || 0;
+        notifyRenderer('sync:failed_limit', { count: countBlocked });
+        // schedule next check after a longer interval
+        _autoSyncTimer = setTimeout(runOnce, MAX_INTERVAL_MS);
+        return;
+      }
+
+      // compute backoff delay based on maxRetry
+      const delay = Math.min(MAX_INTERVAL_MS, BASE_INTERVAL_MS * Math.pow(2, Math.max(0, maxRetry)));
+      const delayWithJitter = jitter(delay);
+
+      // If retry_count is zero we can push immediately, otherwise wait the backoff
+      if (maxRetry === 0) {
+        // try push now
+        await pushOpsNow(deviceId).catch(() => {});
+        _autoSyncTimer = setTimeout(runOnce, BASE_INTERVAL_MS);
+      } else {
+        // schedule next push after computed backoff
+        _autoSyncTimer = setTimeout(async () => {
+          try {
+            await pushOpsNow(deviceId).catch(() => {});
+          } finally {
+            // schedule next run after base interval
+            _autoSyncTimer = setTimeout(runOnce, BASE_INTERVAL_MS);
+          }
+        }, delayWithJitter);
+      }
+    } catch (e) {
+      console.warn('[sync] startAutoSync error:', e?.message || e);
+      _autoSyncTimer = setTimeout(runOnce, BASE_INTERVAL_MS);
+    }
+  }
+
+  // kick
+  runOnce();
+}
+
+function stopAutoSync() {
+  if (_autoSyncTimer) {
+    clearTimeout(_autoSyncTimer);
+    _autoSyncTimer = null;
+  }
 }
 
 /* -------------------------------------------------
@@ -417,33 +619,9 @@ async function pullAll() {
   return pullRefs();
 }
 
-/* -------------------------------------------------
-   Auto sync périodique
---------------------------------------------------*/
-let _autoTimer = null;
-let _intervalMs = 30000; // 30s
-
-function stopAutoSync() {
-  if (_autoTimer) {
-    clearTimeout(_autoTimer);
-    _autoTimer = null;
-  }
-}
-
-function startAutoSync(deviceId = DEVICE_ID) {
-  if (_autoTimer) return;
-  const loop = async () => {
-    try {
-      await pushOpsNow(deviceId);
-      _intervalMs = 30000;
-    } catch (e) {
-      _intervalMs = Math.min(_intervalMs + 15000, 120000);
-    } finally {
-      _autoTimer = setTimeout(loop, _intervalMs);
-    }
-  };
-  _autoTimer = setTimeout(loop, 1000);
-}
+/* Auto-sync handled by startAutoSync/stopAutoSync (custom backoff/jitter).
+   Functions `startAutoSync` and `stopAutoSync` are defined earlier in the file
+   to provide exponential backoff with jitter based on per-op retry_count. */
 
 /* -------------------------------------------------
    Export public

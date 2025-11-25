@@ -1,6 +1,48 @@
 // src/main/db/adherents.js
 const db = require('./db');
 
+function ensureDefaultsLocal() {
+  try {
+    // Unités
+    try {
+      const cntU = db.prepare(`SELECT COUNT(*) AS n FROM unites`).get();
+      if (!cntU || Number(cntU.n) === 0) {
+        const insU = db.prepare(`INSERT INTO unites (nom) VALUES (?)`);
+        ['kg', 'litre', 'pièce'].forEach(u => {
+          try { insU.run(u); } catch {}
+        });
+      }
+    } catch {}
+
+    // Famille / catégorie minimal
+    try {
+      const cntC = db.prepare(`SELECT COUNT(*) AS n FROM categories`).get();
+      if (!cntC || Number(cntC.n) === 0) {
+        try { db.prepare(`INSERT INTO familles (nom) VALUES (?)`).run('Général'); } catch {}
+        const fam = db.prepare(`SELECT id FROM familles WHERE nom = ? LIMIT 1`).get('Général');
+        const famId = fam && fam.id ? fam.id : null;
+        const insCat = db.prepare(`INSERT INTO categories (nom, famille_id) VALUES (?, ?)`);
+        ['Divers'].forEach(c => {
+          try { insCat.run(c, famId); } catch {}
+        });
+      }
+    } catch {}
+
+    // Modes de paiement
+    try {
+      const cntM = db.prepare(`SELECT COUNT(*) AS n FROM modes_paiement`).get();
+      if (!cntM || Number(cntM.n) === 0) {
+        const insM = db.prepare(`INSERT INTO modes_paiement (nom, taux_percent, frais_fixe, actif) VALUES (?, ?, ?, ?)`);
+        const defaults = [ ['Espèces',0,0,1], ['CB',0,0,1], ['Chèque',0,0,1], ['Virement',0,0,1] ];
+        defaults.forEach(m => { try { insM.run(m[0], m[1], m[2], m[3]); } catch {} });
+      }
+    } catch {}
+  } catch (e) {
+    // non bloquant
+    console.warn('[ensureDefaultsLocal] erreur seed local', e?.message || e);
+  }
+}
+
 function getAdherents(archive = 0) {
   return db
     .prepare('SELECT * FROM adherents WHERE archive = ? ORDER BY nom, prenom')
@@ -11,6 +53,8 @@ function getAdherents(archive = 0) {
  * Ajoute un adhérent en base locale et retourne l’objet créé avec son id.
  */
 function ajouterAdherent(data) {
+  // ensure minimal reference data exists locally so UI can show defaults
+  try { ensureDefaultsLocal(); } catch (e) { /* non bloquant */ }
   const stmt = db.prepare(`
     INSERT INTO adherents 
       (nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville,

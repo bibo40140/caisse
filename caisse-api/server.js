@@ -26,6 +26,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 import { pool } from './db/index.js';
 
@@ -671,11 +672,13 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
  * SYNC (bootstrap / pull_refs / push_ops)
  * =======================================================*/
 
-async function applyFournisseurUpsert(client, tenantId, p = {}) {
+async function applyFournisseurUpsert(client, tenantId, p = {}, mappingsArray = null) {
   const nom = (p.nom || '').trim();
   if (!nom) return;
 
-  await client.query(
+  const localId = p.id || p.localId || null; // ID local (INTEGER)
+
+  const r = await client.query(
     `
     INSERT INTO fournisseurs
       (tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, label)
@@ -688,6 +691,7 @@ async function applyFournisseurUpsert(client, tenantId, p = {}) {
       code_postal = EXCLUDED.code_postal,
       ville       = EXCLUDED.ville,
       label       = EXCLUDED.label
+    RETURNING id
     `,
     [
       tenantId,
@@ -701,14 +705,113 @@ async function applyFournisseurUpsert(client, tenantId, p = {}) {
       p.label || null,
     ]
   );
+  const remoteUuid = r.rows[0]?.id || null;
+
+  // 🔥 Collecter le mapping si localId et mappingsArray fournis
+  if (remoteUuid && localId && mappingsArray) {
+    mappingsArray.push({ local_id: localId, remote_uuid: remoteUuid });
+  }
+
+  return remoteUuid;
 }
 
-async function applyFournisseurCreated(client, tenantId, p) {
-  return applyFournisseurUpsert(client, tenantId, p);
+async function applyAdherentUpdated(client, tenantId, p) {
+  const nom    = (p.nom || '').trim() || null;
+  const prenom = (p.prenom || '').trim() || null;
+  const email1 = (p.email1 || '').trim().toLowerCase() || null;
+  const email2 = (p.email2 || '').trim() || null;
+  const telephone1 = (p.telephone1 || '').trim() || null;
+  const telephone2 = (p.telephone2 || '').trim() || null;
+  const adresse = (p.adresse || '').trim() || null;
+  const codePostal = (p.code_postal || '').trim() || null;
+  const ville = (p.ville || '').trim() || null;
+
+  // Prefer update by explicit id if provided
+  const remoteId = asIntOrNull(p.id) || null;
+  if (remoteId) {
+    await client.query(
+      `
+      UPDATE adherents SET
+        nom = $1, prenom = $2,
+        email1 = $3, email2 = $4,
+        telephone1 = $5, telephone2 = $6,
+        adresse = $7, code_postal = $8, ville = $9,
+        nb_personnes_foyer = $10, tranche_age = $11,
+        updated_at = now()
+      WHERE tenant_id = $12 AND id = $13
+      `,
+      [
+        nom, prenom,
+        email1, email2,
+        telephone1, telephone2,
+        adresse, codePostal, ville,
+        p.nb_personnes_foyer ?? null, p.tranche_age ?? null,
+        tenantId, remoteId,
+      ]
+    );
+    return remoteId;
+  }
+
+  // Try to update by email1 if present
+  if (email1) {
+    const r = await client.query(
+      `SELECT id FROM adherents WHERE tenant_id = $1 AND LOWER(COALESCE(email1, '')) = $2 LIMIT 1`,
+      [tenantId, email1]
+    );
+    if (r.rowCount > 0) {
+      const id = r.rows[0].id;
+      await client.query(
+        `
+        UPDATE adherents SET
+          nom = $1, prenom = $2,
+          email2 = $3,
+          telephone1 = $4, telephone2 = $5,
+          adresse = $6, code_postal = $7, ville = $8,
+          nb_personnes_foyer = $9, tranche_age = $10,
+          updated_at = now()
+        WHERE tenant_id = $11 AND id = $12
+        `,
+        [
+          nom, prenom,
+          email2,
+          telephone1, telephone2,
+          adresse, codePostal, ville,
+          p.nb_personnes_foyer ?? null, p.tranche_age ?? null,
+          tenantId, id,
+        ]
+      );
+      return id;
+    }
+  }
+
+  // Fallback: create if not found
+  return await applyAdherentCreated(client, tenantId, p);
 }
 
-async function applyFournisseurUpdated(client, tenantId, p) {
-  return applyFournisseurUpsert(client, tenantId, p);
+async function applyAdherentArchive(client, tenantId, p) {
+  const remoteId = asIntOrNull(p.id) || null;
+  const archive = p.archive ? true : false;
+  if (remoteId) {
+    await client.query(
+      `UPDATE adherents SET archive = $1, updated_at = now() WHERE tenant_id = $2 AND id = $3`,
+      [archive, tenantId, remoteId]
+    );
+    return remoteId;
+  }
+  // Try by local email
+  const email1 = (p.email1 || '').trim().toLowerCase();
+  if (email1) {
+    await client.query(`UPDATE adherents SET archive = $1, updated_at = now() WHERE tenant_id = $2 AND LOWER(COALESCE(email1,'')) = $3`, [archive, tenantId, email1]);
+  }
+  return null;
+}
+
+async function applyFournisseurCreated(client, tenantId, p, mappingsArray = null) {
+  return applyFournisseurUpsert(client, tenantId, p, mappingsArray);
+}
+
+async function applyFournisseurUpdated(client, tenantId, p, mappingsArray = null) {
+  return applyFournisseurUpsert(client, tenantId, p, mappingsArray);
 }
 
 
@@ -1031,6 +1134,14 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
   const client = await pool.connect();
   // 👉 on va accumuler ici les mappings produits local_id -> remote_uuid
   const productMappings = [];
+  // mappings sessions local_id -> remote_uuid (pour ops inventory.session_start)
+  const sessionMappings = [];
+  // mappings ventes local_id -> remote_uuid
+  const venteMappings = [];
+  // mappings receptions local_id -> remote_uuid
+  const receptionMappings = [];
+  // mappings fournisseurs local_id -> remote_uuid
+  const fournisseurMappings = [];
 
   try {
     await client.query('BEGIN');
@@ -1109,17 +1220,31 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           await applyAdherentCreated(client, tenantId, p);
           break;
         }
+        case 'adherent.updated': {
+          await applyAdherentUpdated(client, tenantId, p);
+          break;
+        }
+        case 'adherent.archived': {
+          await applyAdherentArchive(client, tenantId, p);
+          break;
+        }
+        case 'adherent.reactivated': {
+          // reactivation = archive = false
+          p.archive = 0;
+          await applyAdherentArchive(client, tenantId, p);
+          break;
+        }
 
         /* ─────────────────────────────
          * FOURNISSEURS
          * ────────────────────────────*/
         case 'fournisseur.created': {
-          await applyFournisseurCreated(client, tenantId, p);
+          await applyFournisseurCreated(client, tenantId, p, fournisseurMappings);
           break;
         }
 
         case 'fournisseur.updated': {
-          await applyFournisseurUpdated(client, tenantId, p);
+          await applyFournisseurUpdated(client, tenantId, p, fournisseurMappings);
           break;
         }
 
@@ -1127,61 +1252,113 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
          * VENTES
          * ────────────────────────────*/
         case 'sale.created': {
-          const venteId = asIntOrNull(p.venteId);
-          const mpId = asIntOrNull(p.modePaiementId);
-          const adherentId = asIntOrNull(p.adherentId);
+          const localVenteId = asIntOrNull(p.venteId);
 
-          await client.query(
+          // 🔥 Générer un UUID pour la vente (Postgres n'accepte pas d'INTEGER)
+          const venteUuid = crypto.randomUUID();
+
+          // 🔥 Le client envoie directement les UUIDs dans adherentUuid et modePaiementUuid
+          const adherentUuid = p.adherentUuid || null;
+          const modePaiementUuid = p.modePaiementUuid || null;
+
+          const r = await client.query(
             `
             INSERT INTO ventes (
                id, tenant_id, total, adherent_id, mode_paiement_id,
                sale_type, client_email, frais_paiement, cotisation
              )
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-             ON CONFLICT (tenant_id, id) DO NOTHING
+             ON CONFLICT (id) DO NOTHING
+             RETURNING id
             `,
             [
-              venteId,
+              venteUuid,
               tenantId,
               p.total ?? null,
-              adherentId,
-              mpId,
+              adherentUuid,
+              modePaiementUuid,
               p.saleType || 'adherent',
               p.clientEmail || null,
               p.fraisPaiement ?? null,
               p.cotisation ?? null,
             ]
           );
-          console.log('    [+] vente header enregistrée id=', venteId);
+          
+          if (r.rowCount > 0) {
+            console.log('    [+] vente header enregistrée uuid=', venteUuid, 'local_id=', localVenteId);
+            // 🔥 Ajouter le mapping pour retour au client
+            if (localVenteId != null) {
+              venteMappings.push({ local_id: localVenteId, remote_uuid: venteUuid });
+            }
+          }
+          break;
+        }
+
+        case 'sale.updated': {
+          const venteId = asIntOrNull(p.venteId) || asIntOrNull(p.id);
+          if (!venteId) {
+            console.warn('    [!] sale.updated missing id');
+            break;
+          }
+          const mpId = asIntOrNull(p.modePaiementId) || null;
+          const adherentId = asIntOrNull(p.adherentId) || null;
+          const fields = [];
+          const values = [tenantId];
+          let idx = 1;
+          if (p.total != null) {
+            fields.push(`total = $${++idx}`);
+            values.push(Number(p.total));
+          }
+          if (mpId != null) {
+            fields.push(`mode_paiement_id = $${++idx}`);
+            values.push(mpId);
+          }
+          if (adherentId != null) {
+            fields.push(`adherent_id = $${++idx}`);
+            values.push(adherentId);
+          }
+          if (!fields.length) {
+            console.log('    [i] sale.updated sans champs modifiés, rien à faire.');
+            break;
+          }
+          values.push(venteId);
+          const sql = `UPDATE ventes SET ${fields.join(', ')}, updated_at = now() WHERE tenant_id = $1 AND id = $${++idx}`;
+          await client.query(sql, values);
+          console.log('    [~] vente mise à jour id=', venteId);
           break;
         }
 
         case 'sale.line_added': {
-          const venteId = asIntOrNull(p.venteId);
-          const produitId = asIntOrNull(p.produitId);
-          const ligneId = asIntOrNull(p.ligneId);
+          // 🔥 Résoudre venteUuid : soit déjà mappé dans ce batch, soit dans la DB
+          const localVenteId = asIntOrNull(p.venteId);
+          let venteUuid = null;
 
-          if (!venteId) throw new Error('invalid_vente_id_int');
-          if (!produitId) throw new Error('invalid_produit_id_int');
+          if (localVenteId != null) {
+            // Chercher dans venteMappings (même batch)
+            const mapping = venteMappings.find(m => m.local_id === localVenteId);
+            venteUuid = mapping?.remote_uuid || null;
+          }
+
+          const produitUuid = p.produitUuid || null;
+
+          if (!venteUuid) throw new Error('invalid_vente_uuid');
+          if (!produitUuid) throw new Error('invalid_produit_uuid');
 
           const quantite = Number(p.quantite || 0);
           const prix = Number(p.prix || 0);
 
-          const sourceKey =
-            ligneId != null
-              ? `lv:${ligneId}`
-              : `sale:${venteId}:${produitId}:${quantite}:${prix}`;
+          const sourceKey = `sale:${venteUuid}:${produitUuid}:${quantite}:${prix}`;
 
           const checkProd = await client.query(
             `SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`,
-            [tenantId, produitId]
+            [tenantId, produitUuid]
           );
           if (checkProd.rowCount === 0)
             throw new Error('product_not_found_for_tenant');
 
           const checkVente = await client.query(
             `SELECT 1 FROM ventes WHERE tenant_id=$1 AND id=$2`,
-            [tenantId, venteId]
+            [tenantId, venteUuid]
           );
           if (checkVente.rowCount === 0)
             throw new Error('sale_not_found_for_tenant');
@@ -1192,52 +1369,31 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
              WHERE tenant_id=$1 AND vente_id=$2 AND produit_id=$3 AND quantite=$4 AND prix=$5
              LIMIT 1
             `,
-            [tenantId, venteId, produitId, quantite, prix]
+            [tenantId, venteUuid, produitUuid, quantite, prix]
           );
 
           if (chk.rowCount === 0) {
-            if (ligneId != null) {
-              await client.query(
-                `
-                INSERT INTO lignes_vente
-                   (id, tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-                 ON CONFLICT (tenant_id, id) DO NOTHING
-                `,
-                [
-                  ligneId,
-                  tenantId,
-                  venteId,
-                  produitId,
-                  quantite,
-                  prix,
-                  p.prixUnitaire ?? null,
-                  p.remisePercent ?? 0,
-                ]
-              );
-            } else {
-              await client.query(
-                `
-                INSERT INTO lignes_vente
-                   (tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7)
-                `,
-                [
-                  tenantId,
-                  venteId,
-                  produitId,
-                  quantite,
-                  prix,
-                  p.prixUnitaire ?? null,
-                  p.remisePercent ?? 0,
-                ]
-              );
-            }
+            await client.query(
+              `
+              INSERT INTO lignes_vente
+                 (tenant_id, vente_id, produit_id, quantite, prix, prix_unitaire, remise_percent)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)
+              `,
+              [
+                tenantId,
+                venteUuid,
+                produitUuid,
+                quantite,
+                prix,
+                p.prixUnitaire ?? null,
+                p.remisePercent ?? 0,
+              ]
+            );
             console.log(
               '    [+] ligne_vente ajoutée vente=',
-              venteId,
+              venteUuid,
               'prod=',
-              produitId,
+              produitUuid,
               'qte=',
               quantite
             );
@@ -1251,10 +1407,10 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
              VALUES ($1,$2,$3,'sale_line',$4)
              ON CONFLICT DO NOTHING
             `,
-            [tenantId, produitId, -quantite, sourceKey]
+            [tenantId, produitUuid, -quantite, sourceKey]
           );
           console.log('    [+] stock_movements sale_line', {
-            produit_id: produitId,
+            produit_id: produitUuid,
             delta: -quantite,
           });
           break;
@@ -1264,10 +1420,109 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
          * RÉCEPTIONS
          * ────────────────────────────*/
         case 'reception.line_added': {
-          // ... ton code existant reception.line_added inchangé ...
-          // (je ne le recopie pas ici pour ne pas te saturer, garde EXACTEMENT ton bloc)
-          // ⚠️ juste vérifie que tu as bien le `break;` à la fin du case.
-          // ...
+          const localReceptionId = asIntOrNull(p.receptionId);
+          const localProduitId = asIntOrNull(p.produitId);
+          const localFournisseurId = asIntOrNull(p.fournisseurId);
+
+          // 🔥 Résoudre les UUIDs
+          let receptionUuid = p.receptionUuid || null;
+          const fournisseurUuid = p.fournisseurUuid || null;
+          let produitUuid = p.produitUuid || null;
+
+          // Si produitUuid est null, on cherche dans les mappings du même batch
+          if (!produitUuid && localProduitId) {
+            const mapping = productMappings.find(m => m.local_id === localProduitId);
+            if (mapping) {
+              produitUuid = mapping.remote_uuid;
+              console.log('    [~] produitUuid résolu via mappings batch:', { localProduitId, produitUuid });
+            }
+          }
+
+          // Si toujours null, chercher le produit dans la DB par sa référence
+          // (le produit a peut-être été créé dans un batch précédent)
+          if (!produitUuid && p.produitReference) {
+            const prodQuery = await client.query(
+              `SELECT id FROM produits WHERE tenant_id=$1 AND reference=$2 LIMIT 1`,
+              [tenantId, p.produitReference]
+            );
+            if (prodQuery.rowCount > 0) {
+              produitUuid = prodQuery.rows[0].id;
+              console.log('    [~] produitUuid résolu via DB (reference):', { reference: p.produitReference, produitUuid });
+            }
+          }
+
+          // Si receptionUuid est null, on cherche dans les mappings du même batch (comme pour venteUuid)
+          if (!receptionUuid && localReceptionId) {
+            const mapping = receptionMappings.find(m => m.local_id === localReceptionId);
+            if (mapping) {
+              receptionUuid = mapping.remote_uuid;
+            }
+          }
+
+          // Si toujours pas de receptionUuid, créer le header maintenant
+          if (!receptionUuid && localReceptionId) {
+            receptionUuid = crypto.randomUUID();
+            const reference = p.reference || null;
+
+            await client.query(
+              `INSERT INTO receptions (id, tenant_id, fournisseur_id, reference, date)
+               VALUES ($1, $2, $3, $4, NOW())
+               ON CONFLICT (id) DO NOTHING`,
+              [receptionUuid, tenantId, fournisseurUuid, reference]
+            );
+            receptionMappings.push({ local_id: localReceptionId, remote_uuid: receptionUuid });
+            console.log('    [+] reception header créée uuid=', receptionUuid, 'local_id=', localReceptionId);
+          }
+
+          // Validation finale
+          if (!receptionUuid) throw new Error('invalid_reception_uuid');
+          if (!produitUuid) {
+            console.error('    [!] produitUuid manquant pour reception.line_added:', {
+              localReceptionId, localProduitId, localFournisseurId,
+              receptionUuid, fournisseurUuid, produitUuid,
+              payload: p
+            });
+            throw new Error('invalid_produit_uuid_for_reception');
+          }
+
+          const quantite = Number(p.quantite || 0);
+          const prixAchat = p.prixUnitaire != null ? Number(p.prixUnitaire) : null;
+
+          // Vérifier que le produit existe
+          const checkProd = await client.query(
+            `SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`,
+            [tenantId, produitUuid]
+          );
+          if (checkProd.rowCount === 0) throw new Error('product_not_found_for_tenant');
+
+          // Insérer la ligne de réception (idempotent)
+          const chk = await client.query(
+            `SELECT 1 FROM lignes_reception 
+             WHERE tenant_id=$1 AND reception_id=$2 AND produit_id=$3 AND quantite=$4 AND COALESCE(prix_unitaire,0)=COALESCE($5,0)
+             LIMIT 1`,
+            [tenantId, receptionUuid, produitUuid, quantite, prixAchat]
+          );
+
+          if (chk.rowCount === 0) {
+            await client.query(
+              `INSERT INTO lignes_reception (tenant_id, reception_id, produit_id, quantite, prix_unitaire)
+               VALUES ($1,$2,$3,$4,$5)`,
+              [tenantId, receptionUuid, produitUuid, quantite, prixAchat]
+            );
+            console.log('    [+] ligne_reception ajoutée reception=', receptionUuid, 'prod=', produitUuid, 'qte=', quantite);
+          } else {
+            console.log('    [=] ligne_reception déjà présente');
+          }
+
+          // Stock movement
+          const sourceKey = `lr:${localReceptionId || receptionUuid}:${localProduitId || produitUuid}:${quantite}`;
+          await client.query(
+            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id) 
+             VALUES ($1,$2,$3,'reception_line',$4) 
+             ON CONFLICT DO NOTHING`,
+            [tenantId, produitUuid, quantite, sourceKey]
+          );
+          console.log('    [+] stock_movements reception_line', { produit_id: produitUuid, delta: quantite });
           break;
         }
 
@@ -1292,6 +1547,164 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             '    [!] inventory.adjust non appliquée côté Neon (mapping produit local→uuid pas encore implémenté)',
             { produitIdLocal, delta }
           );
+          break;
+        }
+
+        case 'inventory.session_start': {
+          // payload: { local_session_id, name, user, notes }
+          const localId = p.local_session_id || p.localId || null;
+          const name = p.name || `Inventaire ${new Date().toISOString().slice(0,10)}`;
+          const user = p.user || null;
+
+          const newIdRes = await client.query(
+            `INSERT INTO inventory_sessions (id, tenant_id, name, "user", notes, status, started_at)
+             VALUES (uuid_generate_v4(), $1, $2, $3, $4, 'open', now())
+             RETURNING id`,
+            [tenantId, name, user, p.notes || null]
+          );
+          const remoteId = newIdRes.rows[0]?.id || null;
+          if (localId && remoteId) sessionMappings.push({ local_id: localId, remote_uuid: remoteId });
+          break;
+        }
+
+        case 'inventory.count_add': {
+          // payload: { session_id, local_product_id, product_uuid, qty, user, device_id }
+          let sessionIdRemote = null;
+          if (p.session_id && typeof p.session_id === 'string' && /^[0-9a-f\-]{36}$/.test(p.session_id)) sessionIdRemote = p.session_id;
+          else if (p.session_id) {
+            const mapped = sessionMappings.find(m => String(m.local_id) === String(p.session_id));
+            if (mapped) sessionIdRemote = mapped.remote_uuid;
+          }
+          if (!sessionIdRemote) {
+            console.warn('[push_ops] inventory.count_add: session not resolved in batch', p.session_id);
+            break;
+          }
+
+          // Resolve product uuid: prefer explicit product_uuid, then productMappings
+          let productUuid = null;
+          if (p.product_uuid && typeof p.product_uuid === 'string' && /^[0-9a-f\-]{36}$/.test(p.product_uuid)) productUuid = p.product_uuid;
+          else if (p.local_product_id) {
+            const pm = productMappings.find(x => Number(x.local_id) === Number(p.local_product_id));
+            if (pm) productUuid = pm.remote_uuid;
+          }
+          if (!productUuid) {
+            console.warn('[push_ops] inventory.count_add: product not resolved in batch', p.local_product_id);
+            break;
+          }
+
+          // Upsert count into inventory_counts
+          try {
+            await client.query(
+              `
+              INSERT INTO inventory_counts (session_id, tenant_id, produit_id, device_id, "user", qty, updated_at)
+              VALUES ($1,$2,$3,$4,$5,$6, now())
+              ON CONFLICT (session_id, produit_id, device_id)
+              DO UPDATE SET qty = inventory_counts.qty + EXCLUDED.qty, updated_at=now()
+              `,
+              [sessionIdRemote, tenantId, productUuid, p.device_id || null, p.user || null, Number(p.qty || 0)]
+            );
+          } catch (e) {
+            console.warn('[push_ops] inventory.count_add failed', e?.message || e);
+          }
+          break;
+        }
+        
+        case 'inventory.finalize': {
+          // payload: { session_id, user }
+          let sessionIdRemote = null;
+          if (p.session_id && typeof p.session_id === 'string' && /^[0-9a-f\-]{36}$/.test(p.session_id)) sessionIdRemote = p.session_id;
+          else if (p.session_id) {
+            const mapped = sessionMappings.find(m => String(m.local_id) === String(p.session_id));
+            if (mapped) sessionIdRemote = mapped.remote_uuid;
+          }
+          if (!sessionIdRemote) {
+            console.warn('[push_ops] inventory.finalize: session not resolved in batch', p.session_id);
+            break;
+          }
+
+          // user info optional
+          const userFinal = p.user || null;
+
+          // Check session exists and status
+          const st = await client.query(`SELECT status, name, started_at, ended_at FROM inventory_sessions WHERE tenant_id=$1 AND id=$2`, [tenantId, sessionIdRemote]);
+          if (st.rowCount === 0) {
+            console.warn('[push_ops] inventory.finalize: remote session not found', sessionIdRemote);
+            break;
+          }
+          if (st.rows[0].status === 'closed') {
+            // already closed -> nothing to do
+            break;
+          }
+
+          if (st.rows[0].status === 'open') {
+            await client.query(`UPDATE inventory_sessions SET status='finalizing' WHERE tenant_id=$1 AND id=$2`, [tenantId, sessionIdRemote]);
+          }
+
+          // Aggregate snapshot + counts and apply adjustments (reuse endpoint logic)
+          const agg = await client.query(`
+            WITH summed AS (
+               SELECT produit_id, SUM(qty)::numeric AS counted_total
+               FROM inventory_counts
+               WHERE tenant_id=$1 AND session_id=$2
+               GROUP BY produit_id
+             )
+             SELECT
+               s.product_id        AS product_id,
+               p.nom,
+               p.prix,
+               s.stock_start,
+               COALESCE(sm.counted_total, 0) AS counted_total
+             FROM inventory_snapshot s
+             JOIN produits p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
+             LEFT JOIN summed sm ON sm.produit_id = s.product_id
+             WHERE s.tenant_id=$1 AND s.session_id=$2
+             ORDER BY p.nom
+          `, [tenantId, sessionIdRemote]);
+
+          let linesInserted = 0, countedProducts = 0, inventoryValue = 0;
+          for (const r of agg.rows) {
+            const pid = String(r.product_id);
+            const start = Number(r.stock_start || 0);
+            const counted = Number(r.counted_total || 0);
+            const prix = Number(r.prix || 0);
+
+            const currentLive = await getCurrentStock(client, tenantId, pid);
+            const delta = counted - currentLive;
+
+            await client.query(`
+              INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
+              VALUES ($1,$2,$3,$4,$5,$6, NULL, $7, now())
+              ON CONFLICT (session_id, tenant_id, product_id)
+              DO UPDATE SET
+                 stock_start   = EXCLUDED.stock_start,
+                 counted_total = EXCLUDED.counted_total,
+                 delta         = EXCLUDED.delta,
+                 delta_value   = EXCLUDED.delta_value
+            `, [sessionIdRemote, tenantId, pid, start, counted, delta, delta * prix]);
+
+            linesInserted++;
+            if (counted !== 0) countedProducts++;
+            inventoryValue += counted * prix;
+
+            if (delta !== 0) {
+              const sourceId = `inv:${sessionIdRemote}:${pid}`;
+              await client.query(`
+                INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id, created_at)
+                SELECT $1,$2,$3,'inventory_finalize',$4, now()
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM stock_movements WHERE tenant_id=$1 AND source_id=$4
+                )
+              `, [tenantId, pid, delta, sourceId]);
+            }
+          }
+
+          await client.query(`
+            UPDATE inventory_sessions
+               SET status='closed', ended_at=now(), "user"=COALESCE("user", $3)
+             WHERE tenant_id=$1 AND id=$2
+          `, [tenantId, sessionIdRemote, userFinal || null]);
+
+          // We could accumulate recap info to return, but push_ops returns mappings only.
           break;
         }
 
@@ -1385,11 +1798,15 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
     await client.query('COMMIT');
     console.log('[API] /sync/push_ops done.');
 
-    // 🔁 On renvoie les mappings pour que le client mette à jour produits.remote_uuid
+    // 🔁 On renvoie les mappings pour que le client mette à jour remote_uuid
     return res.json({
       ok: true,
       mappings: {
         produits: productMappings,
+        inventory_sessions: sessionMappings,
+        ventes: venteMappings,
+        receptions: receptionMappings,
+        fournisseurs: fournisseurMappings,
       },
     });
   } catch (e) {

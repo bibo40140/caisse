@@ -4,6 +4,8 @@ const fs = require('fs');
 const fetch = require('node-fetch');
 const { BrowserWindow } = require('electron');
 const { getDeviceId } = require('../device');
+const { enqueueOp } = require('../db/ops');
+const db = require('../db/db');
 
 function readApiBase() {
   try {
@@ -189,7 +191,29 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     const name  = payload?.name  || `Inventaire ${new Date().toISOString().slice(0,10)}`;
     const user  = payload?.user  || null;
     const notes = payload?.notes || null;
-    return apiInventoryStart({ name, user, notes });
+
+    // 1) Create a local session row (always available offline)
+    const insert = db.prepare(`INSERT INTO inventory_sessions (name, status, started_at) VALUES (?, 'open', datetime('now','localtime'))`);
+    const info = insert.run(name);
+    const localSessionId = info.lastInsertRowid;
+
+    // 2) Try to create remote session now; if OK, update local remote_uuid and return remote session
+    try {
+      const js = await apiInventoryStart({ name, user, notes });
+      const remoteId = js?.session?.id || js?.id || null;
+      if (remoteId) {
+        try { db.prepare(`UPDATE inventory_sessions SET remote_uuid = ? WHERE id = ?`).run(String(remoteId), localSessionId); } catch (_) {}
+        return { session: { id: String(remoteId), local_id: localSessionId }, reused: !!js?.reused };
+      }
+    } catch (e) {
+      // offline or API error: enqueue an op to create remote session later
+      try {
+        enqueueOp({ deviceId: DEFAULT_DEVICE_ID, opType: 'inventory.session_start', entityType: 'inventory_session', entityId: localSessionId, payload: { local_session_id: localSessionId, name, user, notes } });
+      } catch (ee) { /* non blocking */ }
+    }
+
+    // Return local session id so renderer can work offline
+    return { session: { id: String(localSessionId), local_id: localSessionId }, reused: false };
   });
 
   const doCountAdd = async (_e, payload = {}) => {
@@ -215,9 +239,22 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     } catch {}
 
     const remoteUUID = row?.remote_uuid && isUuidLike(String(row.remote_uuid)) ? String(row.remote_uuid) : null;
-    if (!remoteUUID) throw new Error('inventory:count-add MAPPING_MISSING — aucun remote_uuid pour ce produit.');
 
-    return apiInventoryCountAdd({ sessionId, product_uuid: remoteUUID, qty, user, device_id });
+    // 1) Always persist locally to inventory_counts for offline use / UI
+    try {
+      db.prepare(`INSERT INTO inventory_counts (session_id, produit_id, qty, user, device_id, created_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))`).run(sessionId, localNum, qty, user, device_id);
+    } catch (e) { console.warn('[inventory] unable to persist local count', e?.message || e); }
+
+    // 2) Enqueue op for server-side aggregation / sync. Include both local product id and remote uuid if available
+    try {
+      enqueueOp({ deviceId: DEFAULT_DEVICE_ID, opType: 'inventory.count_add', entityType: 'inventory', entityId: sessionId, payload: { session_id: sessionId, local_product_id: localNum, product_uuid: remoteUUID, qty, user, device_id } });
+    } catch (e) { console.warn('[inventory] enqueueOp failed', e?.message || e); }
+
+    // 3) Try to call remote API immediately (best-effort)
+    if (remoteUUID) {
+      try { return apiInventoryCountAdd({ sessionId, product_uuid: remoteUUID, qty, user, device_id }); } catch (e) { /* non blocking */ }
+    }
+    return { ok: true, queued: true };
   };
   safeHandle(ipcMain, 'inventory:countAdd', doCountAdd);
   safeHandle(ipcMain, 'inventory:count-add', doCountAdd);
@@ -230,26 +267,61 @@ module.exports = function registerInventoryHandlers(ipcMain) {
   safeHandle(ipcMain, 'inventory:finalize', async (_evt, { sessionId, user } = {}) => {
     if (!sessionId) throw new Error('inventory:finalize BAD_ARG sessionId');
     const { token } = resolveAuthContext();
-
-    // 1) Finalise côté API
-    const out = await apiInventoryFinalize(API, token, String(sessionId), { user });
-
-    // 2) Récupère le summary et applique aux stocks locaux
+    // If sessionId is a local numeric id, try to find a remote_uuid
+    let lookedUpRemote = null;
     try {
-      const sum = await apiInventorySummary(String(sessionId));
-      applySummaryToLocal(sum.lines);
-    } catch (e) {
-      console.warn('[inventory] applySummaryToLocal failed (non bloquant):', e?.message || e);
+      const n = Number(sessionId);
+      if (Number.isFinite(n)) {
+        const row = db.prepare(`SELECT remote_uuid FROM inventory_sessions WHERE id = ?`).get(n);
+        if (row?.remote_uuid) lookedUpRemote = String(row.remote_uuid);
+      }
+    } catch (_) {}
+
+    // If we have a remote session id (either passed directly or looked up), try to finalize now
+    const effectiveRemoteId = lookedUpRemote || (isUuidLike(String(sessionId)) ? String(sessionId) : null);
+    if (effectiveRemoteId) {
+      // 1) Finalise côté API
+      const out = await apiInventoryFinalize(API, token, String(effectiveRemoteId), { user });
+
+      // 2) Récupère le summary et applique aux stocks locaux
+      try {
+        const sum = await apiInventorySummary(String(effectiveRemoteId));
+        applySummaryToLocal(sum.lines);
+      } catch (e) {
+        console.warn('[inventory] applySummaryToLocal failed (non bloquant):', e?.message || e);
+      }
+
+      // 3) Mark local session closed if we have a local mapping
+      try {
+        if (lookedUpRemote) db.prepare(`UPDATE inventory_sessions SET status='closed', ended_at=datetime('now','localtime') WHERE id = ?`).run(Number(sessionId));
+      } catch (_) {}
+
+      // 4) Notifier TOUTES les fenêtres que la session est clôturée → purge UI
+      try {
+        const payload = { sessionId: String(sessionId), closed: true, at: Date.now() };
+        BrowserWindow.getAllWindows().forEach(w => w.webContents.send('inventory:session-closed', payload));
+      } catch (_) {}
+
+      if (out?.alreadyFinalized) return { ok: true, recap: out.recap || null, alreadyFinalized: true };
+      return out;
     }
 
-    // 3) Notifier TOUTES les fenêtres que la session est clôturée → purge UI
+    // Otherwise (no remote id): operate offline — mark local session closed and enqueue finalize op
+    try {
+      const n = Number(sessionId);
+      if (Number.isFinite(n)) db.prepare(`UPDATE inventory_sessions SET status='closed', ended_at=datetime('now','localtime') WHERE id = ?`).run(n);
+    } catch (_) {}
+
+    try {
+      enqueueOp({ deviceId: DEFAULT_DEVICE_ID, opType: 'inventory.finalize', entityType: 'inventory_session', entityId: sessionId, payload: { session_id: sessionId, user } });
+    } catch (e) { console.warn('[inventory] enqueue finalize failed', e?.message || e); }
+
     try {
       const payload = { sessionId: String(sessionId), closed: true, at: Date.now() };
       BrowserWindow.getAllWindows().forEach(w => w.webContents.send('inventory:session-closed', payload));
     } catch (_) {}
 
-    if (out?.alreadyFinalized) return { ok: true, recap: out.recap || null, alreadyFinalized: true };
-    return out;
+    return { ok: true, queued: true };
   });
 
   // Historique sessions

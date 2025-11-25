@@ -72,6 +72,7 @@
         <div>En file d’attente : <strong>${pending}</strong></div>
         <div class="sync-actions">
           <button id="sync-now" class="btn">🔄 Pousser maintenant</button>
+          <button id="sync-retry" class="btn">⤴️ Réessayer les ops en erreur</button>
         </div>
         <pre id="sync-debug-pre" style="margin-top:8px; max-height:220px; overflow:auto; font-size:11px; background:#f9fafb; padding:8px; border-radius:6px;"></pre>
       `;
@@ -96,6 +97,19 @@
           alert('Erreur lors du push des opérations : ' + (e?.message || e));
         }
         // on rafraîchit le panneau
+        showSyncPanel(hostId);
+      };
+      box.querySelector('#sync-retry').onclick = async () => {
+        try {
+          const res = await window.electronAPI.retryFailedOps();
+          if (!res || res.ok === false) {
+            alert('Échec du ré-essai : ' + (res?.error || 'inconnu'));
+          } else {
+            alert(`Réinitialisé: ${res.reset || 0} ops. Push: ${res.push?.ok ? 'OK' : 'KO'} (sent=${res.push?.sent ?? '??'})`);
+          }
+        } catch (e) {
+          alert('Erreur lors du ré-essai : ' + (e?.message || e));
+        }
         showSyncPanel(hostId);
       };
     } catch (e) {

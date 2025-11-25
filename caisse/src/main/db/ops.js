@@ -18,8 +18,8 @@ function enqueueOp({ deviceId, opType, entityType = null, entityId = null, paylo
 
   const id = randomUUID();
   db.prepare(`
-    INSERT INTO ops_queue (id, device_id, op_type, entity_type, entity_id, payload_json, created_at, ack)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now','localtime'), 0)
+    INSERT INTO ops_queue (id, device_id, op_type, entity_type, entity_id, payload_json, created_at, ack, retry_count, last_error)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now','localtime'), 0, 0, NULL)
   `).run(
     id,
     String(deviceId),

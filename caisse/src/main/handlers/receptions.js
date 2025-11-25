@@ -47,12 +47,14 @@ function normalizeLignes(input) {
     );
 }
 
-/** Normalise l’entête */
+/** Normalise l'entête */
 function normalizeReceptionHeader(raw = {}) {
   const fournisseur_id =
     raw.fournisseur_id ?? raw.fournisseurId ?? raw.supplier_id ?? raw.supplierId;
+  // ✅ Si null/undefined/NaN/0, on met null (pas de fournisseur)
+  const fid = Number(fournisseur_id);
   return {
-    fournisseur_id: Number(fournisseur_id),
+    fournisseur_id: (Number.isFinite(fid) && fid > 0) ? fid : null,
     reference: raw.reference ?? raw.ref ?? null,
   };
 }
@@ -76,8 +78,11 @@ function registerReceptionHandlers(ipcMain) {
       const lignesRaw = payload.lignes ?? payload.items ?? payload.produits ?? payload.lines ?? [];
       const lignes = normalizeLignes(lignesRaw);
 
-      if (!Number.isFinite(reception.fournisseur_id) || reception.fournisseur_id <= 0) {
-        throw new Error('fournisseur_id manquant ou invalide');
+      // ✅ Accepter fournisseur_id = null (pas de fournisseur) si module désactivé
+      // Validation : soit null, soit un nombre > 0
+      const fid = reception.fournisseur_id;
+      if (fid !== null && (!Number.isFinite(fid) || fid <= 0)) {
+        throw new Error('fournisseur_id invalide (doit être null ou > 0)');
       }
       if (lignes.length === 0) throw new Error('aucune ligne de réception');
 

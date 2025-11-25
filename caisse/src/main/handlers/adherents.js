@@ -93,21 +93,51 @@ function registerAdherentsHandlers() {
   // ✏️ Modifier adhérent (pour l’instant : uniquement local, on ajoutera un op adherent.updated plus tard si besoin)
   ipcMain.handle('modifier-adherent', async (_event, data) => {
     const res = adherentsDb.modifierAdherent(data || {});
-    // TODO (plus tard) : enqueueOp('adherent.updated', ...)
+    try {
+      enqueueOp({
+        deviceId: DEVICE_ID,
+        opType: 'adherent.updated',
+        entityType: 'adherent',
+        entityId: String(res.id || data.id),
+        payload: Object.assign({ local_id: res.id || data.id }, res),
+      });
+    } catch (e) {
+      console.error('[modifier-adherent] enqueueOp error:', e);
+    }
     safeTriggerSync();
     return res;
   });
 
   ipcMain.handle('archiver-adherent', async (_event, id) => {
     adherentsDb.archiverAdherent(id);
-    // TODO (plus tard) : op adherent.archived
+    try {
+      enqueueOp({
+        deviceId: DEVICE_ID,
+        opType: 'adherent.archived',
+        entityType: 'adherent',
+        entityId: String(id),
+        payload: { local_id: id, archive: 1 },
+      });
+    } catch (e) {
+      console.error('[archiver-adherent] enqueueOp error:', e);
+    }
     safeTriggerSync();
     return { ok: true };
   });
 
   ipcMain.handle('reactiver-adherent', async (_event, id) => {
     adherentsDb.reactiverAdherent(id);
-    // TODO (plus tard) : op adherent.reactivated
+    try {
+      enqueueOp({
+        deviceId: DEVICE_ID,
+        opType: 'adherent.reactivated',
+        entityType: 'adherent',
+        entityId: String(id),
+        payload: { local_id: id, archive: 0 },
+      });
+    } catch (e) {
+      console.error('[reactiver-adherent] enqueueOp error:', e);
+    }
     safeTriggerSync();
     return { ok: true };
   });

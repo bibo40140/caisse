@@ -23,6 +23,8 @@
 
   async function renderReception() {
     const content = document.getElementById("page-content");
+    const modules = await (window.getMods?.() || window.electronAPI.getModules?.() || Promise.resolve({}));
+    const fournisseursOn = !!modules?.fournisseurs;
     const fournisseurs = await window.electronAPI.getFournisseurs();
     let produits = await window.electronAPI.getProduits();
     let fournisseurSelectionne = null;
@@ -70,7 +72,7 @@
     const labelF = (f) => `${f.nom} — #${f.id}`;
 
     async function ouvrirPopupNouveauProduit(fournisseurId) {
-  if (!fournisseurId) { await showAlertModal("Sélectionnez d’abord un fournisseur."); return; }
+  if (fournisseursOn && !fournisseurId) { await showAlertModal("Sélectionnez d'abord un fournisseur."); return; }
   const unites = await window.electronAPI.getUnites();
 
   const form = document.createElement('form');
@@ -112,12 +114,13 @@
     nom, prix, stock,
     unite_id,                                            // <— send unite_id to the backend
     code_barre: (form.code_barre.value || '').trim(),
-    fournisseur_id: fournisseurId
+    fournisseur_id: fournisseurId || null
   };
 
   const existant = await window.electronAPI
     .rechercherProduitParNomEtFournisseur(nouveau.nom, fournisseurId);
 
+  let produitId = null;
   if (existant) {
     const choix = await showChoixModal(
       `⚠️ Un produit nommé <strong>${existant.nom}</strong> existe déjà chez ce fournisseur.<br><br>Que souhaitez-vous faire ?`,
@@ -125,15 +128,81 @@
     );
     if (choix === 'Annuler') return;
     if (choix === 'Remplacer') {
-      await window.electronAPI.supprimerEtRemplacerProduit(nouveau, existant.id);
+      const replaced = await window.electronAPI.supprimerEtRemplacerProduit(nouveau, existant.id);
+      // Extraire l'ID depuis différentes structures possibles
+      produitId = replaced?.id || replaced?.produit?.id || existant.id;
     } else {
-      await window.electronAPI.ajouterProduit(nouveau);
+      const created = await window.electronAPI.ajouterProduit(nouveau);
+      // Extraire l'ID : { ok, id, produit } ou juste un nombre
+      produitId = created?.id || created?.produit?.id || (Number.isFinite(created) ? created : null);
     }
   } else {
-    await window.electronAPI.ajouterProduit(nouveau);
+    const created = await window.electronAPI.ajouterProduit(nouveau);
+    // Extraire l'ID : { ok, id, produit } ou juste un nombre
+    produitId = created?.id || created?.produit?.id || (Number.isFinite(created) ? created : null);
   }
 
-  await showAlertModal('✅ Produit créé !');
+  // ✅ Créer automatiquement une réception pour ce produit avec le stock initial
+  if (produitId && stock > 0) {
+    try {
+      // 🔄 Déclencher une sync pour que le produit obtienne un remote_uuid avant de créer la réception
+      console.log('[receptions] Déclenchement sync avant création réception auto...');
+      try {
+        await window.electronAPI.pushNow();
+        console.log('[receptions] Sync terminée, attente remote_uuid du produit...');
+        
+        // ⏱️ Attendre que le produit ait son remote_uuid (max 5 secondes)
+        let hasUuid = false;
+        for (let i = 0; i < 10; i++) {
+          hasUuid = await window.electronAPI.produitHasRemoteUuid(produitId);
+          if (hasUuid) {
+            console.log(`[receptions] Produit ${produitId} a maintenant un remote_uuid après ${i * 500}ms`);
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        if (!hasUuid) {
+          console.warn('[receptions] Timeout: le produit n\'a toujours pas de remote_uuid après 5s');
+          // On continue quand même, la réception sera créée et synchro plus tard
+        }
+        
+        console.log('[receptions] Création réception auto');
+      } catch (syncErr) {
+        console.warn('[receptions] Sync échouée avant réception auto:', syncErr);
+        // On continue quand même, la réception sera créée et synchro plus tard
+      }
+
+      const reception = {
+        fournisseur_id: fournisseurId || null,
+        reference: `Création produit ${nom}`,
+        lignes: [{
+          produit_id: produitId,
+          quantite: stock,
+          prix_unitaire: prix,
+          stock_corrige: null
+        }]
+      };
+      await window.electronAPI.enregistrerReception(reception);
+      
+      // 🔄 Forcer un second push pour synchroniser la réception maintenant que le produit a son remote_uuid
+      console.log('[receptions] Déclenchement second push pour réception...');
+      try {
+        await window.electronAPI.pushNow();
+        console.log('[receptions] Réception synchronisée');
+      } catch (syncErr2) {
+        console.warn('[receptions] Erreur push réception, sera retenté plus tard:', syncErr2);
+      }
+      
+      await showAlertModal(`✅ Produit créé et réception enregistrée (${stock} unité(s) à ${prix}€) !`);
+    } catch (err) {
+      console.error('Erreur création réception auto:', err);
+      await showAlertModal(`✅ Produit créé, mais erreur lors de l'enregistrement de la réception : ${err?.message || err}`);
+    }
+  } else {
+    await showAlertModal('✅ Produit créé !');
+  }
+
   produits = await window.electronAPI.getProduits();
   produitsFournisseur = produits.filter(p => p.fournisseur_id === fournisseurId);
   afficherListeProduitsFournisseur();
@@ -220,11 +289,15 @@
 
     const afficherListeProduitsFournisseur = (forceRebuild = false) => {
       const zone = document.getElementById("liste-produits-fournisseur");
-      if (!zone || !fournisseurSelectionne) return;
+      if (!zone) return;
+      
+      // Si fournisseurs activés, vérifier qu'un est sélectionné
+      if (fournisseursOn && !fournisseurSelectionne) return;
 
       if (!zone.dataset.wired || forceRebuild) {
+        const titre = fournisseursOn ? 'Produits du fournisseur' : 'Produits disponibles';
         zone.innerHTML = `
-          <h3>📦 Produits du fournisseur</h3>
+          <h3>📦 ${titre}</h3>
           <div style="margin-bottom:10px">
             <input id="recherche-produit" class="ui-field" placeholder="Filtrer par nom ou code-barres">
           </div>
@@ -243,10 +316,12 @@
       if (!cont) return;
 
       const toks = _tokensR(query);
-      let list = produitsFournisseur;
+      // Si fournisseurs désactivés, afficher tous les produits
+      let list = fournisseursOn ? produitsFournisseur : produits;
 
       if (toks.length > 0) {
-        list = produitsFournisseur.filter(p => {
+        const baseList = fournisseursOn ? produitsFournisseur : produits;
+        list = baseList.filter(p => {
           const nom = _singR(_normR(p.nom || ''));
           const cb  = (p.code_barre || '').toString();
           return toks.every(t => nom.includes(t) || cb.includes(t));
@@ -271,7 +346,8 @@
     };
 
     window.ajouterProduitReception = (id) => {
-      const produit = produitsFournisseur.find(p => p.id === id);
+      const liste = fournisseursOn ? produitsFournisseur : produits;
+      const produit = liste.find(p => p.id === id);
       if (produit && !lignesReception.some(l => l.produit.id === id)) {
         lignesReception.push({ produit, quantite: '', prix: produit.prix, stockCorrige: '' });
         saveReceptionLines();
@@ -287,6 +363,7 @@
         <div class="reception-header">
           <h2>📦 Réception de produits</h2>
 
+          ${fournisseursOn ? `
           <label for="fournisseur-input" style="font-weight:600;">🚚 Fournisseur</label>
           <div class="ui-wrap">
             <input id="fournisseur-input"
@@ -302,6 +379,7 @@
           </datalist>
 
           <input type="hidden" id="fournisseur-id">
+          ` : ''}
 
           <div style="margin-top:10px;">
             <button id="btn-nouveau-produit" class="btn-secondary">➕ Nouveau produit</button>
@@ -316,33 +394,56 @@
       `;
 
       enhanceCategorySelectsInReceptions();
-      wireDatalistChevron('fournisseur-input');
+      if (fournisseursOn) {
+        wireDatalistChevron('fournisseur-input');
+      }
 
       const inputF  = document.getElementById('fournisseur-input');
       const hiddenF = document.getElementById('fournisseur-id');
       const btnNew  = document.getElementById('btn-nouveau-produit');
-      if (!inputF || !hiddenF) return;
-
+      
+      // ✅ Définir fournisseurIndex avant le bloc conditionnel pour le rendre accessible dans l'event listener
       const fournisseurIndex = new Map(fournisseurs.map(f => [labelF(f), f]));
 
-      inputF.value = ''; hiddenF.value = '';
-      localStorage.removeItem(F_KEY);
-      fournisseurSelectionne = null;
-      produitsFournisseur = [];
+      if (fournisseursOn) {
+        if (!inputF || !hiddenF) return;
 
-      if (btnNew) {
-        btnNew.onclick = async () => {
-          const fid = parseInt(hiddenF.value || '0', 10);
-          if (!fid) { await showAlertModal("Sélectionnez d’abord un fournisseur."); inputF?.focus(); return; }
-          await ouvrirPopupNouveauProduit(fid);
-        };
+        inputF.value = ''; hiddenF.value = '';
+        localStorage.removeItem(F_KEY);
+        fournisseurSelectionne = null;
+        produitsFournisseur = [];
+
+        if (btnNew) {
+          btnNew.onclick = async () => {
+            const fid = parseInt(hiddenF.value || '', 10);
+            if (!Number.isFinite(fid) || fid <= 0) { 
+              await showAlertModal("Sélectionnez d'abord un fournisseur."); 
+              inputF?.focus(); 
+              return; 
+            }
+            await ouvrirPopupNouveauProduit(fid);
+          };
+        }
+      } else {
+        // Mode sans fournisseur : bouton directement fonctionnel
+        if (btnNew) {
+          btnNew.onclick = async () => {
+            await ouvrirPopupNouveauProduit(null);
+          };
+        }
       }
 
       await afficherLignes();
       const zonePF = document.getElementById('liste-produits-fournisseur');
       if (zonePF) zonePF.innerHTML = '';
 
-      inputF.addEventListener('change', () => {
+      // Si fournisseurs désactivés, afficher tous les produits directement
+      if (!fournisseursOn) {
+        afficherListeProduitsFournisseur();
+      }
+
+      if (fournisseursOn && inputF) {
+        inputF.addEventListener('change', () => {
         const saisie = (inputF.value || '').trim();
 
         let f = fournisseurIndex.get(saisie);
@@ -369,19 +470,26 @@
         localStorage.setItem(F_KEY, String(f.id));
         fournisseurSelectionne = f.id;
         produitsFournisseur = produits.filter(p => p.fournisseur_id === f.id);
+        console.log('[receptions] Fournisseur sélectionné:', f.nom, 'ID:', f.id, 'hiddenF.value:', hiddenF.value);
 
         if (btnNew) {
           btnNew.disabled = false;
           btnNew.title = '';
           btnNew.onclick = async () => {
-            const fid = parseInt(hiddenF.value || '0', 10);
-            if (!fid) return;
+            const fid = parseInt(hiddenF.value || '', 10);
+            // ✅ Vérifier que c'est un nombre valide > 0
+            if (!Number.isFinite(fid) || fid <= 0) {
+              await showAlertModal("Sélectionnez d'abord un fournisseur.");
+              inputF?.focus();
+              return;
+            }
             await ouvrirPopupNouveauProduit(fid);
           };
         }
 
         afficherListeProduitsFournisseur(true);
-      });
+        });
+      }
 
       const btnValider = document.getElementById("valider-reception");
       if (btnValider) {
@@ -390,30 +498,32 @@
 
           const referenceGlobale = (document.getElementById('referenceInput')?.value || '').trim() || null;
 
-          // Regroupement par fournisseur
+          // Regroupement par fournisseur (ou groupe unique si module désactivé)
           const groupesParFournisseur = {};
           for (const l of lignesReception) {
-            const fid = l.produit?.fournisseur_id;
-            if (!fid) { await showAlertModal(`Un des produits n'a pas de fournisseur associé.`); return; }
-            if (!groupesParFournisseur[fid]) groupesParFournisseur[fid] = [];
-            groupesParFournisseur[fid].push(l);
+            const fid = l.produit?.fournisseur_id || null; // null = pas de fournisseur
+            if (fournisseursOn && !fid) { await showAlertModal(`Un des produits n'a pas de fournisseur associé.`); return; }
+            const key = fid ?? 'null'; // clé pour regrouper (string 'null' si pas de fournisseur)
+            if (!groupesParFournisseur[key]) groupesParFournisseur[key] = [];
+            groupesParFournisseur[key].push(l);
           }
 
           let nbBL = 0;
-          for (const [fid, lines] of Object.entries(groupesParFournisseur)) {
+          for (const [fidKey, lines] of Object.entries(groupesParFournisseur)) {
             const modules = await window.electronAPI.getModules();
             const stocksOn = !!(modules && modules.stocks);
+            const fidNum = (fidKey === 'null') ? null : parseInt(fidKey, 10);
 
             const reception = {
-              fournisseur_id: parseInt(fid, 10),
-              fournisseurId: parseInt(fid, 10),
+              fournisseur_id: fidNum,
+              fournisseurId: fidNum,
               reference: referenceGlobale,
               lignes: lines.map(l => ({
                 produit_id: l.produit.id,
                 quantite: stocksOn ? (Number(l.quantite) || 0) : 0,
                 prix_unitaire: Number(l.prix) || 0,
-                fournisseur_id: parseInt(fid, 10),
-                fournisseurId: parseInt(fid, 10),
+                fournisseur_id: fidNum,
+                fournisseurId: fidNum,
                 reference: referenceGlobale,
                 stock_corrige: stocksOn
                   ? ((l.stockCorrige !== '' && l.stockCorrige != null) ? Number(l.stockCorrige) : null)
@@ -433,13 +543,15 @@
 
               if (!ok) {
                 const msg = (res && (res.error || res.message)) || 'Réponse inattendue du main-process';
-                await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${msg}`);
+                const label = fidNum ? `fournisseur #${fidNum}` : 'sans fournisseur';
+                await showAlertModal(`❌ Erreur en créant le bon pour ${label} : ${msg}`);
                 return;
               }
               nbBL++;
             } catch (err) {
               const msg = err?.message || err?.stack || String(err);
-              await showAlertModal(`❌ Erreur en créant le bon pour le fournisseur #${fid} : ${msg}`);
+              const label = fidNum ? `fournisseur #${fidNum}` : 'sans fournisseur';
+              await showAlertModal(`❌ Erreur en créant le bon pour ${label} : ${msg}`);
               return;
             }
           }

@@ -97,6 +97,20 @@ function enregistrerVente(vente, lignes) {
     );
     const venteId = rV.lastInsertRowid;
 
+    // 🔥 Récupérer les remote_uuid pour adherent et mode_paiement
+    let adherentUuid = null;
+    let modePaiementUuid = null;
+
+    if (adherentId) {
+      const adhRow = db.prepare(`SELECT remote_uuid FROM adherents WHERE id = ?`).get(adherentId);
+      adherentUuid = adhRow?.remote_uuid || null;
+    }
+
+    if (modePaiementId) {
+      const mpRow = db.prepare(`SELECT remote_uuid FROM modes_paiement WHERE id = ?`).get(modePaiementId);
+      modePaiementUuid = mpRow?.remote_uuid || null;
+    }
+
     // OP HEADER → Neon
     enqueueOp({
       deviceId: DEVICE_ID,
@@ -106,8 +120,10 @@ function enregistrerVente(vente, lignes) {
       payload: {
         venteId,
         total,
-        adherentId,
-        modePaiementId,
+        adherentId,           // Local ID (pour debug)
+        modePaiementId,       // Local ID (pour debug)
+        adherentUuid,         // 🔥 UUID pour Postgres
+        modePaiementUuid,     // 🔥 UUID pour Postgres
         saleType,
         clientEmail,
         fraisPaiement,
@@ -132,6 +148,11 @@ function enregistrerVente(vente, lignes) {
       // Décrément local (si actif)
       if (decStock) decStock.run(qte, produitId);
 
+      // 🔥 Récupérer le produitUuid (déjà sync'd normalement)
+      const produitRow = db.prepare(`SELECT remote_uuid FROM produits WHERE id = ?`).get(produitId);
+      const produitUuid = produitRow?.remote_uuid || null;
+
+      // ⚠️ venteUuid sera résolu côté serveur via le mapping créé par sale.created (même batch)
       // OP LIGNE → Neon
       enqueueOp({
         deviceId: DEVICE_ID,
@@ -140,11 +161,12 @@ function enregistrerVente(vente, lignes) {
         entityId: String(`${venteId}:${produitId}`),
         payload: {
           ligneId: null,
-          venteId,
-          produitId,
+          venteId,              // 🔥 Local ID → serveur résoudra via venteMappings
+          produitId,            // Local ID (debug)
+          produitUuid,          // 🔥 UUID pour Postgres
           quantite: qte,
-          prix: prixTotal,          // total de la ligne
-          prixUnitaire: pu,         // PU appliqué
+          prix: prixTotal,      // total de la ligne
+          prixUnitaire: pu,     // PU appliqué
           remisePercent: remise,
         },
       });
@@ -157,7 +179,7 @@ function enregistrerVente(vente, lignes) {
         sync.pushOpsNow(DEVICE_ID).catch(() => {});
       }
       if (typeof sync.triggerBackgroundSync === 'function') {
-        setTimeout(() => sync.triggerBackgroundSync().catch(() => {}), 150);
+        setTimeout(() => sync.triggerBackgroundSync(), 150);
       }
     } catch {}
     return venteId;

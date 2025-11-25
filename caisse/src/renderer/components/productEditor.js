@@ -23,11 +23,11 @@
     } = opts;
 
     // ---------- Chargements ----------
-    const [fList, rawCats, uList] = await Promise.all([
+    const [fList, rawCats, uList, modules] = await Promise.all([
       fournisseurs ?? (window.electronAPI?.getFournisseurs?.() || Promise.resolve([])),
       (async () => {
         if (categories) return categories;
-        // essaie d’abord la version détaillée (id, nom, famille_id, famille_nom)
+        // essaie d'abord la version détaillée (id, nom, famille_id, famille_nom)
         if (window.electronAPI?.getAllCategoriesDetailed) {
           return await window.electronAPI.getAllCategoriesDetailed();
         }
@@ -39,7 +39,10 @@
         return [];
       })(),
       unites ?? (window.electronAPI?.getUnites?.() || Promise.resolve([])),
+      (window.getMods?.() || window.electronAPI?.getModules?.() || Promise.resolve({})),
     ]);
+
+    const showFournisseurs = !!modules?.fournisseurs;
 
     // ---------- Normalisation du produit ----------
     const p = {
@@ -118,6 +121,7 @@
           <input id="pe-ref" value="${escapeAttr(p.reference || '')}" placeholder="auto si vide">
         </div>
 
+        ${showFournisseurs ? `
         <div class="row pe-row">
           <label>Fournisseur</label>
           <select id="pe-fourn">
@@ -127,6 +131,7 @@
             `).join('')}
           </select>
         </div>
+        ` : ''}
 
         <div class="row pe-row">
           <label>Catégorie</label>
@@ -224,7 +229,8 @@
     function readForm() {
       const nom   = $('#pe-nom').value.trim();
       const reference = $('#pe-ref').value.trim();
-      const fid   = $('#pe-fourn').value ? Number($('#pe-fourn').value) : null;
+      const fournEl = $('#pe-fourn');
+      const fid   = fournEl ? (fournEl.value ? Number(fournEl.value) : null) : null;
       const cid   = $('#pe-cat').value ? Number($('#pe-cat').value) : null;
       const uid   = $('#pe-unite').value ? Number($('#pe-unite').value) : null;
       let prix    = Number(String($('#pe-prix').value).replace(',', '.'));

@@ -66,6 +66,7 @@ function registerProduitHandlers(ipcMain) {
     'modifier-produit',
     'supprimer-produit',
     'rechercher-produit-par-nom-et-fournisseur',
+    'produit:has-remote-uuid',
   ];
   channels.forEach((ch) => {
     try {
@@ -205,6 +206,20 @@ function registerProduitHandlers(ipcMain) {
       }
     }
   );
+
+  // 🔍 Vérifier si un produit a un remote_uuid (pour attendre la sync)
+  ipcMain.handle('produit:has-remote-uuid', async (_evt, produitId) => {
+    try {
+      const db = require('../db/db');
+      const row = db.prepare('SELECT remote_uuid FROM produits WHERE id = ?').get(Number(produitId));
+      const hasUuid = !!(row && row.remote_uuid);
+      console.log(`[produit:has-remote-uuid] produit ${produitId} → remote_uuid: ${row?.remote_uuid || 'NULL'} (has: ${hasUuid})`);
+      return hasUuid;
+    } catch (err) {
+      console.error('[produit:has-remote-uuid] error:', err);
+      return false;
+    }
+  });
 }
 
 module.exports = registerProduitHandlers;

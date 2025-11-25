@@ -11,7 +11,7 @@
   }
 
 async function chargerProduits() {
-  // On charge tout ce qu’il faut d’un coup
+  // On charge tout ce qu'il faut d'un coup
   const [liste, modules, fournisseurs, categories] = await Promise.all([
     window.electronAPI.getProduits(),
     (window.getMods?.() || window.electronAPI.getModules?.() || Promise.resolve({})),
@@ -22,6 +22,7 @@ async function chargerProduits() {
       : window.electronAPI.getCategories())
   ]);
   const stocksOn = !!modules?.stocks;
+  const fournisseursOn = !!modules?.fournisseurs;
 
   // Index utiles
   const catById = new Map((categories || []).map(c => [String(c.id), c]));
@@ -66,7 +67,7 @@ async function chargerProduits() {
           ${stocksOn ? '<th>Stock</th>' : ''}
           <th>Code-barre</th>
           <th>Unité</th>
-          <th>Fournisseur</th>
+          ${fournisseursOn ? '<th>Fournisseur</th>' : ''}
           <th>Catégorie</th>
           <th>Actions</th>
         </tr>
@@ -82,7 +83,7 @@ async function chargerProduits() {
               ${stocksOn ? `<td>${p.stock ?? 0}</td>` : ``}
               <td>${p.code_barre || '—'}</td>
               <td>${p.unite || '—'}</td>
-              <td>${p.fournisseur_nom || '—'}</td>
+              ${fournisseursOn ? `<td>${p.fournisseur_nom || '—'}</td>` : ``}
               <td>${catLabel}</td>
               <td>
                 <button class="btn-edit-produit" data-id="${p.id}">✏️</button>

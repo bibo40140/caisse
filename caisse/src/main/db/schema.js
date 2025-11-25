@@ -5,6 +5,53 @@
 // - Ne dépend PAS du backend (Neon). Les colonnes "remote_uuid" servent de pont avec les UUID distants.
 
 function ensureLocalSchema(db) {
+  // 🔥 MIGRATION: Supprimer la FK sur receptions.fournisseur_id si elle existe
+  try {
+    const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='receptions'").get();
+    if (schema && schema.sql && schema.sql.includes('FOREIGN KEY (fournisseur_id)')) {
+      console.log('[schema] Migration: suppression FK sur receptions.fournisseur_id...');
+      
+      db.exec('PRAGMA foreign_keys = OFF;');
+      db.exec(`
+        BEGIN TRANSACTION;
+        CREATE TABLE IF NOT EXISTS receptions_backup AS SELECT * FROM receptions;
+        CREATE TABLE IF NOT EXISTS lignes_reception_backup AS SELECT * FROM lignes_reception;
+        DROP TABLE IF EXISTS lignes_reception;
+        DROP TABLE IF EXISTS receptions;
+        
+        CREATE TABLE receptions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          fournisseur_id INTEGER,
+          date TEXT DEFAULT (datetime('now','localtime')),
+          reference TEXT,
+          updated_at TEXT DEFAULT (datetime('now','localtime')),
+          remote_uuid TEXT UNIQUE
+        );
+        
+        CREATE TABLE lignes_reception (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          reception_id INTEGER NOT NULL,
+          produit_id INTEGER NOT NULL,
+          quantite REAL NOT NULL,
+          prix_unitaire REAL,
+          updated_at TEXT DEFAULT (datetime('now','localtime')),
+          remote_uuid TEXT UNIQUE,
+          FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE,
+          FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
+        );
+        
+        INSERT INTO receptions SELECT * FROM receptions_backup;
+        INSERT INTO lignes_reception SELECT * FROM lignes_reception_backup;
+        DROP TABLE receptions_backup;
+        DROP TABLE lignes_reception_backup;
+        COMMIT;
+      `);
+      console.log('[schema] Migration terminée avec succès');
+    }
+  } catch (e) {
+    console.warn('[schema] Migration receptions FK:', e?.message || e);
+  }
+
   // Toujours activer les FK en SQLite
   db.exec(`PRAGMA foreign_keys = ON;`);
 
@@ -193,6 +240,7 @@ function ensureLocalSchema(db) {
   `);
 
   // --- RÉCEPTIONS
+  // ⚠️ Pas de FK sur fournisseur_id car il peut être NULL (module désactivé)
   db.exec(`
     CREATE TABLE IF NOT EXISTS receptions (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,8 +248,7 @@ function ensureLocalSchema(db) {
       date           TEXT DEFAULT (datetime('now','localtime')),
       reference      TEXT,
       updated_at     TEXT DEFAULT (datetime('now','localtime')),
-      remote_uuid    TEXT UNIQUE,                          -- UUID de la réception côté Neon
-      FOREIGN KEY (fournisseur_id) REFERENCES fournisseurs(id)
+      remote_uuid    TEXT UNIQUE                          -- UUID de la réception côté Neon
     );
   `);
 
@@ -307,12 +354,16 @@ function ensureLocalSchema(db) {
       entity_id    TEXT,
       payload_json TEXT NOT NULL,
       sent_at      TEXT,
-      ack          INTEGER NOT NULL DEFAULT 0
+      ack          INTEGER NOT NULL DEFAULT 0,
+      retry_count  INTEGER NOT NULL DEFAULT 0,
+      last_error   TEXT,
+      failed_at    TEXT
     );
   `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_ops_queue_created ON ops_queue(created_at);
     CREATE INDEX IF NOT EXISTS idx_ops_queue_ack     ON ops_queue(ack);
+    CREATE INDEX IF NOT EXISTS idx_ops_queue_retry   ON ops_queue(retry_count);
   `);
 
   // --- INVENTAIRE (local cache + compat UI)
@@ -378,6 +429,10 @@ function ensureLocalSchema(db) {
   try { db.prepare("ALTER TABLE receptions ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
   try { db.prepare("ALTER TABLE lignes_reception ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
   try { db.prepare("ALTER TABLE inventory_sessions ADD COLUMN remote_uuid TEXT UNIQUE").run(); } catch {}
+  // --- PATCH: add per-op metadata to ops_queue if missing
+  try { db.prepare("ALTER TABLE ops_queue ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
+  try { db.prepare("ALTER TABLE ops_queue ADD COLUMN last_error TEXT").run(); } catch {}
+  try { db.prepare("ALTER TABLE ops_queue ADD COLUMN failed_at TEXT").run(); } catch {}
 }
 
 module.exports = { ensureLocalSchema };

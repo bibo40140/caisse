@@ -1,16 +1,20 @@
 {
   "modules": {
-    "cotisations": true,
+    "cotisations": false,
     "emails": false,
     "prospects": false,
     "inventaire": false,
-    "adherents": true,
+    "adherents": false,
     "email": false,
     "receptions": true,
-    "ventes_exterieur": true,
-    "stocks": true
+    "ventes_exterieur": false,
+    "stocks": true,
+    "exports": false,
+    "multiusers": false,
+    "fournisseurs": false,
+    "modes_paiement": false
   },
   "ventes_exterieur_margin_percent": 30,
-  "last_email": "test7",
-  "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0NGUxNWU0YS02ODY5LTRmYTAtYjIzNy04MDBhMzc1NmVmZTIiLCJ1c2VyX2lkIjoiNDRlMTVlNGEtNjg2OS00ZmEwLWIyMzctODAwYTM3NTZlZmUyIiwidGVuYW50X2lkIjoiMjhmYzc0ZWEtMWIwMi00MGZhLWFhN2MtYTcyNjAwOGRkY2NjIiwicm9sZSI6ImFkbWluIiwiZW1haWwiOiJ0ZXN0NyIsImlzX3N1cGVyX2FkbWluIjpmYWxzZSwiaWF0IjoxNzYzNjU2NzIwLCJleHAiOjE3NjQyNjE1MjB9.4TppWmdNwkqDXznvyslGO7sdj_Anlnmm5B-h_jzWZic"
+  "last_email": "qqq",
+  "auth_token": null
 }

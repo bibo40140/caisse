@@ -315,6 +315,14 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
     setAuthToken(js.token);
     process.env.API_AUTH_TOKEN = js.token;
 
+    // 1b) 🔥 Extraire tenant_id du JWT et activer la bonne base locale
+    const authInfo = computeAuthInfoFromToken(js.token);
+    if (authInfo.tenant_id) {
+      const { setActiveTenantId } = require('./src/main/db/tenantDb');
+      setActiveTenantId(authInfo.tenant_id);
+      console.log('[auth:login] tenant_id activé:', authInfo.tenant_id);
+    }
+
     // 2) PERSISTE dans config.json pour les futures actions (push/pull/ensureAuth)
     try {
       const { setConfig } = require('./src/main/config');  // ← on utilise le même module que ensureAuth()
@@ -326,6 +334,22 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
 
     // 3) email handlers
     ensureEmailHandlers();
+
+    // 4) 🆕 Auto-import des références serveur si la base locale est vide
+    try {
+      const { isLocalDbEmpty, importServerRefsToLocal } = require('./src/main/importServerRefs');
+      if (isLocalDbEmpty()) {
+        console.log('[auth:login] Base locale vide, import automatique des catégories/unités/modes depuis serveur...');
+        const importResult = await importServerRefsToLocal();
+        if (importResult.ok) {
+          console.log('[auth:login] Import auto terminé:', importResult.counts);
+        } else {
+          console.warn('[auth:login] Import auto échoué:', importResult.error);
+        }
+      }
+    } catch (e) {
+      console.warn('[auth:login] Auto-import failed (non-bloquant):', e?.message || e);
+    }
 
     return { ok: true, token: js.token, role: js.role, is_super_admin: js.is_super_admin };
   } catch (e) {

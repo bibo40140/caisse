@@ -9,6 +9,10 @@
     );
     if (liAdh) liAdh.style.display = modules?.adherents ? '' : 'none';
 
+    // Fournisseurs
+    const liFourn = document.querySelector('aside.sidebar nav li[onclick*="fournisseurs"]');
+    if (liFourn) liFourn.style.display = modules?.fournisseurs ? '' : 'none';
+
     // Réceptions → toujours visible, même Stocks OFF
     const liReceptions = document.querySelector('aside.sidebar nav li[onclick*="receptions"]');
     if (liReceptions) liReceptions.style.display = '';
@@ -81,6 +85,11 @@
         break;
       }
       case 'fournisseurs': {
+        const modules = await (window.getMods?.() || window.electronAPI.getModules());
+        if (!modules?.fournisseurs) {
+          await (window.showAlertModal ? window.showAlertModal("La page Fournisseurs est désactivée dans les modules.") : alert("La page Fournisseurs est désactivée dans les modules."));
+          return;
+        }
         title.textContent = "Fournisseurs";
         window.chargerFournisseurs?.();
         break;

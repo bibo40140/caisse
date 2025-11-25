@@ -70,6 +70,7 @@ function registerFournisseurHandlers() {
           entityType: 'fournisseur',
           entityId: String(created.id),
           payload: {
+            id: created.id, // 🔥 ID local pour mapping
             nom: created.nom,
             contact: created.contact,
             email: created.email,

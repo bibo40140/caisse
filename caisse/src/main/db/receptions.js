@@ -46,8 +46,14 @@ function normalizeLine(l) {
  * @returns {number} receptionId (SQLite)
  */
 function enregistrerReception(reception, lignes) {
-  if (!reception || !Number.isFinite(Number(reception.fournisseur_id))) {
-    throw new Error('reception.fournisseur_id manquant/invalide');
+  // ✅ Accepter fournisseur_id = null (pas de fournisseur) OU un nombre > 0
+  const fid = reception?.fournisseur_id;
+  if (!reception) {
+    throw new Error('reception manquante');
+  }
+  // Si fid n'est pas null, il doit être un nombre > 0
+  if (fid !== null && (!Number.isFinite(Number(fid)) || Number(fid) <= 0)) {
+    throw new Error('reception.fournisseur_id invalide (doit être null ou > 0)');
   }
   if (!Array.isArray(lignes) || lignes.length === 0) {
     throw new Error('aucune ligne de réception');
@@ -124,6 +130,19 @@ function enregistrerReception(reception, lignes) {
         });
       }
 
+      // 🔥 Récupérer les UUIDs et la référence du produit pour envoyer au serveur
+      const receptionUuid = db.prepare('SELECT remote_uuid FROM receptions WHERE id = ?').pluck().get(receptionId) || null;
+      const fournisseurUuid = db.prepare('SELECT remote_uuid FROM fournisseurs WHERE id = ?').pluck().get(Number(reception.fournisseur_id)) || null;
+      const produitRow = db.prepare('SELECT remote_uuid, reference FROM produits WHERE id = ?').get(produit_id);
+      const produitUuid = produitRow?.remote_uuid || null;
+      const produitReference = produitRow?.reference || null;
+
+      console.log('[receptions] UUIDs récupérés:', {
+        receptionId, receptionUuid,
+        fournisseurId: Number(reception.fournisseur_id), fournisseurUuid,
+        produitId: produit_id, produitUuid, produitReference
+      });
+
       // Enqueue op pour Neon (mouvement + ligne + header si besoin côté serveur)
       enqueueOp({
         deviceId: DEVICE_ID,
@@ -131,14 +150,23 @@ function enregistrerReception(reception, lignes) {
         entityType: 'ligne_reception',
         entityId: String(`${receptionId}:${produit_id}`),
         payload: {
+          // IDs locaux (pour debug)
           receptionId,
           fournisseurId: Number(reception.fournisseur_id),
-          reference: reception.reference ?? null,
-
           ligneRecId,
           produitId: produit_id,
-          quantite,
 
+          // UUIDs pour Postgres
+          receptionUuid,
+          fournisseurUuid,
+          produitUuid,
+
+          // Référence du produit (fallback si UUID absent)
+          produitReference,
+
+          // Données métier
+          reference: reception.reference ?? null,
+          quantite,
           prixUnitaire: prix_unitaire != null ? Number(prix_unitaire) : null,
           stockCorrige: stock_corrige != null ? Number(stock_corrige) : null,
         },
