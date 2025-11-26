@@ -890,6 +890,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
             ), p.stock, 0) AS stock
           FROM produits p
           WHERE p.tenant_id = $1
+            AND (p.deleted IS NULL OR p.deleted = false)
           ORDER BY p.nom
           `,
           [tenantId]
@@ -905,6 +906,13 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
         ),
       ]);
 
+    // Récupérer aussi les modules du tenant
+    const modulesRes = await client.query(
+      `SELECT modules_json FROM tenant_settings WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    const modules = modulesRes.rows[0]?.modules_json || {};
+
     res.json({
       ok: true,
       data: {
@@ -915,6 +923,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
         fournisseurs: fournisseurs.rows,
         produits: produits.rows,
         modes_paiement: modes_paiement.rows,
+        modules: modules,
       },
     });
   } catch (e) {
@@ -959,6 +968,10 @@ async function handleProductCreated(client, tenantId, p) {
   const prix      = Number(p.prix ?? 0);
   const stock     = Number(p.stock ?? 0);
   const codeBarre = p.code_barre || null;
+  // Foreign key fields - expect UUID values from client
+  const uniteId       = p.unite_id || null;
+  const categorieId   = p.categorie_id || null;
+  const fournisseurId = p.fournisseur_id || null;
 
   try {
     const res = await client.query(
@@ -975,16 +988,19 @@ async function handleProductCreated(client, tenantId, p) {
         categorie_id,
         updated_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,NULL,NULL,NULL,now())
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
       ON CONFLICT (tenant_id, reference) DO UPDATE SET
-        nom        = EXCLUDED.nom,
-        prix       = EXCLUDED.prix,
-        stock      = EXCLUDED.stock,
-        code_barre = EXCLUDED.code_barre,
-        updated_at = now()
+        nom            = EXCLUDED.nom,
+        prix           = EXCLUDED.prix,
+        stock          = EXCLUDED.stock,
+        code_barre     = EXCLUDED.code_barre,
+        unite_id       = EXCLUDED.unite_id,
+        fournisseur_id = EXCLUDED.fournisseur_id,
+        categorie_id   = EXCLUDED.categorie_id,
+        updated_at     = now()
       RETURNING id
       `,
-      [tenantId, nom, reference, prix, stock, codeBarre]
+      [tenantId, nom, reference, prix, stock, codeBarre, uniteId, fournisseurId, categorieId]
     );
 
     const remoteId = res.rows?.[0]?.id || null;
@@ -1073,6 +1089,19 @@ async function handleProductUpdated(client, tenantId, payload, op) {
   if (p.stock != null) {
     fields.push(`stock = $${++idx}`);
     values.push(Number(p.stock));
+  }
+  // Foreign key fields - accept UUID values from client
+  if (p.unite_id !== undefined) {
+    fields.push(`unite_id = $${++idx}`);
+    values.push(p.unite_id); // can be UUID or null
+  }
+  if (p.categorie_id !== undefined) {
+    fields.push(`categorie_id = $${++idx}`);
+    values.push(p.categorie_id); // can be UUID or null
+  }
+  if (p.fournisseur_id !== undefined) {
+    fields.push(`fournisseur_id = $${++idx}`);
+    values.push(p.fournisseur_id); // can be UUID or null
   }
 
   if (!fields.length) {
@@ -1781,6 +1810,28 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           break;
         }
 
+        case 'product.deleted': {
+          const remoteUuid = p.remote_uuid || null;
+          const reference = p.reference || null;
+
+          if (remoteUuid) {
+            await client.query(
+              `UPDATE produits SET deleted = true, updated_at = now() WHERE tenant_id = $1 AND id = $2`,
+              [tenantId, remoteUuid]
+            );
+            console.log('    [x] produit marqué supprimé sur Neon', { remoteUuid });
+          } else if (reference) {
+            await client.query(
+              `UPDATE produits SET deleted = true, updated_at = now() WHERE tenant_id = $1 AND reference = $2`,
+              [tenantId, reference]
+            );
+            console.log('    [x] produit marqué supprimé sur Neon', { reference });
+          } else {
+            console.log('    [i] product.deleted sans remote_uuid ni reference, ignorée');
+          }
+          break;
+        }
+
         default:
           console.log('    [?] op ignorée', op.op_type);
           break;
@@ -2090,6 +2141,31 @@ app.post('/admin/backfill_stock', authRequired, async (req, res) => {
     client.release();
   }
 });
+
+/* =========================
+ * Migration: Ajouter colonne deleted si elle n'existe pas
+ * =======================*/
+(async () => {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name='produits' AND column_name='deleted'
+        ) THEN
+          ALTER TABLE produits ADD COLUMN deleted boolean NOT NULL DEFAULT false;
+        END IF;
+      END$$;
+    `);
+    console.log('[db] Migration: colonne "deleted" vérifiée/ajoutée');
+  } catch (e) {
+    console.error('[db] Migration error:', e.message);
+  } finally {
+    client.release();
+  }
+})();
 
 /* =========================
  * Start server

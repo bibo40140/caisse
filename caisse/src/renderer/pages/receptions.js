@@ -73,7 +73,55 @@
 
     async function ouvrirPopupNouveauProduit(fournisseurId) {
   if (fournisseursOn && !fournisseurId) { await showAlertModal("Sélectionnez d'abord un fournisseur."); return; }
-  const unites = await window.electronAPI.getUnites();
+  
+  const [unites, categoriesDetailed, fournisseurInfo] = await Promise.all([
+    window.electronAPI.getUnites(),
+    (window.electronAPI.getAllCategoriesDetailed?.()
+      ? window.electronAPI.getAllCategoriesDetailed()
+      : window.electronAPI.getCategories()),
+    fournisseurId ? window.electronAPI.getFournisseurById?.(fournisseurId) : Promise.resolve(null)
+  ]);
+  
+  // Catégorie par défaut = catégorie du fournisseur si disponible
+  const defaultCategorieId = fournisseurInfo?.categorie_id || '';
+
+  // Construire les options groupées par famille
+  let categoriesOptionsHtml = '<option value="">-- Aucune --</option>';
+  
+  if (Array.isArray(categoriesDetailed)) {
+    const byFamille = new Map();
+    const singleCats = [];
+    
+    for (const c of categoriesDetailed) {
+      if (c.famille_nom) {
+        if (!byFamille.has(c.famille_nom)) byFamille.set(c.famille_nom, []);
+        byFamille.get(c.famille_nom).push(c);
+      } else {
+        singleCats.push(c);
+      }
+    }
+    
+    // Familles d'abord
+    const famillesTriees = Array.from(byFamille.keys()).sort();
+    for (const fnom of famillesTriees) {
+      categoriesOptionsHtml += `<optgroup label="${fnom}">`;
+      const cats = byFamille.get(fnom).sort((a, b) => (a.nom || '').localeCompare(b.nom || ''));
+      for (const c of cats) {
+        const sel = c.id === defaultCategorieId ? 'selected' : '';
+        categoriesOptionsHtml += `<option value="${c.id}" ${sel}>${c.nom}</option>`;
+      }
+      categoriesOptionsHtml += '</optgroup>';
+    }
+    
+    // Catégories sans famille
+    if (singleCats.length) {
+      singleCats.sort((a, b) => (a.nom || '').localeCompare(b.nom || ''));
+      for (const c of singleCats) {
+        const sel = c.id === defaultCategorieId ? 'selected' : '';
+        categoriesOptionsHtml += `<option value="${c.id}" ${sel}>${c.nom}</option>`;
+      }
+    }
+  }
 
   const form = document.createElement('form');
   form.innerHTML = `
@@ -87,10 +135,14 @@
       <input type="number" name="stock" step="0.01" min="0" inputmode="decimal" required placeholder="Ex : 0">
     </label><br><br>
     <label>Unité :
-      <!-- IMPORTANT: the select name is unite_id and option values are IDs -->
       <select name="unite_id" required>
         <option value="">-- Choisir --</option>
         ${unites.map(u => `<option value="${u.id}">${u.nom}</option>`).join('')}
+      </select>
+    </label><br><br>
+    <label>Catégorie :
+      <select name="categorie_id">
+        ${categoriesOptionsHtml}
       </select>
     </label><br><br>
     <label>Code-barres :
@@ -103,16 +155,18 @@
   const nom   = (form.nom.value || '').trim();
   const prix  = parseFloat(String(form.prix.value || '').replace(',', '.'));
   const stock = parseFloat(String(form.stock.value || '').replace(',', '.'));
-  const unite_id = Number(form.unite_id.value || 0);  // <— read the ID here
+  const unite_id = Number(form.unite_id.value || 0);
+  const categorie_id = Number(form.categorie_id.value || 0) || null;
 
   if (!nom || !unite_id || !Number.isFinite(prix) || !Number.isFinite(stock) || prix < 0 || stock < 0) {
-    await showAlertModal("Merci de renseigner le nom, le prix, le stock et l’unité (valeurs positives).");
+    await showAlertModal("Merci de renseigner le nom, le prix, le stock et l'unité (valeurs positives).");
     return;
   }
 
   const nouveau = {
     nom, prix, stock,
-    unite_id,                                            // <— send unite_id to the backend
+    unite_id,
+    categorie_id,
     code_barre: (form.code_barre.value || '').trim(),
     fournisseur_id: fournisseurId || null
   };
@@ -204,7 +258,12 @@
   }
 
   produits = await window.electronAPI.getProduits();
-  produitsFournisseur = produits.filter(p => p.fournisseur_id === fournisseurId);
+  // Recharger la liste selon le contexte (avec ou sans fournisseur)
+  if (fournisseurId === null || fournisseurId === 0) {
+    produitsFournisseur = produits.filter(p => !p.fournisseur_id || p.fournisseur_id === 0);
+  } else {
+    produitsFournisseur = produits.filter(p => p.fournisseur_id === fournisseurId);
+  }
   afficherListeProduitsFournisseur();
 }
 
@@ -402,8 +461,10 @@
       const hiddenF = document.getElementById('fournisseur-id');
       const btnNew  = document.getElementById('btn-nouveau-produit');
       
-      // ✅ Définir fournisseurIndex avant le bloc conditionnel pour le rendre accessible dans l'event listener
+      // ✅ Définir fournisseurIndex avec option spéciale pour produits sans fournisseur
       const fournisseurIndex = new Map(fournisseurs.map(f => [labelF(f), f]));
+      // Ajouter une entrée spéciale pour les produits sans fournisseur (ID = 0)
+      fournisseurIndex.set('⚠️ Produits sans fournisseur', { id: 0, nom: '⚠️ Produits sans fournisseur' });
 
       if (fournisseursOn) {
         if (!inputF || !hiddenF) return;
@@ -469,21 +530,29 @@
         hiddenF.value = String(f.id);
         localStorage.setItem(F_KEY, String(f.id));
         fournisseurSelectionne = f.id;
-        produitsFournisseur = produits.filter(p => p.fournisseur_id === f.id);
-        console.log('[receptions] Fournisseur sélectionné:', f.nom, 'ID:', f.id, 'hiddenF.value:', hiddenF.value);
+        
+        // Filtrage: si ID = 0, afficher les produits sans fournisseur (fournisseur_id IS NULL ou 0)
+        if (f.id === 0) {
+          produitsFournisseur = produits.filter(p => !p.fournisseur_id || p.fournisseur_id === 0);
+          console.log('[receptions] Produits sans fournisseur sélectionnés:', produitsFournisseur.length);
+        } else {
+          produitsFournisseur = produits.filter(p => p.fournisseur_id === f.id);
+          console.log('[receptions] Fournisseur sélectionné:', f.nom, 'ID:', f.id, 'hiddenF.value:', hiddenF.value);
+        }
 
         if (btnNew) {
           btnNew.disabled = false;
           btnNew.title = '';
           btnNew.onclick = async () => {
             const fid = parseInt(hiddenF.value || '', 10);
-            // ✅ Vérifier que c'est un nombre valide > 0
-            if (!Number.isFinite(fid) || fid <= 0) {
-              await showAlertModal("Sélectionnez d'abord un fournisseur.");
+            // ✅ Vérifier que c'est un nombre valide (>= 0, car 0 = sans fournisseur)
+            if (!Number.isFinite(fid) || fid < 0) {
+              await showAlertModal("Sélectionnez d'abord un fournisseur ou 'Produits sans fournisseur'.");
               inputF?.focus();
               return;
             }
-            await ouvrirPopupNouveauProduit(fid);
+            // Si fid = 0, on passe null (produit sans fournisseur)
+            await ouvrirPopupNouveauProduit(fid === 0 ? null : fid);
           };
         }
 

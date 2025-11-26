@@ -107,11 +107,12 @@ function computeAuthInfoFromToken(token) {
   }
 }
 
-// --- Single instance lock
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  app.quit();
-}
+// --- Single instance lock DISABLED for multi-instance testing
+// Each instance uses its own DATA_DIR and DEVICE_ID via environment variables
+// const gotTheLock = app.requestSingleInstanceLock();
+// if (!gotTheLock) {
+//   app.quit();
+// }
 
 // ---------------------------
 // Windows (only these three)
@@ -349,6 +350,36 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
       }
     } catch (e) {
       console.warn('[auth:login] Auto-import failed (non-bloquant):', e?.message || e);
+    }
+
+    // 5) 🆕 Push initial des opérations en attente (produits créés hors ligne)
+    try {
+      console.log('[auth:login] Push initial des opérations en attente...');
+      const pushResult = await sync.pushOpsNow(process.env.DEVICE_ID || 'default');
+      if (pushResult?.ok) {
+        console.log('[auth:login] Push initial terminé:', pushResult.sent, 'opérations envoyées');
+      }
+    } catch (e) {
+      console.warn('[auth:login] Push initial échoué (non-bloquant):', e?.message || e);
+    }
+
+    // 6) 🆕 Pull complet après login pour synchroniser produits/ventes/réceptions
+    try {
+      console.log('[auth:login] Pull automatique des données depuis serveur...');
+      const pullResult = await sync.pullRefs();
+      if (pullResult?.ok) {
+        console.log('[auth:login] Pull auto terminé');
+      }
+    } catch (e) {
+      console.warn('[auth:login] Pull auto échoué (non-bloquant):', e?.message || e);
+    }
+
+    // 7) 🆕 Démarrer l'auto-sync (push + pull périodiques)
+    try {
+      sync.startAutoSync(process.env.DEVICE_ID || 'default');
+      console.log('[auth:login] Auto-sync démarré (push toutes les 5s, pull toutes les 10s)');
+    } catch (e) {
+      console.warn('[auth:login] Erreur démarrage auto-sync:', e?.message || e);
     }
 
     return { ok: true, token: js.token, role: js.role, is_super_admin: js.is_super_admin };

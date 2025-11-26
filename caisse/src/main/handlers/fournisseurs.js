@@ -10,6 +10,7 @@ const {
 } = require('../db/fournisseurs');
 const { enqueueOp } = require('../db/ops');
 const { getDeviceId } = require('../device');
+const db = require('../db/db');
 
 let syncMod = null;
 try {
@@ -51,6 +52,13 @@ function registerFournisseurHandlers() {
   // 📋 Liste
   ipcMain.handle('get-fournisseurs', async () => {
     return getFournisseurs();
+  });
+
+  // 🔍 Get by ID
+  ipcMain.handle('get-fournisseur-by-id', async (_event, id) => {
+    if (!id) return null;
+    const fournisseur = db.prepare('SELECT * FROM fournisseurs WHERE id = ?').get(id);
+    return fournisseur || null;
   });
 
   // ➕ Ajouter (retourne l'objet avec id)

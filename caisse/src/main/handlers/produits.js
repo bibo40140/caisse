@@ -94,6 +94,26 @@ function registerProduitHandlers(ipcMain) {
 
       // 3) enqueue op vers Neon
       try {
+        // Convertir les IDs locaux en UUID pour le serveur
+        let uniteUuid = null;
+        let categorieUuid = null;
+        let fournisseurUuid = null;
+        
+        if (created.unite_id) {
+          const unite = db.prepare('SELECT remote_uuid FROM unites WHERE id = ?').get(created.unite_id);
+          uniteUuid = unite?.remote_uuid || null;
+        }
+        
+        if (created.categorie_id) {
+          const categorie = db.prepare('SELECT remote_uuid FROM categories WHERE id = ?').get(created.categorie_id);
+          categorieUuid = categorie?.remote_uuid || null;
+        }
+        
+        if (created.fournisseur_id) {
+          const fournisseur = db.prepare('SELECT remote_uuid FROM fournisseurs WHERE id = ?').get(created.fournisseur_id);
+          fournisseurUuid = fournisseur?.remote_uuid || null;
+        }
+        
         enqueueOp({
           deviceId: DEVICE_ID,
           opType: 'product.created',
@@ -106,9 +126,9 @@ function registerProduitHandlers(ipcMain) {
             prix: created.prix,
             stock: created.stock,
             code_barre: created.code_barre,
-            unite_id: created.unite_id,
-            fournisseur_id: created.fournisseur_id,
-            categorie_id: created.categorie_id,
+            unite_id: uniteUuid,
+            fournisseur_id: fournisseurUuid,
+            categorie_id: categorieUuid,
           },
         });
       } catch (e) {
@@ -137,6 +157,26 @@ function registerProduitHandlers(ipcMain) {
       // 2) enqueue op product.updated (payload = état complet)
       if (updated) {
         try {
+          // Convertir les IDs locaux en UUID pour le serveur
+          let uniteUuid = null;
+          let categorieUuid = null;
+          let fournisseurUuid = null;
+          
+          if (updated.unite_id) {
+            const unite = db.prepare('SELECT remote_uuid FROM unites WHERE id = ?').get(updated.unite_id);
+            uniteUuid = unite?.remote_uuid || null;
+          }
+          
+          if (updated.categorie_id) {
+            const categorie = db.prepare('SELECT remote_uuid FROM categories WHERE id = ?').get(updated.categorie_id);
+            categorieUuid = categorie?.remote_uuid || null;
+          }
+          
+          if (updated.fournisseur_id) {
+            const fournisseur = db.prepare('SELECT remote_uuid FROM fournisseurs WHERE id = ?').get(updated.fournisseur_id);
+            fournisseurUuid = fournisseur?.remote_uuid || null;
+          }
+          
           enqueueOp({
             deviceId: DEVICE_ID,
             opType: 'product.updated',
@@ -149,9 +189,9 @@ function registerProduitHandlers(ipcMain) {
               prix: updated.prix,
               stock: updated.stock,
               code_barre: updated.code_barre,
-              unite_id: updated.unite_id,
-              fournisseur_id: updated.fournisseur_id,
-              categorie_id: updated.categorie_id,
+              unite_id: uniteUuid,
+              fournisseur_id: fournisseurUuid,
+              categorie_id: categorieUuid,
             },
           });
         } catch (e) {
@@ -174,8 +214,30 @@ function registerProduitHandlers(ipcMain) {
   // ❌ Suppression (pour l’instant : uniquement local, pas d’op distante)
   ipcMain.handle('supprimer-produit', async (_evt, id) => {
     try {
+      // Récupérer les infos du produit avant suppression
+      const produit = produitsDb.getProduit(id);
+      
+      // Soft delete
       const res = produitsDb.supprimerProduit(id);
-      // (plus tard on pourra ajouter un op product.deleted si besoin)
+      
+      // Créer une opération product.deleted pour la sync
+      if (produit) {
+        const { enqueueOp } = require('../db/ops');
+        const DEVICE_ID = process.env.DEVICE_ID || 'caisse-default';
+        
+        enqueueOp({
+          deviceId: DEVICE_ID,
+          opType: 'product.deleted',
+          entityType: 'produit',
+          entityId: String(id),
+          payload: {
+            id: id,
+            reference: produit.reference,
+            remote_uuid: produit.remote_uuid
+          }
+        });
+      }
+      
       safeTriggerSync();
       return res || { ok: true };
     } catch (err) {

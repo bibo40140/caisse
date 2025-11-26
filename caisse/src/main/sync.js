@@ -101,13 +101,193 @@ async function pullRefs({ since = null } = {}) {
     fournisseurs = [],
     produits = [],
     modes_paiement = [],
+    modules = null,
   } = d;
 
-  // 🔸 IMPORTANT :
-  // Pour cette version stable, on ne touche PAS à la base locale ici.
-  // On se contente de signaler à l’UI qu’un pull a eu lieu.
+  // 🔄 Synchroniser les modules depuis le serveur
+  if (modules && typeof modules === 'object') {
+    try {
+      const { readConfig, writeModules } = require('./db/config');
+      const currentConfig = readConfig();
+      const currentModules = currentConfig?.modules || {};
+      
+      // Comparer et mettre à jour seulement si différent
+      const isDifferent = JSON.stringify(currentModules) !== JSON.stringify(modules);
+      if (isDifferent) {
+        writeModules(modules);
+        console.log('[sync] Modules synchronisés depuis serveur:', modules);
+        
+        // Notifier le renderer pour qu'il recharge les modules
+        notifyRenderer('modules:updated', { modules });
+      }
+    } catch (e) {
+      console.error('[sync] Erreur sync modules:', e?.message || e);
+    }
+  }
 
-  notifyRenderer('data:refreshed', { from: 'pull_refs' });
+  // 🔥 Importer les produits depuis Neon dans la base locale
+  let produitsImported = 0;
+  if (produits && produits.length > 0) {
+    console.log(`[sync] pull: ${produits.length} produits reçus depuis Neon`);
+    
+    // Debug: afficher un exemple de produit reçu
+    if (produits[0]) {
+      console.log(`[sync] Exemple produit reçu:`, {
+        nom: produits[0].nom,
+        unite_id: produits[0].unite_id,
+        categorie_id: produits[0].categorie_id
+      });
+    }
+    
+    // Préparer les mappings UUID → ID local pour unités, catégories, fournisseurs
+    const getUniteIdByUuid = db.prepare('SELECT id FROM unites WHERE remote_uuid = ?');
+    const getCategorieIdByUuid = db.prepare('SELECT id FROM categories WHERE remote_uuid = ?');
+    const getFournisseurIdByUuid = db.prepare('SELECT id FROM fournisseurs WHERE remote_uuid = ?');
+    
+    // Préparer les updates de remote_uuid pour les entités qui n'en ont pas encore
+    const updateUniteUuid = db.prepare('UPDATE unites SET remote_uuid = ? WHERE id = ?');
+    const updateCategorieUuid = db.prepare('UPDATE categories SET remote_uuid = ? WHERE id = ?');
+    const updateFournisseurUuid = db.prepare('UPDATE fournisseurs SET remote_uuid = ? WHERE id = ?');
+    
+    // Construire des maps UUID→Nom depuis le serveur pour fallback
+    const unitesByUuid = new Map();
+    const categoriesByUuid = new Map();
+    const fournisseursByUuid = new Map();
+    
+    for (const u of unites) {
+      unitesByUuid.set(u.id, u.nom);
+    }
+    for (const c of categories) {
+      categoriesByUuid.set(c.id, c.nom);
+    }
+    for (const f of fournisseurs) {
+      fournisseursByUuid.set(f.id, f.nom);
+    }
+    
+    const checkStmt = db.prepare('SELECT id FROM produits WHERE remote_uuid = ?');
+    const insertStmt = db.prepare(`
+      INSERT INTO produits (remote_uuid, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+    `);
+    const updateStmt = db.prepare(`
+      UPDATE produits SET
+        nom = ?,
+        reference = ?,
+        prix = ?,
+        stock = ?,
+        code_barre = ?,
+        unite_id = ?,
+        fournisseur_id = ?,
+        categorie_id = ?,
+        updated_at = datetime('now','localtime')
+      WHERE remote_uuid = ?
+    `);
+
+    for (const p of produits) {
+      try {
+        // Mapper UUID → ID local
+        let uniteIdLocal = null;
+        let categorieIdLocal = null;
+        let fournisseurIdLocal = null;
+        
+        if (p.unite_id) {
+          let unite = getUniteIdByUuid.get(p.unite_id);
+          if (!unite) {
+            // Fallback: chercher par nom si le remote_uuid n'est pas encore mappé
+            const nomUnite = unitesByUuid.get(p.unite_id);
+            if (nomUnite) {
+              const uniteByName = db.prepare('SELECT id FROM unites WHERE nom = ?').get(nomUnite);
+              if (uniteByName) {
+                unite = uniteByName;
+                // Mettre à jour le remote_uuid pour les prochaines fois
+                updateUniteUuid.run(p.unite_id, uniteByName.id);
+                console.log(`[sync] Unite "${nomUnite}" mappée: local_id=${uniteByName.id} ← uuid=${p.unite_id}`);
+              }
+            }
+          }
+          uniteIdLocal = unite?.id || null;
+        }
+        
+        if (p.categorie_id) {
+          let categorie = getCategorieIdByUuid.get(p.categorie_id);
+          if (!categorie) {
+            // Fallback: chercher par nom
+            const nomCategorie = categoriesByUuid.get(p.categorie_id);
+            if (nomCategorie) {
+              const categorieByName = db.prepare('SELECT id FROM categories WHERE nom = ?').get(nomCategorie);
+              if (categorieByName) {
+                categorie = categorieByName;
+                updateCategorieUuid.run(p.categorie_id, categorieByName.id);
+                console.log(`[sync] Categorie "${nomCategorie}" mappée: local_id=${categorieByName.id} ← uuid=${p.categorie_id}`);
+              }
+            }
+          }
+          categorieIdLocal = categorie?.id || null;
+        }
+        
+        if (p.fournisseur_id) {
+          let fournisseur = getFournisseurIdByUuid.get(p.fournisseur_id);
+          if (!fournisseur) {
+            // Fallback: chercher par nom
+            const nomFournisseur = fournisseursByUuid.get(p.fournisseur_id);
+            if (nomFournisseur) {
+              const fournisseurByName = db.prepare('SELECT id FROM fournisseurs WHERE nom = ?').get(nomFournisseur);
+              if (fournisseurByName) {
+                fournisseur = fournisseurByName;
+                updateFournisseurUuid.run(p.fournisseur_id, fournisseurByName.id);
+                console.log(`[sync] Fournisseur "${nomFournisseur}" mappé: local_id=${fournisseurByName.id} ← uuid=${p.fournisseur_id}`);
+              }
+            }
+          }
+          fournisseurIdLocal = fournisseur?.id || null;
+        }
+        
+        const existing = checkStmt.get(p.id);
+        if (existing) {
+          // Vérifier si la version serveur est plus récente
+          const localProduct = db.prepare('SELECT updated_at FROM produits WHERE remote_uuid = ?').get(p.id);
+          const localUpdatedAt = localProduct?.updated_at ? new Date(localProduct.updated_at).getTime() : 0;
+          const remoteUpdatedAt = p.updated_at ? new Date(p.updated_at).getTime() : 0;
+          
+          // Ne mettre à jour que si la version serveur est plus récente
+          if (remoteUpdatedAt > localUpdatedAt) {
+            updateStmt.run(
+              p.nom,
+              p.reference,
+              Number(p.prix || 0),
+              Number(p.stock || 0),
+              p.code_barre || null,
+              uniteIdLocal,
+              fournisseurIdLocal,
+              categorieIdLocal,
+              p.id  // WHERE remote_uuid = ?
+            );
+          }
+        } else {
+          // Insertion
+          insertStmt.run(
+            p.id,           // remote_uuid
+            p.nom,
+            p.reference,
+            Number(p.prix || 0),
+            Number(p.stock || 0),
+            p.code_barre || null,
+            uniteIdLocal,
+            fournisseurIdLocal,
+            categorieIdLocal
+          );
+        }
+        produitsImported++;
+      } catch (e) {
+        console.warn('[sync] erreur import produit:', p.reference, e?.message || e);
+      }
+    }
+    console.log(`[sync] pull: ${produitsImported} produits importés/mis à jour`);
+  }
+
+  // Ne plus émettre data:refreshed automatiquement pour éviter de perturber l'utilisateur
+  // Les pages se rechargeront naturellement lors de la navigation ou au besoin
+  // notifyRenderer('data:refreshed', { from: 'pull_refs' });
   setState('online', { phase: 'pulled' });
 
   return {
@@ -403,6 +583,7 @@ function triggerBackgroundSync(deviceId = DEVICE_ID) {
 
 // Auto sync loop control
 let _autoSyncTimer = null;
+let _autoPullTimer = null;
 let _autoSyncIntervalMs = 5000; // valeur de base
 
 function jitter(ms) {
@@ -415,17 +596,35 @@ function jitter(ms) {
 /**
  * Démarre l'auto-sync qui adapte l'intervalle selon l'échec des ops.
  * Backoff exponentiel basé sur le retry_count maximum présent dans la file.
+ * Effectue aussi un pull périodique toutes les 10 secondes.
  */
 function startAutoSync(deviceId = DEVICE_ID) {
-  // clear existing timer
+  // clear existing timers
   if (_autoSyncTimer) {
     clearTimeout(_autoSyncTimer);
     _autoSyncTimer = null;
   }
+  if (_autoPullTimer) {
+    clearTimeout(_autoPullTimer);
+    _autoPullTimer = null;
+  }
 
   const MAX_RETRY_ATTEMPTS = 5;
-  const BASE_INTERVAL_MS = 5000; // 5s
+  const BASE_INTERVAL_MS = 5000; // 5s pour push
+  const PULL_INTERVAL_MS = 10000; // 10s pour pull
   const MAX_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+  // Fonction de pull automatique périodique
+  async function runPullCycle() {
+    try {
+      await pullRefs();
+    } catch (e) {
+      console.warn('[sync] auto-pull error:', e?.message || e);
+    } finally {
+      // Reprogrammer le prochain pull
+      _autoPullTimer = setTimeout(runPullCycle, PULL_INTERVAL_MS);
+    }
+  }
 
   async function runOnce() {
     try {
@@ -483,14 +682,19 @@ function startAutoSync(deviceId = DEVICE_ID) {
     }
   }
 
-  // kick
-  runOnce();
+  // kick both cycles
+  runOnce(); // Push cycle
+  runPullCycle(); // Pull cycle
 }
 
 function stopAutoSync() {
   if (_autoSyncTimer) {
     clearTimeout(_autoSyncTimer);
     _autoSyncTimer = null;
+  }
+  if (_autoPullTimer) {
+    clearTimeout(_autoPullTimer);
+    _autoPullTimer = null;
   }
 }
 

@@ -6,15 +6,15 @@
     "inventaire": false,
     "adherents": false,
     "email": false,
-    "receptions": true,
+    "receptions": false,
     "ventes_exterieur": false,
-    "stocks": true,
+    "stocks": false,
     "exports": false,
     "multiusers": false,
-    "fournisseurs": false,
+    "fournisseurs": true,
     "modes_paiement": false
   },
   "ventes_exterieur_margin_percent": 30,
-  "last_email": "qqq",
+  "last_email": "azeqsd",
   "auth_token": null
 }

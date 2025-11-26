@@ -564,7 +564,13 @@ $btnForceClose.addEventListener('click', async () => {
           $search.value = '';
           renderRows();
         });
-        window.electronEvents.on('data:refreshed', () => { location.reload(); });
+        window.electronEvents.on('data:refreshed', (_, payload) => {
+          // Ne recharger que si on est actuellement sur la page inventaire
+          const currentPage = document.querySelector('#page-inventaire');
+          if (currentPage && currentPage.style.display !== 'none') {
+            location.reload();
+          }
+        });
       }
 
       // ---- forcer la validation des lignes non validées avant finalize

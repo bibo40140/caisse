@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS produits (
   unite_id       uuid REFERENCES unites(id)       ON DELETE SET NULL,
   fournisseur_id uuid REFERENCES fournisseurs(id) ON DELETE SET NULL,
   categorie_id   uuid REFERENCES categories(id)   ON DELETE SET NULL,
+  deleted        boolean       NOT NULL DEFAULT false,
   updated_at     timestamptz   NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, reference),
   UNIQUE (tenant_id, code_barre)

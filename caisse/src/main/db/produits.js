@@ -34,7 +34,7 @@ function resolveUniteId(p) {
 // ─────────────────────────────────────────────────────────────
 function getProduits({ search = '', limit = 5000, offset = 0 } = {}) {
   const params = [];
-  let where = '1=1';
+  let where = '(p.deleted IS NULL OR p.deleted = 0)';
   if (search) {
     where += ` AND (p.nom LIKE ? OR p.reference LIKE ? OR p.code_barre LIKE ?)`;
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
@@ -79,7 +79,7 @@ function getProduits({ search = '', limit = 5000, offset = 0 } = {}) {
 
 function countProduits({ search = '' } = {}) {
   const params = [];
-  let where = '1=1';
+  let where = '(deleted IS NULL OR deleted = 0)';
   if (search) {
     where += ` AND (nom LIKE ? OR reference LIKE ? OR code_barre LIKE ?)`;
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
@@ -218,30 +218,10 @@ function ajouterProduit(p = {}) {
 
     const id = r.lastInsertRowid;
 
-    // 🔵 1) Opération "product.created" pour Néon
-    try {
-      enqueueOp({
-        deviceId: DEVICE_ID,
-        opType: 'product.created',
-        entityType: 'produit',
-        entityId: String(id), // pour plus tard si on mappe à un UUID distant
-        payload: {
-          local_id: id,
-          nom,
-          reference,
-          prix,
-          stock: stockInit,
-          code_barre,
-          unite_id,
-          fournisseur_id,
-          categorie_id,
-        },
-      });
-    } catch (e) {
-      console.error('[ajouterProduit] enqueueOp product.created error:', e);
-    }
+    // Note: l'enqueueOp product.created est maintenant géré par le handler
+    // pour pouvoir convertir les IDs locaux en UUID avant l'envoi au serveur
 
-    // 🟢 2) Stock initial → inventory.adjust (journal des mouvements)
+    // 🟢 Stock initial → inventory.adjust (journal des mouvements)
     if (stockInit !== 0) {
       try {
         enqueueOp({
@@ -323,13 +303,8 @@ function modifierProduit(p = {}) {
     `;
     db.prepare(sql).run(...values, id);
 
-    enqueueOp({
-      deviceId: DEVICE_ID,
-      opType: 'product.updated',
-      entityType: 'produit',
-      entityId: String(id),
-      payload: { id, nom, reference, code_barre, prix, unite_id, fournisseur_id, categorie_id },
-    });
+    // Note: l'enqueueOp product.updated est maintenant géré par le handler
+    // pour pouvoir convertir les IDs locaux en UUID avant l'envoi au serveur
 
     if (stockProvided && delta !== 0) {
       enqueueOp({
@@ -352,7 +327,8 @@ function modifierProduit(p = {}) {
 }
 
 function supprimerProduit(id) {
-  db.prepare(`DELETE FROM produits WHERE id = ?`).run(Number(id));
+  // Soft delete: marquer comme supprimé au lieu de DELETE physique
+  db.prepare(`UPDATE produits SET deleted = 1, updated_at = datetime('now','localtime') WHERE id = ?`).run(Number(id));
   return { ok: true };
 }
 

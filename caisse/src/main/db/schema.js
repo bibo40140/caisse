@@ -189,6 +189,18 @@ function ensureLocalSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_produits_remote_uuid ON produits(remote_uuid);
   `);
 
+  // --- Soft patch: ajouter colonne 'deleted' si elle n'existe pas
+  try {
+    const cols = db.prepare(`PRAGMA table_info(produits)`).all();
+    const hasDeleted = cols.some(c => c.name === 'deleted');
+    if (!hasDeleted) {
+      db.exec(`ALTER TABLE produits ADD COLUMN deleted INTEGER DEFAULT 0;`);
+      console.log('[schema] Colonne "deleted" ajoutée à produits');
+    }
+  } catch (e) {
+    console.error('[schema] Erreur ajout colonne deleted:', e?.message || e);
+  }
+
   // --- VENTES (header de vente)
   db.exec(`
     CREATE TABLE IF NOT EXISTS ventes (

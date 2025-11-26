@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   /* -------------- Fournisseurs ------------------- */
   getFournisseurs: () => ipcRenderer.invoke('get-fournisseurs'),
+  getFournisseurById: (id) => ipcRenderer.invoke('get-fournisseur-by-id', id),
   modifierFournisseur: (f) => ipcRenderer.invoke('modifier-fournisseur', f),
   analyserImportFournisseurs: (filepath) => ipcRenderer.invoke('analyser-import-fournisseurs', filepath),
   validerImportFournisseurs: (liste) => ipcRenderer.invoke('valider-import-fournisseurs', liste),
