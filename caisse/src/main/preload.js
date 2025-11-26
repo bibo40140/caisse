@@ -104,8 +104,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Outils
   opsPushNow: () => ipcRenderer.invoke('ops:push-now'),
   opsPendingCount: () => ipcRenderer.invoke('ops:pending-count'),
+  countPendingOps: () => ipcRenderer.invoke('ops:pending-count'),
   // retry failed ops (manual)
   retryFailedOps: (ids) => ipcRenderer.invoke('sync:retry_failed', ids),
+
+  /* -------------- Logs & Diagnostic -------------- */
+  getRecentLogs: (options) => ipcRenderer.invoke('logs:getRecent', options),
+  exportLogs: () => ipcRenderer.invoke('logs:export'),
+  clearLogs: () => ipcRenderer.invoke('logs:clear'),
+  exportDiagnostic: () => ipcRenderer.invoke('diagnostic:export'),
 
   /* -------------- Fournisseurs ------------------- */
   getFournisseurs: () => ipcRenderer.invoke('get-fournisseurs'),

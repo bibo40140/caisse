@@ -23,6 +23,7 @@ console.log(
 );
 
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -60,6 +61,13 @@ if (!process.env.DATABASE_URL) {
  * App & middlewares
  * =======================*/
 const app = express();
+
+// Compression gzip pour réponses > 100KB
+app.use(compression({
+  threshold: 102400, // 100KB - compresse seulement si réponse > 100KB
+  level: 6, // Niveau de compression (1-9, 6 = bon compromis vitesse/taux)
+}));
+
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN || '*',
@@ -831,7 +839,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const client = await pool.connect();
   try {
-    const [unites, familles, categories, adherents, fournisseurs, produits, modes_paiement] =
+    const [unites, familles, categories, adherents, fournisseurs, produits, modes_paiement, stock_movements] =
       await Promise.all([
         client.query(
           `
@@ -904,6 +912,15 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
           `,
           [tenantId]
         ),
+        client.query(
+          `
+          SELECT id, produit_id, delta, source, source_id, created_at
+          FROM stock_movements
+          WHERE tenant_id = $1
+          ORDER BY created_at
+          `,
+          [tenantId]
+        ),
       ]);
 
     // Récupérer aussi les modules du tenant
@@ -923,11 +940,142 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
         fournisseurs: fournisseurs.rows,
         produits: produits.rows,
         modes_paiement: modes_paiement.rows,
+        stock_movements: stock_movements.rows,
         modules: modules,
       },
     });
   } catch (e) {
     console.error('GET /sync/pull_refs error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// SYNC VENTES (historique complet avec lignes) - avec support since=
+// ═══════════════════════════════════════════════════════════════════
+app.get('/sync/pull_ventes', authRequired, async (req, res) => {
+  const tenantId = req.user?.tenantId;
+  if (!tenantId) return res.status(401).json({ ok: false, error: 'Tenant requis' });
+
+  const since = req.query.since || null; // timestamp ISO pour pull incrémental
+  const client = await pool.connect();
+
+  try {
+    let ventesQuery = `
+      SELECT id, adherent_id, date, montant, mode_paiement_id, created_at, updated_at
+      FROM ventes
+      WHERE tenant_id = $1
+    `;
+    const ventesParams = [tenantId];
+    
+    if (since) {
+      ventesQuery += ` AND updated_at > $2`;
+      ventesParams.push(since);
+    }
+    
+    ventesQuery += ` ORDER BY date, id`;
+    
+    const ventesRes = await client.query(ventesQuery, ventesParams);
+    const ventes = ventesRes.rows;
+
+    // Récupérer toutes les lignes pour ces ventes
+    const ventesIds = ventes.map(v => v.id);
+    let lignes = [];
+    
+    if (ventesIds.length > 0) {
+      const lignesRes = await client.query(
+        `
+        SELECT id, vente_id, produit_id, quantite, prix_unitaire
+        FROM lignes_vente
+        WHERE vente_id = ANY($1::uuid[])
+        ORDER BY vente_id, id
+        `,
+        [ventesIds]
+      );
+      lignes = lignesRes.rows;
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        ventes,
+        lignes_vente: lignes,
+      },
+      meta: {
+        count: ventes.length,
+        since: since || null,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (e) {
+    console.error('GET /sync/pull_ventes error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// SYNC RECEPTIONS (historique complet avec lignes) - avec support since=
+// ═══════════════════════════════════════════════════════════════════
+app.get('/sync/pull_receptions', authRequired, async (req, res) => {
+  const tenantId = req.user?.tenantId;
+  if (!tenantId) return res.status(401).json({ ok: false, error: 'Tenant requis' });
+
+  const since = req.query.since || null;
+  const client = await pool.connect();
+
+  try {
+    let receptionsQuery = `
+      SELECT id, fournisseur_id, date, reference, updated_at
+      FROM receptions
+      WHERE tenant_id = $1
+    `;
+    const receptionsParams = [tenantId];
+    
+    if (since) {
+      receptionsQuery += ` AND updated_at > $2`;
+      receptionsParams.push(since);
+    }
+    
+    receptionsQuery += ` ORDER BY date, id`;
+    
+    const receptionsRes = await client.query(receptionsQuery, receptionsParams);
+    const receptions = receptionsRes.rows;
+
+    // Récupérer toutes les lignes pour ces réceptions
+    const receptionsIds = receptions.map(r => r.id);
+    let lignes = [];
+    
+    if (receptionsIds.length > 0) {
+      const lignesRes = await client.query(
+        `
+        SELECT id, reception_id, produit_id, quantite, prix_unitaire
+        FROM lignes_reception
+        WHERE reception_id = ANY($1::uuid[])
+        ORDER BY reception_id, id
+        `,
+        [receptionsIds]
+      );
+      lignes = lignesRes.rows;
+    }
+
+    res.json({
+      ok: true,
+      data: {
+        receptions,
+        lignes_reception: lignes,
+      },
+      meta: {
+        count: receptions.length,
+        since: since || null,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (e) {
+    console.error('GET /sync/pull_receptions error:', e);
     res.status(500).json({ ok: false, error: e.message });
   } finally {
     client.release();
@@ -1012,6 +1160,16 @@ async function handleProductCreated(client, tenantId, p) {
       prix,
       stock,
     });
+
+    // Créer un mouvement de stock initial si stock > 0
+    if (remoteId && stock > 0) {
+      await client.query(
+        `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id, created_at)
+         VALUES ($1, $2, $3, 'initial', $4, now())`,
+        [tenantId, remoteId, stock, `product_${remoteId}`]
+      );
+      console.log(`    [+] stock_movement initial créé: +${stock}`);
+    }
 
     // Si pas de remoteId ou pas de localId (op ancienne / corrompue) → pas de mapping
     if (!remoteId || !localId) return null;
@@ -1494,8 +1652,8 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             const reference = p.reference || null;
 
             await client.query(
-              `INSERT INTO receptions (id, tenant_id, fournisseur_id, reference, date)
-               VALUES ($1, $2, $3, $4, NOW())
+              `INSERT INTO receptions (id, tenant_id, fournisseur_id, date, reference)
+               VALUES ($1, $2, $3, NOW(), $4)
                ON CONFLICT (id) DO NOTHING`,
               [receptionUuid, tenantId, fournisseurUuid, reference]
             );
@@ -1527,7 +1685,8 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           // Insérer la ligne de réception (idempotent)
           const chk = await client.query(
             `SELECT 1 FROM lignes_reception 
-             WHERE tenant_id=$1 AND reception_id=$2 AND produit_id=$3 AND quantite=$4 AND COALESCE(prix_unitaire,0)=COALESCE($5,0)
+             WHERE tenant_id=$1 AND reception_id=$2 AND produit_id=$3 AND quantite=$4 
+               AND COALESCE(prix_unitaire,0.0)=COALESCE($5::numeric,0.0)
              LIMIT 1`,
             [tenantId, receptionUuid, produitUuid, quantite, prixAchat]
           );
@@ -1570,12 +1729,34 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             break;
           }
 
-          // TODO plus tard : utiliser remote_uuid dans le payload pour insérer
-          // un mouvement de stock côté Neon.
-          console.warn(
-            '    [!] inventory.adjust non appliquée côté Neon (mapping produit local→uuid pas encore implémenté)',
-            { produitIdLocal, delta }
+          // Résoudre produitUuid via les mappings du batch
+          let produitUuid = null;
+          const mapping = productMappings.find(m => m.local_id === produitIdLocal);
+          if (mapping) {
+            produitUuid = mapping.remote_uuid;
+          }
+
+          if (!produitUuid) {
+            console.warn(
+              '    [!] inventory.adjust ignorée — produit non résolu',
+              { produitIdLocal, delta }
+            );
+            break;
+          }
+
+          // Créer le mouvement de stock
+          const sourceKey = `inventory_adjust:${produitUuid}:${delta}:${Date.now()}`;
+          await client.query(
+            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id)
+             VALUES ($1, $2, $3, 'inventory_adjust', $4)
+             ON CONFLICT DO NOTHING`,
+            [tenantId, produitUuid, delta, sourceKey]
           );
+          console.log('    [+] stock_movements inventory.adjust', { 
+            produit_id: produitUuid, 
+            delta,
+            reason: p.reason 
+          });
           break;
         }
 

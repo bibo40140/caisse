@@ -885,6 +885,102 @@ header .sync-chip { float: right; }
 .sync-chip.syncing { background: #fff7e6; color: #8a5a00; }
 
 /* ==========================================================
+   >>> HEALTH PANEL (indicateur de santé système) <<<
+========================================================== */
+.health-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.health-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 2px solid #e5e7eb;
+  background: white;
+  transition: all 0.2s ease;
+}
+
+.health-item:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.health-item.ok {
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+
+.health-item.warning {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.health-item.error {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+.health-item.online {
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+
+.health-item.offline {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+.health-item.slow {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.health-item.unknown {
+  border-color: #9ca3af;
+  background: #f9fafb;
+}
+
+.health-icon {
+  font-size: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.health-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.health-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+
+.health-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.4;
+}
+
+.health-subtitle {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================
    >>> MODULES (grille fluide, pas de place réservée) <<<
    Utilisé par PageParams.renderActivationModules
 ========================================================== */

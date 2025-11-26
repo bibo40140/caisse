@@ -3,6 +3,7 @@ const db = require('./db');
 const fs = require('fs');
 const path = require('path');
 const { enqueueOp } = require('./ops');
+const { createStockMovement, getStock } = require('./stock');
 const { getDeviceId } = require('../device');
 
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
@@ -72,16 +73,6 @@ function enregistrerReception(reception, lignes) {
     VALUES (?, ?, ?, ?, datetime('now','localtime'))
   `);
 
-  // Deux modes pour le stock local :
-  // - si stock_corrige fourni : on SET = stock_corrige + quantite
-  // - sinon : on INCREMENTE += quantite
-  const setStock = stocksOn
-    ? db.prepare(`UPDATE produits SET stock = ? WHERE id = ?`)
-    : null;
-  const incStock = stocksOn
-    ? db.prepare(`UPDATE produits SET stock = stock + ? WHERE id = ?`)
-    : null;
-
   const tx = db.transaction(() => {
     // Header
     const rHead = insReception.run(
@@ -100,15 +91,32 @@ function enregistrerReception(reception, lignes) {
       const rL = insLigne.run(receptionId, produit_id, quantite, prix_unitaire);
       const ligneRecId = rL.lastInsertRowid;
 
-      // Stock local immédiat
-      if (stocksOn) {
-        if (stock_corrige != null) {
-          const desired = stock_corrige + quantite;
-          setStock.run(desired, produit_id);
-        } else {
-          incStock.run(quantite, produit_id);
-        }
-      }
+      // Stock local via mouvements
+      // ⚠️ NE PAS créer de mouvement local - il sera créé par le serveur et importé via pull
+      // Cela évite les doublons (mouvement local + mouvement serveur)
+      // if (stocksOn) {
+      //   try {
+      //     if (stock_corrige != null) {
+      //       // Mode correction : calculer le delta nécessaire
+      //       const currentStock = getStock(produit_id);
+      //       const desiredStock = stock_corrige + quantite;
+      //       const delta = desiredStock - currentStock;
+      //       
+      //       createStockMovement(produit_id, delta, 'reception', receptionId, {
+      //         stock_corrige,
+      //         quantite,
+      //         prix_unitaire
+      //       });
+      //     } else {
+      //       // Mode incrémental simple
+      //       createStockMovement(produit_id, quantite, 'reception', receptionId, {
+      //         prix_unitaire
+      //       });
+      //     }
+      //   } catch (err) {
+      //     console.error('[reception] Erreur mouvement stock:', err);
+      //   }
+      // }
 
 
       // 🔁 Mise à jour du PRIX produit si un PU a été fourni

@@ -378,6 +378,16 @@ function ensureLocalSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_ops_queue_retry   ON ops_queue(retry_count);
   `);
 
+  // --- SYNC STATE (pour pull incrémental optimisé)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sync_state (
+      entity_type  TEXT PRIMARY KEY,  -- 'produits', 'ventes', 'receptions', 'stock_movements', etc.
+      last_sync_at TEXT NOT NULL,      -- Timestamp du dernier pull réussi
+      last_sync_ok INTEGER DEFAULT 1,  -- 1 si succès, 0 si erreur
+      updated_at   TEXT DEFAULT (datetime('now','localtime'))
+    );
+  `);
+
   // --- INVENTAIRE (local cache + compat UI)
   db.exec(`
     CREATE TABLE IF NOT EXISTS inventory_sessions (
@@ -416,6 +426,7 @@ function ensureLocalSchema(db) {
       source_id     TEXT,
       delta         REAL NOT NULL,
       meta          TEXT,
+      remote_uuid   TEXT,           -- UUID du mouvement côté serveur
       created_at    TEXT DEFAULT (datetime('now','localtime')),
       FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
     );
@@ -423,6 +434,7 @@ function ensureLocalSchema(db) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_sm_produit ON stock_movements(produit_id);
     CREATE INDEX IF NOT EXISTS idx_sm_created ON stock_movements(created_at);
+    CREATE INDEX IF NOT EXISTS idx_sm_remote_uuid ON stock_movements(remote_uuid);
   `);
 
   // --- PATCHS DOUX (ajout de remote_uuid si base existante)
@@ -445,6 +457,20 @@ function ensureLocalSchema(db) {
   try { db.prepare("ALTER TABLE ops_queue ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0").run(); } catch {}
   try { db.prepare("ALTER TABLE ops_queue ADD COLUMN last_error TEXT").run(); } catch {}
   try { db.prepare("ALTER TABLE ops_queue ADD COLUMN failed_at TEXT").run(); } catch {}
+
+  // 🔥 MIGRATION: Ajouter colonne remote_uuid à stock_movements si elle n'existe pas
+  try {
+    const cols = db.prepare("PRAGMA table_info(stock_movements)").all();
+    const hasRemoteUuid = cols.some(c => c.name === 'remote_uuid');
+    if (!hasRemoteUuid) {
+      console.log('[schema] Migration: ajout colonne remote_uuid à stock_movements...');
+      db.exec('ALTER TABLE stock_movements ADD COLUMN remote_uuid TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sm_remote_uuid ON stock_movements(remote_uuid)');
+      console.log('[schema] Migration remote_uuid terminée');
+    }
+  } catch (e) {
+    console.warn('[schema] Migration stock_movements remote_uuid:', e?.message || e);
+  }
 }
 
 module.exports = { ensureLocalSchema };

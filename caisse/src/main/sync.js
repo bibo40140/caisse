@@ -5,9 +5,95 @@ const { BrowserWindow } = require('electron');
 const db = require('./db/db');
 const { apiFetch } = require('./apiClient');
 const { getDeviceId } = require('./device');
+const logger = require('./logger');
 
 // ID du device (stable pour ce poste)
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
+
+// Configuration retry
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  initialDelay: 1000,
+  maxDelay: 10000,
+  backoffMultiplier: 2
+};
+
+/**
+ * Détecte le type d'erreur réseau pour un traitement approprié
+ */
+function classifyNetworkError(error) {
+  const errStr = String(error?.message || error).toLowerCase();
+  
+  if (errStr.includes('fetch failed') || errStr.includes('econnrefused') || errStr.includes('enotfound')) {
+    return { type: 'offline', retryable: true, message: 'Serveur inaccessible' };
+  }
+  if (errStr.includes('timeout') || errStr.includes('etimedout')) {
+    return { type: 'timeout', retryable: true, message: 'Délai d\'attente dépassé' };
+  }
+  if (errStr.includes('unauthorized') || errStr.includes('401')) {
+    return { type: 'auth', retryable: false, message: 'Authentification requise' };
+  }
+  if (errStr.includes('forbidden') || errStr.includes('403')) {
+    return { type: 'forbidden', retryable: false, message: 'Accès refusé' };
+  }
+  if (errStr.includes('500') || errStr.includes('502') || errStr.includes('503')) {
+    return { type: 'server', retryable: true, message: 'Erreur serveur' };
+  }
+  
+  return { type: 'unknown', retryable: true, message: 'Erreur inconnue' };
+}
+
+/**
+ * Exécute une fonction avec retry automatique et backoff exponentiel
+ */
+async function withRetry(fn, context = 'operation') {
+  let lastError = null;
+  
+  for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const errorInfo = classifyNetworkError(error);
+      
+      // Ne pas retry si l'erreur n'est pas retryable (ex: 401, 403)
+      if (!errorInfo.retryable) {
+        logger.error('sync', `${context}: erreur non-retryable`, {
+          type: errorInfo.type,
+          message: errorInfo.message,
+          error: String(error)
+        });
+        throw error;
+      }
+      
+      // Si c'est le dernier essai, abandonner
+      if (attempt === RETRY_CONFIG.maxRetries) {
+        logger.error('sync', `${context}: échec après ${RETRY_CONFIG.maxRetries} tentatives`, {
+          type: errorInfo.type,
+          message: errorInfo.message,
+          error: String(error)
+        });
+        throw error;
+      }
+      
+      // Calculer le délai avec backoff exponentiel
+      const delay = Math.min(
+        RETRY_CONFIG.initialDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, attempt),
+        RETRY_CONFIG.maxDelay
+      );
+      
+      logger.warn('sync', `${context}: tentative ${attempt + 1}/${RETRY_CONFIG.maxRetries} échouée, retry dans ${delay}ms`, {
+        type: errorInfo.type,
+        message: errorInfo.message
+      });
+      
+      // Attendre avant de réessayer
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError;
+}
 
 // helpers simples
 const b2i = (v) => (v ? 1 : 0);
@@ -77,181 +163,202 @@ async function pullRefs({ since = null } = {}) {
   const qs = since ? `?since=${encodeURIComponent(since)}` : '';
 
   setState('pulling');
-  let res;
-  try {
-    res = await apiFetch(`/sync/pull_refs${qs}`, { method: 'GET' });
-  } catch (e) {
-    setState('offline', { error: String(e) });
-    throw new Error(`pull_refs network ${String(e)}`);
-  }
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    setState('offline', { error: `HTTP ${res.status}` });
-    throw new Error(`pull_refs ${res.status} ${t}`);
-  }
-
-  const json = await res.json();
-  const d = json?.data || {};
-  const {
-    unites = [],
-    familles = [],
-    categories = [],
-    adherents = [],
-    fournisseurs = [],
-    produits = [],
-    modes_paiement = [],
-    modules = null,
-  } = d;
-
-  // 🔄 Synchroniser les modules depuis le serveur
-  if (modules && typeof modules === 'object') {
+  
+  return await withRetry(async () => {
+    let res;
     try {
-      const { readConfig, writeModules } = require('./db/config');
-      const currentConfig = readConfig();
-      const currentModules = currentConfig?.modules || {};
-      
-      // Comparer et mettre à jour seulement si différent
-      const isDifferent = JSON.stringify(currentModules) !== JSON.stringify(modules);
-      if (isDifferent) {
-        writeModules(modules);
-        console.log('[sync] Modules synchronisés depuis serveur:', modules);
-        
-        // Notifier le renderer pour qu'il recharge les modules
-        notifyRenderer('modules:updated', { modules });
-      }
+      res = await apiFetch(`/sync/pull_refs${qs}`, { method: 'GET' });
     } catch (e) {
-      console.error('[sync] Erreur sync modules:', e?.message || e);
+      const errorInfo = classifyNetworkError(e);
+      logger.error('sync', 'pullRefs: erreur réseau', { error: String(e), type: errorInfo.type });
+      setState('offline', { error: errorInfo.message });
+      throw e;
     }
-  }
 
-  // 🔥 Importer les produits depuis Neon dans la base locale
-  let produitsImported = 0;
-  if (produits && produits.length > 0) {
-    console.log(`[sync] pull: ${produits.length} produits reçus depuis Neon`);
-    
-    // Debug: afficher un exemple de produit reçu
-    if (produits[0]) {
-      console.log(`[sync] Exemple produit reçu:`, {
-        nom: produits[0].nom,
-        unite_id: produits[0].unite_id,
-        categorie_id: produits[0].categorie_id
-      });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      logger.error('sync', `pullRefs: HTTP ${res.status}`, { response: t });
+      setState('offline', { error: `HTTP ${res.status}` });
+      throw new Error(`pull_refs ${res.status} ${t}`);
     }
-    
-    // Préparer les mappings UUID → ID local pour unités, catégories, fournisseurs
-    const getUniteIdByUuid = db.prepare('SELECT id FROM unites WHERE remote_uuid = ?');
-    const getCategorieIdByUuid = db.prepare('SELECT id FROM categories WHERE remote_uuid = ?');
-    const getFournisseurIdByUuid = db.prepare('SELECT id FROM fournisseurs WHERE remote_uuid = ?');
-    
-    // Préparer les updates de remote_uuid pour les entités qui n'en ont pas encore
-    const updateUniteUuid = db.prepare('UPDATE unites SET remote_uuid = ? WHERE id = ?');
-    const updateCategorieUuid = db.prepare('UPDATE categories SET remote_uuid = ? WHERE id = ?');
-    const updateFournisseurUuid = db.prepare('UPDATE fournisseurs SET remote_uuid = ? WHERE id = ?');
-    
-    // Construire des maps UUID→Nom depuis le serveur pour fallback
-    const unitesByUuid = new Map();
-    const categoriesByUuid = new Map();
-    const fournisseursByUuid = new Map();
-    
-    for (const u of unites) {
-      unitesByUuid.set(u.id, u.nom);
-    }
-    for (const c of categories) {
-      categoriesByUuid.set(c.id, c.nom);
-    }
-    for (const f of fournisseurs) {
-      fournisseursByUuid.set(f.id, f.nom);
-    }
-    
-    const checkStmt = db.prepare('SELECT id FROM produits WHERE remote_uuid = ?');
-    const insertStmt = db.prepare(`
-      INSERT INTO produits (remote_uuid, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
-    `);
-    const updateStmt = db.prepare(`
-      UPDATE produits SET
-        nom = ?,
-        reference = ?,
-        prix = ?,
-        stock = ?,
-        code_barre = ?,
-        unite_id = ?,
-        fournisseur_id = ?,
-        categorie_id = ?,
-        updated_at = datetime('now','localtime')
-      WHERE remote_uuid = ?
-    `);
 
-    for (const p of produits) {
+    const json = await res.json();
+    const d = json?.data || {};
+    const {
+      unites = [],
+      familles = [],
+      categories = [],
+      adherents = [],
+      fournisseurs = [],
+      produits = [],
+      modes_paiement = [],
+      stock_movements = [],
+      modules = null,
+    } = d;
+
+      // 🔄 Synchroniser les modules depuis le serveur
+      if (modules && typeof modules === 'object') {
       try {
-        // Mapper UUID → ID local
-        let uniteIdLocal = null;
-        let categorieIdLocal = null;
-        let fournisseurIdLocal = null;
+        const { readConfig, writeModules } = require('./db/config');
+        const currentConfig = readConfig();
+        const currentModules = currentConfig?.modules || {};
+      
+        // Comparer et mettre à jour seulement si différent
+        const isDifferent = JSON.stringify(currentModules) !== JSON.stringify(modules);
+        if (isDifferent) {
+          writeModules(modules);
+          console.log('[sync] Modules synchronisés depuis serveur:', modules);
         
-        if (p.unite_id) {
-          let unite = getUniteIdByUuid.get(p.unite_id);
-          if (!unite) {
-            // Fallback: chercher par nom si le remote_uuid n'est pas encore mappé
-            const nomUnite = unitesByUuid.get(p.unite_id);
-            if (nomUnite) {
-              const uniteByName = db.prepare('SELECT id FROM unites WHERE nom = ?').get(nomUnite);
-              if (uniteByName) {
-                unite = uniteByName;
-                // Mettre à jour le remote_uuid pour les prochaines fois
-                updateUniteUuid.run(p.unite_id, uniteByName.id);
-                console.log(`[sync] Unite "${nomUnite}" mappée: local_id=${uniteByName.id} ← uuid=${p.unite_id}`);
+          // Notifier le renderer pour qu'il recharge les modules
+          notifyRenderer('modules:updated', { modules });
+        }
+      } catch (e) {
+        console.error('[sync] Erreur sync modules:', e?.message || e);
+      }
+    }
+
+    // 🔥 Importer les produits depuis Neon dans la base locale
+    let produitsImported = 0;
+    if (produits && produits.length > 0) {
+      console.log(`[sync] pull: ${produits.length} produits reçus depuis Neon`);
+    
+      // Debug: afficher un exemple de produit reçu
+      if (produits[0]) {
+        console.log(`[sync] Exemple produit reçu:`, {
+          nom: produits[0].nom,
+          unite_id: produits[0].unite_id,
+          categorie_id: produits[0].categorie_id
+        });
+      }
+    
+      // Préparer les mappings UUID → ID local pour unités, catégories, fournisseurs
+      const getUniteIdByUuid = db.prepare('SELECT id FROM unites WHERE remote_uuid = ?');
+      const getCategorieIdByUuid = db.prepare('SELECT id FROM categories WHERE remote_uuid = ?');
+      const getFournisseurIdByUuid = db.prepare('SELECT id FROM fournisseurs WHERE remote_uuid = ?');
+    
+      // Préparer les updates de remote_uuid pour les entités qui n'en ont pas encore
+      const updateUniteUuid = db.prepare('UPDATE unites SET remote_uuid = ? WHERE id = ?');
+      const updateCategorieUuid = db.prepare('UPDATE categories SET remote_uuid = ? WHERE id = ?');
+      const updateFournisseurUuid = db.prepare('UPDATE fournisseurs SET remote_uuid = ? WHERE id = ?');
+    
+      // Construire des maps UUID→Nom depuis le serveur pour fallback
+      const unitesByUuid = new Map();
+      const categoriesByUuid = new Map();
+      const fournisseursByUuid = new Map();
+    
+      for (const u of unites) {
+        unitesByUuid.set(u.id, u.nom);
+      }
+      for (const c of categories) {
+        categoriesByUuid.set(c.id, c.nom);
+      }
+      for (const f of fournisseurs) {
+        fournisseursByUuid.set(f.id, f.nom);
+      }
+    
+      const checkStmt = db.prepare('SELECT id FROM produits WHERE remote_uuid = ?');
+      const insertStmt = db.prepare(`
+        INSERT INTO produits (remote_uuid, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+      `);
+      const updateStmt = db.prepare(`
+        UPDATE produits SET
+          nom = ?,
+          reference = ?,
+          prix = ?,
+          stock = ?,
+          code_barre = ?,
+          unite_id = ?,
+          fournisseur_id = ?,
+          categorie_id = ?,
+          updated_at = datetime('now','localtime')
+        WHERE remote_uuid = ?
+      `);
+
+      for (const p of produits) {
+        try {
+          // Mapper UUID → ID local
+          let uniteIdLocal = null;
+          let categorieIdLocal = null;
+          let fournisseurIdLocal = null;
+        
+          if (p.unite_id) {
+            let unite = getUniteIdByUuid.get(p.unite_id);
+            if (!unite) {
+              // Fallback: chercher par nom si le remote_uuid n'est pas encore mappé
+              const nomUnite = unitesByUuid.get(p.unite_id);
+              if (nomUnite) {
+                const uniteByName = db.prepare('SELECT id FROM unites WHERE nom = ?').get(nomUnite);
+                if (uniteByName) {
+                  unite = uniteByName;
+                  // Mettre à jour le remote_uuid pour les prochaines fois
+                  updateUniteUuid.run(p.unite_id, uniteByName.id);
+                  console.log(`[sync] Unite "${nomUnite}" mappée: local_id=${uniteByName.id} ← uuid=${p.unite_id}`);
+                }
               }
             }
+            uniteIdLocal = unite?.id || null;
           }
-          uniteIdLocal = unite?.id || null;
-        }
         
-        if (p.categorie_id) {
-          let categorie = getCategorieIdByUuid.get(p.categorie_id);
-          if (!categorie) {
-            // Fallback: chercher par nom
-            const nomCategorie = categoriesByUuid.get(p.categorie_id);
-            if (nomCategorie) {
-              const categorieByName = db.prepare('SELECT id FROM categories WHERE nom = ?').get(nomCategorie);
-              if (categorieByName) {
-                categorie = categorieByName;
-                updateCategorieUuid.run(p.categorie_id, categorieByName.id);
-                console.log(`[sync] Categorie "${nomCategorie}" mappée: local_id=${categorieByName.id} ← uuid=${p.categorie_id}`);
+          if (p.categorie_id) {
+            let categorie = getCategorieIdByUuid.get(p.categorie_id);
+            if (!categorie) {
+              // Fallback: chercher par nom
+              const nomCategorie = categoriesByUuid.get(p.categorie_id);
+              if (nomCategorie) {
+                const categorieByName = db.prepare('SELECT id FROM categories WHERE nom = ?').get(nomCategorie);
+                if (categorieByName) {
+                  categorie = categorieByName;
+                  updateCategorieUuid.run(p.categorie_id, categorieByName.id);
+                  console.log(`[sync] Categorie "${nomCategorie}" mappée: local_id=${categorieByName.id} ← uuid=${p.categorie_id}`);
+                }
               }
             }
+            categorieIdLocal = categorie?.id || null;
           }
-          categorieIdLocal = categorie?.id || null;
-        }
         
-        if (p.fournisseur_id) {
-          let fournisseur = getFournisseurIdByUuid.get(p.fournisseur_id);
-          if (!fournisseur) {
-            // Fallback: chercher par nom
-            const nomFournisseur = fournisseursByUuid.get(p.fournisseur_id);
-            if (nomFournisseur) {
-              const fournisseurByName = db.prepare('SELECT id FROM fournisseurs WHERE nom = ?').get(nomFournisseur);
-              if (fournisseurByName) {
-                fournisseur = fournisseurByName;
-                updateFournisseurUuid.run(p.fournisseur_id, fournisseurByName.id);
-                console.log(`[sync] Fournisseur "${nomFournisseur}" mappé: local_id=${fournisseurByName.id} ← uuid=${p.fournisseur_id}`);
+          if (p.fournisseur_id) {
+            let fournisseur = getFournisseurIdByUuid.get(p.fournisseur_id);
+            if (!fournisseur) {
+              // Fallback: chercher par nom
+              const nomFournisseur = fournisseursByUuid.get(p.fournisseur_id);
+              if (nomFournisseur) {
+                const fournisseurByName = db.prepare('SELECT id FROM fournisseurs WHERE nom = ?').get(nomFournisseur);
+                if (fournisseurByName) {
+                  fournisseur = fournisseurByName;
+                  updateFournisseurUuid.run(p.fournisseur_id, fournisseurByName.id);
+                  console.log(`[sync] Fournisseur "${nomFournisseur}" mappé: local_id=${fournisseurByName.id} ← uuid=${p.fournisseur_id}`);
+                }
               }
             }
+            fournisseurIdLocal = fournisseur?.id || null;
           }
-          fournisseurIdLocal = fournisseur?.id || null;
-        }
         
-        const existing = checkStmt.get(p.id);
-        if (existing) {
-          // Vérifier si la version serveur est plus récente
-          const localProduct = db.prepare('SELECT updated_at FROM produits WHERE remote_uuid = ?').get(p.id);
-          const localUpdatedAt = localProduct?.updated_at ? new Date(localProduct.updated_at).getTime() : 0;
-          const remoteUpdatedAt = p.updated_at ? new Date(p.updated_at).getTime() : 0;
+          const existing = checkStmt.get(p.id);
+          if (existing) {
+            // Vérifier si la version serveur est plus récente
+            const localProduct = db.prepare('SELECT updated_at FROM produits WHERE remote_uuid = ?').get(p.id);
+            const localUpdatedAt = localProduct?.updated_at ? new Date(localProduct.updated_at).getTime() : 0;
+            const remoteUpdatedAt = p.updated_at ? new Date(p.updated_at).getTime() : 0;
           
-          // Ne mettre à jour que si la version serveur est plus récente
-          if (remoteUpdatedAt > localUpdatedAt) {
-            updateStmt.run(
+            // Ne mettre à jour que si la version serveur est plus récente
+            if (remoteUpdatedAt > localUpdatedAt) {
+              updateStmt.run(
+                p.nom,
+                p.reference,
+                Number(p.prix || 0),
+                Number(p.stock || 0),
+                p.code_barre || null,
+                uniteIdLocal,
+                fournisseurIdLocal,
+                categorieIdLocal,
+                p.id  // WHERE remote_uuid = ?
+              );
+            }
+          } else {
+            // Insertion
+            insertStmt.run(
+              p.id,           // remote_uuid
               p.nom,
               p.reference,
               Number(p.prix || 0),
@@ -259,51 +366,303 @@ async function pullRefs({ since = null } = {}) {
               p.code_barre || null,
               uniteIdLocal,
               fournisseurIdLocal,
-              categorieIdLocal,
-              p.id  // WHERE remote_uuid = ?
+              categorieIdLocal
             );
           }
-        } else {
-          // Insertion
-          insertStmt.run(
-            p.id,           // remote_uuid
-            p.nom,
-            p.reference,
-            Number(p.prix || 0),
-            Number(p.stock || 0),
-            p.code_barre || null,
-            uniteIdLocal,
-            fournisseurIdLocal,
-            categorieIdLocal
-          );
+          produitsImported++;
+        } catch (e) {
+          console.warn('[sync] erreur import produit:', p.reference, e?.message || e);
         }
-        produitsImported++;
-      } catch (e) {
-        console.warn('[sync] erreur import produit:', p.reference, e?.message || e);
       }
+      console.log(`[sync] pull: ${produitsImported} produits importés/mis à jour`);
     }
-    console.log(`[sync] pull: ${produitsImported} produits importés/mis à jour`);
-  }
 
-  // Ne plus émettre data:refreshed automatiquement pour éviter de perturber l'utilisateur
-  // Les pages se rechargeront naturellement lors de la navigation ou au besoin
-  // notifyRenderer('data:refreshed', { from: 'pull_refs' });
-  setState('online', { phase: 'pulled' });
+    // 🔥 Importer les stock_movements depuis Neon
+    let movementsImported = 0;
+    if (stock_movements && stock_movements.length > 0) {
+      console.log(`[sync] pull: ${stock_movements.length} stock_movements reçus depuis Neon`);
+    
+      // Mapper produit UUID → ID local
+      const getProduitIdByUuid = db.prepare('SELECT id FROM produits WHERE remote_uuid = ?');
+    
+      const checkMovement = db.prepare('SELECT 1 FROM stock_movements WHERE remote_uuid = ?');
+      const insertMovement = db.prepare(`
+        INSERT OR IGNORE INTO stock_movements (produit_id, delta, source, source_id, created_at, meta, remote_uuid)
+        VALUES (?, ?, ?, ?, ?, '{}', ?)
+      `);
+    
+      for (const m of stock_movements) {
+        try {
+          // Résoudre le produit_id local
+          const produitLocal = getProduitIdByUuid.get(m.produit_id);
+          if (!produitLocal) {
+            console.warn(`[sync] stock_movement ignoré: produit ${m.produit_id} non trouvé localement`);
+            continue;
+          }
+        
+          // Vérifier si le mouvement existe déjà (par son UUID serveur)
+          const exists = checkMovement.get(m.id);
+          if (exists) continue;
+        
+          // Insérer le mouvement
+          insertMovement.run(
+            produitLocal.id,         // ID local du produit
+            Number(m.delta || 0),
+            m.source || 'unknown',
+            m.source_id || null,
+            m.created_at || new Date().toISOString(),
+            m.id                     // UUID du serveur comme remote_uuid
+          );
+          movementsImported++;
+        } catch (e) {
+          console.warn('[sync] erreur import stock_movement:', m.id, e?.message || e);
+        }
+      }
+      console.log(`[sync] pull: ${movementsImported} stock_movements importés`);
+    }
 
-  return {
-    ok: true,
-    counts: {
-      unites: unites.length,
-      familles: familles.length,
-      categories: categories.length,
-      adherents: adherents.length,
-      fournisseurs: fournisseurs.length,
-      produits: produits.length,
-      modes_paiement: modes_paiement.length,
-    },
-  };
+      // Ne plus émettre data:refreshed automatiquement pour éviter de perturber l'utilisateur
+      // Les pages se rechargeront naturellement lors de la navigation ou au besoin
+      // notifyRenderer('data:refreshed', { from: 'pull_refs' });
+      setState('online', { phase: 'pulled' });
+
+      return {
+        ok: true,
+        counts: {
+          unites: unites.length,
+          familles: familles.length,
+          categories: categories.length,
+          adherents: adherents.length,
+          fournisseurs: fournisseurs.length,
+          produits: produits.length,
+          modes_paiement: modes_paiement.length,
+      },
+    };
+  }, 'pullRefs');
 }
 
+/* -------------------------------------------------
+   PULL VENTES (historique complet avec lignes)
+   Support incrémental via since= timestamp
+--------------------------------------------------*/
+async function pullVentes({ since = null } = {}) {
+  // Récupérer le dernier sync depuis sync_state si since non fourni
+  if (!since) {
+    try {
+      const row = db.prepare('SELECT last_sync_at FROM sync_state WHERE entity_type = ?').get('ventes');
+      since = row?.last_sync_at || null;
+    } catch (e) {
+      console.warn('[sync] Erreur lecture sync_state pour ventes:', e);
+    }
+  }
+
+  const qs = since ? `?since=${encodeURIComponent(since)}` : '';
+  
+  setState('pulling');
+  
+  return await withRetry(async () => {
+    let res;
+    try {
+      res = await apiFetch(`/sync/pull_ventes${qs}`, { method: 'GET' });
+    } catch (e) {
+      const errorInfo = classifyNetworkError(e);
+      logger.error('sync', 'pullVentes: erreur réseau', { error: String(e), type: errorInfo.type });
+      setState('offline', { error: errorInfo.message });
+      throw e;
+    }
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      logger.error('sync', `pullVentes: HTTP ${res.status}`, { response: t });
+      setState('offline', { error: `HTTP ${res.status}` });
+      throw new Error(`pull_ventes ${res.status} ${t}`);
+    }
+
+    const json = await res.json();
+    const { ventes = [], lignes_vente = [] } = json?.data || {};
+    const timestamp = json?.meta?.timestamp || new Date().toISOString();
+
+    logger.info('sync', `pullVentes: ${ventes.length} vente(s) reçue(s)`, { since: since || 'null' });
+
+    let ventesImported = 0;
+    let lignesImported = 0;
+
+    if (ventes.length > 0) {
+      const checkVente = db.prepare('SELECT 1 FROM ventes WHERE remote_uuid = ?');
+      const insertVente = db.prepare(`
+        INSERT OR IGNORE INTO ventes (remote_uuid, adherent_id, date, montant, mode_paiement_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const updateVente = db.prepare(`
+        UPDATE ventes SET adherent_id = ?, date = ?, montant = ?, mode_paiement_id = ?, updated_at = ?
+        WHERE remote_uuid = ? AND updated_at < ?
+      `);
+
+      for (const v of ventes) {
+        try {
+          const exists = checkVente.get(v.id);
+          if (exists) {
+            updateVente.run(v.adherent_id, v.date, v.montant, v.mode_paiement_id, v.updated_at, v.id, v.updated_at);
+          } else {
+            insertVente.run(v.id, v.adherent_id, v.date, v.montant, v.mode_paiement_id, v.created_at, v.updated_at);
+          }
+          ventesImported++;
+        } catch (e) {
+          logger.warn('sync', 'Erreur import vente', { vente_id: v.id, error: e?.message });
+        }
+      }
+    }
+
+    if (lignes_vente.length > 0) {
+      const checkLigne = db.prepare('SELECT 1 FROM lignes_vente WHERE remote_uuid = ?');
+      const insertLigne = db.prepare(`
+        INSERT OR IGNORE INTO lignes_vente (remote_uuid, vente_id, produit_id, quantite, prix_unitaire)
+        VALUES (?, (SELECT id FROM ventes WHERE remote_uuid = ?), (SELECT id FROM produits WHERE remote_uuid = ?), ?, ?)
+      `);
+
+      for (const ligne of lignes_vente) {
+        try {
+          const exists = checkLigne.get(ligne.id);
+          if (!exists) {
+            insertLigne.run(ligne.id, ligne.vente_id, ligne.produit_id, ligne.quantite, ligne.prix_unitaire);
+            lignesImported++;
+          }
+        } catch (e) {
+          logger.warn('sync', 'Erreur import ligne_vente', { ligne_id: ligne.id, error: e?.message });
+        }
+      }
+    }
+
+    // Mettre à jour sync_state
+    try {
+      db.prepare(`
+        INSERT OR REPLACE INTO sync_state (entity_type, last_sync_at, last_sync_ok, updated_at)
+        VALUES (?, ?, 1, datetime('now','localtime'))
+      `).run('ventes', timestamp);
+    } catch (e) {
+      logger.warn('sync', 'Erreur mise à jour sync_state ventes', { error: e?.message });
+    }
+
+    logger.info('sync', `pullVentes terminé: ${ventesImported} ventes, ${lignesImported} lignes`);
+    setState('online', { phase: 'ventes_pulled' });
+
+    return {
+      ok: true,
+      counts: { ventes: ventesImported, lignes: lignesImported },
+    };
+  }, 'pullVentes');
+}
+
+/* -------------------------------------------------
+   PULL RECEPTIONS (historique complet avec lignes)
+   Support incrémental via since= timestamp
+--------------------------------------------------*/
+async function pullReceptions({ since = null } = {}) {
+  if (!since) {
+    try {
+      const row = db.prepare('SELECT last_sync_at FROM sync_state WHERE entity_type = ?').get('receptions');
+      since = row?.last_sync_at || null;
+    } catch (e) {
+      console.warn('[sync] Erreur lecture sync_state pour receptions:', e);
+    }
+  }
+
+  const qs = since ? `?since=${encodeURIComponent(since)}` : '';
+  
+  setState('pulling');
+  
+  return await withRetry(async () => {
+    let res;
+    try {
+      res = await apiFetch(`/sync/pull_receptions${qs}`, { method: 'GET' });
+    } catch (e) {
+      const errorInfo = classifyNetworkError(e);
+      logger.error('sync', 'pullReceptions: erreur réseau', { error: String(e), type: errorInfo.type });
+      setState('offline', { error: errorInfo.message });
+      throw e;
+    }
+
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      logger.error('sync', `pullReceptions: HTTP ${res.status}`, { response: t });
+      setState('offline', { error: `HTTP ${res.status}` });
+      throw new Error(`pull_receptions ${res.status} ${t}`);
+    }
+
+    const json = await res.json();
+    const { receptions = [], lignes_reception = [] } = json?.data || {};
+    const timestamp = json?.meta?.timestamp || new Date().toISOString();
+
+    logger.info('sync', `pullReceptions: ${receptions.length} réception(s) reçue(s)`, { since: since || 'null' });
+
+    let receptionsImported = 0;
+    let lignesImported = 0;
+
+    if (receptions.length > 0) {
+      const checkReception = db.prepare('SELECT 1 FROM receptions WHERE remote_uuid = ?');
+      const insertReception = db.prepare(`
+        INSERT OR IGNORE INTO receptions (remote_uuid, fournisseur_id, date, reference, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      const updateReception = db.prepare(`
+        UPDATE receptions SET fournisseur_id = ?, date = ?, reference = ?, updated_at = ?
+        WHERE remote_uuid = ? AND updated_at < ?
+      `);
+
+      for (const r of receptions) {
+        try {
+          const exists = checkReception.get(r.id);
+          if (exists) {
+            updateReception.run(r.fournisseur_id, r.date, r.reference, r.updated_at, r.id, r.updated_at);
+          } else {
+            insertReception.run(r.id, r.fournisseur_id, r.date, r.reference, r.updated_at);
+          }
+          receptionsImported++;
+        } catch (e) {
+          logger.warn('sync', 'Erreur import reception', { reception_id: r.id, error: e?.message });
+        }
+      }
+    }
+
+    if (lignes_reception.length > 0) {
+      const checkLigne = db.prepare('SELECT 1 FROM lignes_reception WHERE remote_uuid = ?');
+      const insertLigne = db.prepare(`
+        INSERT OR IGNORE INTO lignes_reception (remote_uuid, reception_id, produit_id, quantite, prix_unitaire)
+        VALUES (?, (SELECT id FROM receptions WHERE remote_uuid = ?), (SELECT id FROM produits WHERE remote_uuid = ?), ?, ?)
+      `);
+
+      for (const ligne of lignes_reception) {
+        try {
+          const exists = checkLigne.get(ligne.id);
+          if (!exists) {
+            insertLigne.run(ligne.id, ligne.reception_id, ligne.produit_id, ligne.quantite, ligne.prix_unitaire);
+            lignesImported++;
+          }
+        } catch (e) {
+          logger.warn('sync', 'Erreur import ligne_reception', { ligne_id: ligne.id, error: e?.message });
+        }
+      }
+    }
+
+    // Mettre à jour sync_state
+    try {
+      db.prepare(`
+        INSERT OR REPLACE INTO sync_state (entity_type, last_sync_at, last_sync_ok, updated_at)
+        VALUES (?, ?, 1, datetime('now','localtime'))
+      `).run('receptions', timestamp);
+    } catch (e) {
+      logger.warn('sync', 'Erreur mise à jour sync_state receptions', { error: e?.message });
+    }
+
+    logger.info('sync', `pullReceptions terminé: ${receptionsImported} réceptions, ${lignesImported} lignes`);
+    setState('online', { phase: 'receptions_pulled' });
+
+    return {
+      ok: true,
+      counts: { receptions: receptionsImported, lignes: lignesImported },
+    };
+  }, 'pullReceptions');
+}
 
 /* -------------------------------------------------
    OPS queue → push vers Neon
@@ -336,10 +695,12 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
 
   const ops = takePendingOps(200);
   if (ops.length === 0) {
+    logger.debug('sync', 'pushOpsNow: aucune opération en attente');
     setState('online', { phase: 'idle', pending: 0 });
     return { ok: true, sent: 0, pending: 0 };
   }
 
+  logger.info('sync', `pushOpsNow: ${ops.length} opération(s) à envoyer`);
   setState('pushing', { pending: ops.length });
 
   const normalizeOpId = (raw) => {
@@ -366,22 +727,31 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
 
   let res;
   try {
-    res = await apiFetch('/sync/push_ops', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    res = await withRetry(async () => {
+      return await apiFetch('/sync/push_ops', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    }, 'pushOpsNow');
   } catch (e) {
     const err = String(e);
+    const errorInfo = classifyNetworkError(e);
+    logger.error('sync', 'pushOpsNow: échec après retries', { 
+      error: err, 
+      type: errorInfo.type,
+      message: errorInfo.message,
+      opsCount: ops.length 
+    });
     try {
       const upd = db.prepare(
         `UPDATE ops_queue SET retry_count = COALESCE(retry_count,0) + 1, last_error = ?, failed_at = datetime('now','localtime') WHERE id IN (${idsForOps.map(() => '?').join(',')})`
       );
-      upd.run(err, ...idsForOps);
+      upd.run(errorInfo.message, ...idsForOps);
     } catch (ee) {
-      console.warn('[sync] failed to mark ops retry:', ee?.message || ee);
+      logger.warn('sync', 'pushOpsNow: échec marquage retry', { error: ee?.message || ee });
     }
-    setState('offline', { error: err, pending: countPendingOps() });
-    return { ok: false, error: err, pending: countPendingOps() };
+    setState('offline', { error: errorInfo.message, pending: countPendingOps() });
+    return { ok: false, error: errorInfo.message, pending: countPendingOps() };
   }
 
   if (!res.ok) {
@@ -820,7 +1190,22 @@ async function hydrateOnStartup() {
 }
 
 async function pullAll() {
-  return pullRefs();
+  try {
+    logger.info('sync', 'pullAll: début synchronisation complète');
+    
+    // Pull dans l'ordre : refs → ventes → réceptions
+    await pullRefs();
+    await pullVentes();
+    await pullReceptions();
+    
+    logger.info('sync', 'pullAll: synchronisation complète terminée');
+    notifyRenderer('data:refreshed', { from: 'pullAll' });
+    
+    return { ok: true };
+  } catch (e) {
+    logger.error('sync', 'pullAll: erreur', { error: e?.message || String(e) });
+    return { ok: false, error: e?.message || String(e) };
+  }
 }
 
 /* Auto-sync handled by startAutoSync/stopAutoSync (custom backoff/jitter).
@@ -874,9 +1259,56 @@ async function syncPushAll(deviceId = DEVICE_ID) {
   }
 }
 
+/**
+ * Reset retry_count pour les ops en échec et relance un push
+ * @param {number[]} ids - IDs spécifiques à reset (optionnel, sinon toutes les ops en échec)
+ */
+async function retryFailedOps(ids = null) {
+  try {
+    let resetCount = 0;
+    
+    if (ids && Array.isArray(ids) && ids.length > 0) {
+      // Reset des IDs spécifiques
+      const placeholders = ids.map(() => '?').join(',');
+      const stmt = db.prepare(`
+        UPDATE ops_queue 
+        SET retry_count = 0, last_error = NULL, failed_at = NULL 
+        WHERE id IN (${placeholders}) AND ack = 0
+      `);
+      const result = stmt.run(...ids);
+      resetCount = result.changes || 0;
+    } else {
+      // Reset de toutes les ops en échec (retry_count > 0)
+      const stmt = db.prepare(`
+        UPDATE ops_queue 
+        SET retry_count = 0, last_error = NULL, failed_at = NULL 
+        WHERE ack = 0 AND COALESCE(retry_count, 0) > 0
+      `);
+      const result = stmt.run();
+      resetCount = result.changes || 0;
+    }
+    
+    console.log(`[sync] Reset de ${resetCount} opération(s) en échec`);
+    
+    // Relancer un push immédiatement
+    const pushRes = await pushOpsNow(getDeviceId());
+    
+    return {
+      ok: true,
+      reset: resetCount,
+      push: pushRes,
+    };
+  } catch (e) {
+    console.error('[sync] Erreur retryFailedOps:', e);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
 module.exports = {
   hydrateOnStartup,
   pullRefs,
+  pullVentes,
+  pullReceptions,
   pullAll,
   pushOpsNow,
   startAutoSync,
@@ -884,5 +1316,6 @@ module.exports = {
   countPendingOps,
   pushBootstrapRefs,
   syncPushAll,
-  triggerBackgroundSync,   // 👈 on l’exporte
+  triggerBackgroundSync,
+  retryFailedOps,
 };

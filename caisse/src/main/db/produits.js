@@ -2,8 +2,23 @@
 const db = require('./db');
 const { enqueueOp } = require('./ops');
 const { getDeviceId } = require('../device');
+const { createStockMovement } = require('./stock');
+const fs = require('fs');
+const path = require('path');
 
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
+
+function isModuleActive(moduleName) {
+  try {
+    const configPath = path.join(__dirname, '..', '..', '..', 'config.json');
+    if (!fs.existsSync(configPath)) return false;
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    return !!(cfg.modules && cfg.modules[moduleName]);
+  } catch {
+    return false;
+  }
+}
 
 // Helpers
 function toNumber(v, def = 0) {
@@ -44,7 +59,12 @@ function getProduits({ search = '', limit = 5000, offset = 0 } = {}) {
       p.id,
       p.nom,
       p.reference,
-      COALESCE(p.stock, 0) AS stock,
+      -- Stock calculé depuis stock_movements, fallback sur p.stock si aucun mouvement
+      COALESCE(
+        (SELECT SUM(delta) FROM stock_movements WHERE produit_id = p.id),
+        p.stock,
+        0
+      ) AS stock,
       p.prix,
       p.code_barre,
       p.unite_id,
@@ -94,7 +114,12 @@ function getProduit(id) {
       p.id,
       p.nom,
       p.reference,
-      COALESCE(p.stock, 0) AS stock,
+      -- Stock calculé depuis stock_movements, fallback sur p.stock
+      COALESCE(
+        (SELECT SUM(delta) FROM stock_movements WHERE produit_id = p.id),
+        p.stock,
+        0
+      ) AS stock,
       p.prix,
       p.code_barre,
       p.unite_id,
@@ -221,9 +246,13 @@ function ajouterProduit(p = {}) {
     // Note: l'enqueueOp product.created est maintenant géré par le handler
     // pour pouvoir convertir les IDs locaux en UUID avant l'envoi au serveur
 
-    // 🟢 Stock initial → inventory.adjust (journal des mouvements)
-    if (stockInit !== 0) {
+    // 🟢 Stock initial → stock_movement + inventory.adjust op (seulement si module stocks actif)
+    if (stockInit !== 0 && isModuleActive('stocks')) {
       try {
+        // Créer le mouvement local immédiatement
+        createStockMovement(id, stockInit, 'initial', null, { reason: 'create' });
+
+        // Enqueue l'opération pour synchronisation
         enqueueOp({
           deviceId: DEVICE_ID,
           opType: 'inventory.adjust',
@@ -236,7 +265,7 @@ function ajouterProduit(p = {}) {
           },
         });
       } catch (e) {
-        console.error('[ajouterProduit] enqueueOp inventory.adjust error:', e);
+        console.error('[ajouterProduit] stock movement/enqueueOp error:', e);
       }
     }
 

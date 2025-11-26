@@ -107,16 +107,21 @@
     chip.style.cursor = 'pointer';
     chip.addEventListener('click', doManualSync);
 
-    // État initial
-    setChip('OK', 'online');
-
-    // Mises à jour poussées par le process main
+    // L'indicateur de sync est géré par syncClient.js
+    // Écouteur pour rafraîchir l'UI quand les données sont synchronisées
     if (window.electronEvents?.on) {
-      window.electronEvents.on('ops:pushed', () => setChip('⇧', 'online'));
       window.electronEvents.on('data:refreshed', () => {
-        setChip('OK', 'online');
-        // ✅ rafraîchir aussi quand le main nous notifie d'un pull auto
+        // Rafraîchir la page courante quand le main nous notifie d'un pull auto
         setTimeout(() => window.refreshCurrentPage?.(), 100);
+      });
+      
+      // Gestion des erreurs de sync limite atteinte
+      window.electronEvents.on('sync:failed_limit', (data) => {
+        const { count } = data || {};
+        if (window.showToast) {
+          window.showToast(`Échec de synchronisation : ${count} opération(s) en attente. Vérifiez la connexion.`, 'error', 8000);
+        }
+        console.error('[sync] Limite de retry atteinte:', count, 'opérations bloquées');
       });
     }
   });

@@ -8,7 +8,7 @@
     "email": false,
     "receptions": false,
     "ventes_exterieur": false,
-    "stocks": false,
+    "stocks": true,
     "exports": false,
     "multiusers": false,
     "fournisseurs": true,

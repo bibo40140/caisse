@@ -6,6 +6,7 @@ const { BrowserWindow } = require('electron');
 const { getDeviceId } = require('../device');
 const { enqueueOp } = require('../db/ops');
 const db = require('../db/db');
+const { createStockMovement, getStock } = require('../db/stock');
 
 function readApiBase() {
   try {
@@ -167,11 +168,19 @@ function applySummaryToLocal(lines) {
     if (localId) mapped.set(localId, qty);
   }
 
-  const stmtZeroAll  = db.prepare(`UPDATE produits SET stock = 0`);
-  const stmtSetStock = db.prepare(`UPDATE produits SET stock = ? WHERE id = ?`);
+  // Créer des mouvements d'inventaire pour chaque produit
   const tx = db.transaction(() => {
-    stmtZeroAll.run();
-    for (const [id, s] of mapped.entries()) stmtSetStock.run(s, id);
+    // Pour chaque produit mappé, calculer le delta et créer un mouvement
+    for (const [id, targetStock] of mapped.entries()) {
+      const currentStock = getStock(id);
+      const delta = targetStock - currentStock;
+      if (delta !== 0) {
+        createStockMovement(id, delta, 'inventory', null, { 
+          target_stock: targetStock,
+          current_stock: currentStock 
+        });
+      }
+    }
   }); tx();
 
   try { BrowserWindow.getAllWindows().forEach(w => w.webContents.send('data:refreshed', { from: 'inventory:finalize' })); } catch {}

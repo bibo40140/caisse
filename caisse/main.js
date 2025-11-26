@@ -848,6 +848,27 @@ safeHandle('sync:pull_all', async () => {
 });
 
 // ⚠️ NOUVEAU: fallback pour éviter l’erreur "No handler registered for 'inventory:list-open'"
+
+
+safeHandle('sync:pull_ventes', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connect� (token manquant)' };
+    return await sync.pullVentes();
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('sync:pull_receptions', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connect� (token manquant)' };
+    return await sync.pullReceptions();
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
 safeHandle('inventory:list-open', async () => {
   return { ok: true, items: [] };
 });
@@ -1048,5 +1069,63 @@ safeHandle('ops:pending-count', async () => {
     return { ok: true, count: 0 };
   } catch (e) {
     return { ok: false, error: e?.message || String(e), count: 0 };
+  }
+});
+
+safeHandle('sync:retry_failed', async (_evt, ids) => {
+  try {
+    if (!sync?.retryFailedOps) {
+      return { ok: false, error: 'retryFailedOps non disponible' };
+    }
+    return await sync.retryFailedOps(ids);
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  HANDLERS LOGS & DIAGNOSTIC
+// ═══════════════════════════════════════════════════════════
+
+const logger = require('./src/main/logger');
+
+safeHandle('logs:getRecent', async (_evt, options) => {
+  try {
+    const { limit = 100, filters = {} } = options || {};
+    const logs = logger.getRecentLogs(limit, filters);
+    return { ok: true, logs };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('logs:export', async () => {
+  try {
+    const filePath = logger.exportLogs();
+    if (filePath) {
+      return { ok: true, filePath };
+    } else {
+      return { ok: false, error: 'Échec export logs' };
+    }
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('logs:clear', async () => {
+  try {
+    const success = logger.clearLogs();
+    return { ok: success };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('diagnostic:export', async () => {
+  try {
+    const result = logger.exportDiagnostic(db);
+    return result;
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
   }
 });

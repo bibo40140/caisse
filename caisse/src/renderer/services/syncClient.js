@@ -37,23 +37,31 @@
 
     switch (status) {
       case 'pushing':
-        el.textContent = '⏫ Sync…';
-        el.title = `Envoi en cours${info.pending ? ` (${info.pending})` : ''}`;
+        el.textContent = info.pending ? `⇧${info.pending}` : '⇧';
+        el.title = `Envoi en cours${info.pending ? ` (${info.pending} op.)` : ''}`;
         el.classList.add('is-busy');
         break;
       case 'pulling':
-        el.textContent = '⏬ Sync…';
+        el.textContent = '⇣';
         el.title = 'Récupération des données';
         el.classList.add('is-busy');
         break;
       case 'online':
-        el.textContent = '🟢 En ligne';
-        el.title = info.phase ? `En ligne — ${info.phase}` : 'En ligne';
+        const pendingCount = info.pending || 0;
+        el.textContent = pendingCount > 0 ? `${pendingCount}` : '✓';
+        el.title = pendingCount > 0 
+          ? `En ligne — ${pendingCount} op. en attente`
+          : (info.phase ? `En ligne — ${info.phase}` : 'En ligne');
         el.classList.add('is-online');
+        // Ajouter un warning visuel si trop d'opérations en attente
+        if (pendingCount > 50) {
+          el.style.background = '#fff3cd';
+          el.style.color = '#856404';
+        }
         break;
       case 'offline':
-        el.textContent = '🔴 Hors ligne';
-        el.title = info.error ? `Erreur: ${info.error}` : 'Hors ligne';
+        el.textContent = '✗';
+        el.title = info.error ? `Hors ligne: ${info.error}` : 'Hors ligne';
         el.classList.add('is-offline');
         break;
       default:

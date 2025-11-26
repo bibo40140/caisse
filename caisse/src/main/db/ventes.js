@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { enqueueOp } = require('./ops');
 const { getDeviceId } = require('../device');
+const { createStockMovement } = require('./stock');
 
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
@@ -80,10 +81,6 @@ function enregistrerVente(vente, lignes) {
       (?,        ?,          ?,        ?,    ?,             ?,              datetime('now','localtime'))
   `);
 
-  const decStock = stocksOn
-    ? db.prepare(`UPDATE produits SET stock = stock - ? WHERE id = ?`)
-    : null;
-
   const tx = db.transaction(() => {
     // HEADER
     const rV = insertVente.run(
@@ -145,8 +142,19 @@ function enregistrerVente(vente, lignes) {
 
       insertLigne.run(venteId, produitId, qte, prixTotal, pu, remise);
 
-      // Décrément local (si actif)
-      if (decStock) decStock.run(qte, produitId);
+      // Décrément stock via mouvement (si gestion stock active)
+      // ⚠️ NE PAS créer de mouvement local - il sera créé par le serveur et importé via pull
+      // Cela évite les doublons (mouvement local + mouvement serveur)
+      // if (stocksOn) {
+      //   try {
+      //     createStockMovement(produitId, -qte, 'vente', venteId, {
+      //       prix_unitaire: pu,
+      //       remise_percent: remise
+      //     });
+      //   } catch (err) {
+      //     console.error('[vente] Erreur mouvement stock:', err);
+      //   }
+      // }
 
       // 🔥 Récupérer le produitUuid (déjà sync'd normalement)
       const produitRow = db.prepare(`SELECT remote_uuid FROM produits WHERE id = ?`).get(produitId);
