@@ -80,10 +80,10 @@ function verifierCotisation(adherentId, opts = {}) {
     // Données incomplètes → non valide mais on renvoie la ligne pour debug UI
     return { actif: false, status: 'absente', expire_le: null, derniere_cotisation: last };
   }
-// Fin du mois de la cotisation (mois 0-based en JS)
-const [y, mNum] = moisStr.split('-').map(Number);
-const monthIdx = mNum - 1;                 // 0..11
-const end = new Date(Date.UTC(y, monthIdx + 1, 0)); // dernier jour du mois "moisStr"
+  // Fin du mois de la cotisation (mois 0-based en JS)
+  const [y, mNum] = moisStr.split('-').map(Number);
+  const monthIdx = mNum - 1;                 // 0..11
+  const finMois = new Date(Date.UTC(y, monthIdx + 1, 0)); // dernier jour du mois "moisStr"
 
   const finAvecGrace = new Date(finMois.getTime() + graceDays * 86400000);
 

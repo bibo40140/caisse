@@ -108,6 +108,19 @@ async function renderCaisse() {
     let selectedProspect = null;
     try { selectedProspect = JSON.parse(localStorage.getItem('selectedProspect') || 'null'); } catch { }
 
+    // Écouter l'événement de réinitialisation de l'adhérent
+    window.addEventListener('adherent-cleared', () => {
+      adherentSelectionneId = '';
+      selectedProspect = null;
+      console.log('[caisse] Variable locale adherentSelectionneId réinitialisée');
+    });
+
+    // Écouter l'événement de sélection d'adhérent (depuis loadCart)
+    window.addEventListener('adherent-selected', (e) => {
+      adherentSelectionneId = e.detail.id;
+      console.log('[caisse] Variable locale adherentSelectionneId mise à jour:', adherentSelectionneId);
+    });
+
     try {
       const panierStocke = localStorage.getItem('panier');
       if (panierStocke) panier = JSON.parse(panierStocke);
@@ -929,6 +942,15 @@ function addCotisationToCart(montant) {
     const afficherPanier = () => {
       const div = document.getElementById('panier-zone');
 
+      // 💾 Sauvegarder les valeurs actuelles avant de reconstruire le HTML
+      const savedValues = {
+        adherentInput: document.getElementById('adherent-input')?.value || '',
+        adherentSelect: document.getElementById('adherent-select')?.value || '',
+        adherentEmail: document.getElementById('adherent-select')?.dataset.email || '',
+        modePaiement: document.getElementById('mode-paiement-select')?.value || '',
+        extEmail: document.getElementById('ext-email')?.value || ''
+      };
+
       // 👉 Calculs de mode/majoration pour CETTE vue
       const isExt = (!!modules.ventes_exterieur) && (saleMode === 'exterieur');
       const factor = isExt ? extFactor : 1;
@@ -1221,6 +1243,25 @@ function addCotisationToCart(montant) {
         ${prospectPopupHtml}
       `;
 
+      // 💾 Restaurer les valeurs sauvegardées
+      if (savedValues.adherentInput) {
+        const adherentInput = document.getElementById('adherent-input');
+        const adherentSelect = document.getElementById('adherent-select');
+        if (adherentInput) adherentInput.value = savedValues.adherentInput;
+        if (adherentSelect) {
+          adherentSelect.value = savedValues.adherentSelect;
+          adherentSelect.dataset.email = savedValues.adherentEmail;
+        }
+      }
+      if (savedValues.modePaiement) {
+        const modeSelect = document.getElementById('mode-paiement-select');
+        if (modeSelect) modeSelect.value = savedValues.modePaiement;
+      }
+      if (savedValues.extEmail) {
+        const extEmail = document.getElementById('ext-email');
+        if (extEmail) extEmail.value = savedValues.extEmail;
+      }
+
       // ---- Prospects (popup + wiring type 'datalist') — UNIQUEMENT si module ON ----
       if (prospectsOn) {
         const btnPickProspect = document.getElementById('pick-prospect');
@@ -1484,18 +1525,37 @@ if (adherentsOn) {
           document.getElementById('search-produit')?.focus();
         });
       });
-      document.getElementById('btn-hold')?.addEventListener('click', async () => {
-        const modulesNow = await (window.getMods?.() || window.electronAPI.getModules());
-        let selectedProspectNow = null; try { selectedProspectNow = JSON.parse(localStorage.getItem('selectedProspect') || 'null'); } catch { }
-        const saleModeNow = localStorage.getItem('saleMode') || (modulesNow.adherents ? 'adherent' : 'exterieur');
-        await holdCurrentCart(modulesNow, saleModeNow, localStorage.getItem('adherentId') || '', selectedProspectNow, window.panier || []);
-      });
+      // Exposer afficherPanier pour qu'elle soit accessible depuis holdCurrentCart
+      window.afficherPanier = afficherPanier;
+      
+      // Nettoyer et rattacher les listeners pour éviter les doublons
+      const btnHold = document.getElementById('btn-hold');
+      const btnLoad = document.getElementById('btn-load');
+      
+      if (btnHold) {
+        // Cloner le bouton pour retirer tous les anciens listeners
+        const newBtnHold = btnHold.cloneNode(true);
+        btnHold.parentNode?.replaceChild(newBtnHold, btnHold);
+        
+        newBtnHold.addEventListener('click', async () => {
+          const modulesNow = await (window.getMods?.() || window.electronAPI.getModules());
+          let selectedProspectNow = null; 
+          try { selectedProspectNow = JSON.parse(localStorage.getItem('selectedProspect') || 'null'); } catch { }
+          const saleModeNow = localStorage.getItem('saleMode') || (modulesNow.adherents ? 'adherent' : 'exterieur');
+          await holdCurrentCart(modulesNow, saleModeNow, localStorage.getItem('adherentId') || '', selectedProspectNow, window.panier || []);
+        });
+      }
 
-      document.getElementById('btn-load')?.addEventListener('click', async () => {
-        await showLoadCartDialog();
-        afficherPanier();
-        afficherProduits();
-      });
+      if (btnLoad) {
+        const newBtnLoad = btnLoad.cloneNode(true);
+        btnLoad.parentNode?.replaceChild(newBtnLoad, btnLoad);
+        
+        newBtnLoad.addEventListener('click', async () => {
+          await showLoadCartDialog();
+          afficherPanier();
+          afficherProduits();
+        });
+      }
 
 
       // ——— Sélecteur de mode de vente ———
@@ -2005,6 +2065,425 @@ inputAdh.addEventListener('change', guardedHandle);
     };
 
   }
+
+// ========================================
+// Gestion des paniers en attente (hold/load)
+// ========================================
+
+/**
+ * Met le panier actuel en attente
+ */
+async function holdCurrentCart(modules, saleMode, adherentId, selectedProspect, panier) {
+  // Toujours utiliser window.panier pour avoir l'état actuel
+  const currentPanier = window.panier || [];
+  
+  if (currentPanier.length === 0) {
+    window.showError?.('Le panier est vide. Rien à mettre en attente.');
+    return;
+  }
+
+  // Générer un nom automatique avec date/heure + nom adhérent si disponible
+  let adherentName = '';
+  let validAdherentId = null;
+  
+  if (adherentId && saleMode === 'adherent') {
+    try {
+      const adherents = await window.electronAPI.getAdherents();
+      const adh = adherents.find(a => a.id === Number(adherentId));
+      if (adh) {
+        adherentName = ` - ${adh.nom} ${adh.prenom}`;
+        validAdherentId = adh.id;
+        console.log('[holdCurrentCart] Adhérent trouvé:', adherentName);
+      }
+    } catch (error) {
+      console.error('[holdCurrentCart] Erreur récupération adhérent:', error);
+    }
+  }
+  
+  const dateStr = new Date().toLocaleString('fr-FR', { 
+    day: '2-digit', 
+    month: '2-digit', 
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+  const name = `Panier ${dateStr}${adherentName}`;
+
+  // Générer un ID unique
+  const cartId = `cart-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  // Récupérer le mode de paiement sélectionné
+  let modePaiementId = null;
+  const modeSelect = document.getElementById('mode-paiement-select');
+  if (modeSelect && modeSelect.value && modeSelect.value !== '') {
+    const modeId = Number(modeSelect.value);
+    if (Number.isFinite(modeId) && modeId > 0) {
+      modePaiementId = modeId;
+      console.log('[holdCurrentCart] Mode de paiement:', modePaiementId);
+    }
+  }
+
+  // Préparer les données
+  const cartData = {
+    id: cartId,
+    name: name,
+    sale_type: saleMode,
+    adherent_id: validAdherentId, // Utiliser l'ID validé ou null
+    prospect_id: selectedProspect?.id || null,
+    client_email: selectedProspect?.email || null,
+    mode_paiement_id: modePaiementId,
+    meta: {
+      prospect_name: selectedProspect?.nom || null,
+      saved_at: new Date().toISOString()
+    },
+    status: 'open',
+    items: currentPanier.map(item => {
+      // Pour les cotisations et acomptes, produit_id doit être NULL
+      const itemType = item.type || 'produit';
+      let produitId = null;
+      
+      if (itemType === 'produit') {
+        // Le panier stocke l'ID dans `item.id` pour les produits
+        const pid = Number(item.id);
+        if (Number.isFinite(pid) && pid > 0) {
+          produitId = pid;
+        }
+      }
+      
+      return {
+        produit_id: produitId,
+        nom: item.nom,
+        fournisseur_nom: item.fournisseur || item.fournisseur_nom || null,
+        unite: item.unite || null,
+        prix: Number(item.prix) || 0,
+        quantite: Number(item.quantite) || 0,
+        remise_percent: Number(item.remise) || 0,
+        type: itemType
+      };
+    })
+  };
+
+  console.log('[holdCurrentCart] Données du panier:', JSON.stringify(cartData, null, 2));
+
+  try {
+    const result = await window.api.invoke('cart-save', cartData);
+    if (result.ok) {
+      window.showSuccess?.(`Panier "${name}" mis en attente avec succès.`);
+      
+      // Vider le panier actuel - il faut vider le tableau en place pour que la référence locale reste valide
+      window.panier.length = 0;
+      localStorage.setItem('panier', JSON.stringify([]));
+      
+      // Rafraîchir l'affichage si les fonctions sont disponibles
+      if (typeof window.afficherPanier === 'function') {
+        window.afficherPanier();
+      }
+      
+      // Réinitialiser l'adhérent/prospect TOUJOURS (pas seulement si saleMode === 'adherent')
+      localStorage.removeItem('adherentId');
+      const adherentInput = document.getElementById('adherent-input');
+      const adherentSelect = document.getElementById('adherent-select');
+      if (adherentInput) {
+        adherentInput.value = '';
+        console.log('[holdCurrentCart] Champ adhérent vidé');
+      }
+      if (adherentSelect) {
+        adherentSelect.value = '';
+        adherentSelect.dataset.email = '';
+        console.log('[holdCurrentCart] Select adhérent réinitialisé');
+      }
+      
+      // Réinitialiser le mode de paiement
+      const modeSelect = document.getElementById('mode-paiement-select');
+      if (modeSelect) {
+        modeSelect.value = '';
+        console.log('[holdCurrentCart] Mode de paiement réinitialisé');
+      }
+      
+      // Émettre un événement pour que le code parent sache que l'adhérent a été vidé
+      window.dispatchEvent(new CustomEvent('adherent-cleared'));
+      
+      if (selectedProspect) {
+        localStorage.removeItem('selectedProspect');
+      }
+    } else {
+      window.showError?.('Erreur lors de la mise en attente du panier.');
+    }
+  } catch (error) {
+    console.error('Erreur holdCurrentCart:', error);
+    window.showError?.(`Erreur: ${error.message}`);
+  }
+}
+
+/**
+ * Affiche la liste des paniers en attente et permet d'en charger un
+ */
+async function showLoadCartDialog() {
+  try {
+    const carts = await window.api.invoke('cart-list', { status: 'open', limit: 50 });
+    console.log('[showLoadCartDialog] Paniers reçus:', carts);
+    
+    if (!carts || carts.length === 0) {
+      console.warn('[showLoadCartDialog] Aucun panier trouvé avec status="open"');
+      window.showError?.('Aucun panier en attente.');
+      return;
+    }
+
+    // Créer le modal
+    const modalHtml = `
+      <div class="modal-overlay" id="loadCartModal" style="z-index: 10000;">
+        <div class="modal-content" style="max-width: 700px;">
+          <div class="modal-header">
+            <h3>Paniers en attente</h3>
+            <button class="modal-close" onclick="document.getElementById('loadCartModal').remove()">×</button>
+          </div>
+          <div class="modal-body">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${carts.map(cart => `
+                  <tr>
+                    <td><strong>${cart.name || 'Sans nom'}</strong></td>
+                    <td>${new Date(cart.updated_at).toLocaleString()}</td>
+                    <td>${cart.sale_type === 'adherent' ? 'Adhérent' : 'Extérieur'}</td>
+                    <td>
+                      <button class="btn btn-primary btn-sm" onclick="window.loadCart('${cart.id}')">
+                        Charger
+                      </button>
+                      <button class="btn btn-danger btn-sm" onclick="window.deleteCart('${cart.id}')">
+                        Supprimer
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="document.getElementById('loadCartModal').remove()">
+              Fermer
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <style>
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .modal-content {
+          background: white;
+          border-radius: 8px;
+          max-height: 90vh;
+          overflow-y: auto;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+          padding: 20px;
+          border-bottom: 1px solid #e0e0e0;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .modal-header h3 {
+          margin: 0;
+        }
+        
+        .modal-close {
+          background: none;
+          border: none;
+          font-size: 2rem;
+          cursor: pointer;
+          color: #999;
+        }
+        
+        .modal-close:hover {
+          color: #333;
+        }
+        
+        .modal-body {
+          padding: 20px;
+        }
+        
+        .modal-footer {
+          padding: 15px 20px;
+          border-top: 1px solid #e0e0e0;
+          text-align: right;
+        }
+        
+        .table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        
+        .table th,
+        .table td {
+          padding: 10px;
+          text-align: left;
+          border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .table th {
+          background: #f5f5f5;
+          font-weight: 600;
+        }
+        
+        .btn-sm {
+          padding: 5px 10px;
+          font-size: 0.875rem;
+          margin-right: 5px;
+        }
+      </style>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  } catch (error) {
+    console.error('Erreur showLoadCartDialog:', error);
+    window.showError?.(`Erreur: ${error.message}`);
+  }
+}
+
+/**
+ * Charge un panier depuis son ID
+ */
+window.loadCart = async function(cartId) {
+  try {
+    const result = await window.api.invoke('cart-load', cartId);
+    
+    if (!result.ok) {
+      window.showError?.('Panier introuvable.');
+      return;
+    }
+
+    const cart = result.cart;
+    
+    // Restaurer le panier - vider et remplir le tableau en place pour garder la référence
+    window.panier.length = 0;
+    cart.items.forEach(item => {
+      window.panier.push({
+        id: item.produit_id, // Le panier utilise `id` pour les produits
+        type: item.type || 'produit',
+        nom: item.nom,
+        fournisseur: item.fournisseur_nom,
+        fournisseur_nom: item.fournisseur_nom,
+        unite: item.unite,
+        prix: item.prix,
+        quantite: item.quantite,
+        remise: item.remise_percent
+      });
+    });
+
+    // Restaurer le mode de vente
+    const saleMode = cart.sale_type || 'adherent';
+    localStorage.setItem('saleMode', saleMode);
+    document.querySelector(`input[name="vente-mode"][value="${saleMode}"]`)?.click();
+
+    // Restaurer l'adhérent si applicable
+    if (cart.adherent_id) {
+      localStorage.setItem('adherentId', cart.adherent_id);
+      // Recharger les infos adhérent
+      const adherents = await window.electronAPI.getAdherents();
+      const adh = adherents.find(a => a.id === cart.adherent_id);
+      if (adh) {
+        const email = (adh.email1 || adh.email2 || '').trim();
+        const label = `${adh.nom} ${adh.prenom}${email ? ' — ' + email : ''} (#${adh.id})`;
+        
+        // Remplir le champ input et le hidden
+        const adherentInput = document.getElementById('adherent-input');
+        const adherentSelect = document.getElementById('adherent-select');
+        if (adherentInput) {
+          adherentInput.value = label;
+        }
+        if (adherentSelect) {
+          adherentSelect.value = String(adh.id);
+          adherentSelect.dataset.email = email;
+        }
+        
+        // Déclencher l'événement pour mettre à jour la variable locale
+        window.dispatchEvent(new CustomEvent('adherent-selected', { detail: { id: adh.id } }));
+        
+        console.log('[loadCart] Adhérent restauré:', adh.nom, adh.prenom);
+      }
+    }
+
+    // Restaurer le prospect si applicable
+    if (cart.meta?.prospect_name) {
+      localStorage.setItem('selectedProspect', JSON.stringify({
+        id: cart.prospect_id,
+        nom: cart.meta.prospect_name,
+        email: cart.client_email
+      }));
+    }
+
+    // Restaurer le mode de paiement si applicable
+    if (cart.mode_paiement_id) {
+      const modeSelect = document.getElementById('mode-paiement-select');
+      if (modeSelect) {
+        modeSelect.value = String(cart.mode_paiement_id);
+        console.log('[loadCart] Mode de paiement restauré:', cart.mode_paiement_id);
+      }
+    }
+
+    // Sauvegarder le panier dans le localStorage
+    localStorage.setItem('panier', JSON.stringify(window.panier));
+    
+    // Rafraîchir l'affichage
+    if (typeof window.afficherPanier === 'function') {
+      window.afficherPanier();
+    }
+
+    // Fermer le panier (le marquer comme utilisé)
+    await window.api.invoke('cart-close', cartId);
+
+    // Fermer le modal
+    document.getElementById('loadCartModal')?.remove();
+
+    window.showSuccess?.(`Panier "${cart.name}" chargé avec succès.`);
+
+  } catch (error) {
+    console.error('Erreur loadCart:', error);
+    window.showError?.(`Erreur: ${error.message}`);
+  }
+};
+
+/**
+ * Supprime un panier en attente
+ */
+window.deleteCart = async function(cartId) {
+  const confirm = await showChoixModal('Voulez-vous vraiment supprimer ce panier ?', ['Oui', 'Non']);
+  if (confirm !== 'Oui') return;
+
+  try {
+    await window.api.invoke('cart-delete', cartId);
+    window.showSuccess?.('Panier supprimé.');
+    
+    // Recharger la liste
+    document.getElementById('loadCartModal')?.remove();
+    await showLoadCartDialog();
+    
+  } catch (error) {
+    console.error('Erreur deleteCart:', error);
+    window.showError?.(`Erreur: ${error.message}`);
+  }
+};
 
 async function validerVente() {
   try {

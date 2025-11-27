@@ -48,6 +48,7 @@ import inventoryRoutes from './routes/inventory.js';
 
 // Middleware
 import { authRequired } from './middleware/auth.js';
+import { performanceMiddleware, startPeriodicReport } from './middleware/performance.js';
 
 /* =========================
  * Checks de configuration
@@ -67,6 +68,9 @@ app.use(compression({
   threshold: 102400, // 100KB - compresse seulement si réponse > 100KB
   level: 6, // Niveau de compression (1-9, 6 = bon compromis vitesse/taux)
 }));
+
+// 📊 Monitoring de performance
+app.use(performanceMiddleware);
 
 app.use(
   cors({
@@ -953,34 +957,61 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// SYNC VENTES (historique complet avec lignes) - avec support since=
+// SYNC VENTES (historique complet avec lignes) - avec support since= et pagination
 // ═══════════════════════════════════════════════════════════════════
 app.get('/sync/pull_ventes', authRequired, async (req, res) => {
+  const startTime = Date.now(); // 📊 Performance monitoring
   const tenantId = req.user?.tenantId;
   if (!tenantId) return res.status(401).json({ ok: false, error: 'Tenant requis' });
 
   const since = req.query.since || null; // timestamp ISO pour pull incrémental
+  const limit = parseInt(req.query.limit) || 1000; // Pagination: max 1000 items par défaut
+  const offset = parseInt(req.query.offset) || 0; // Pagination: offset pour page suivante
+  
+  // Limiter à 5000 max pour éviter surcharge mémoire
+  const safeLimit = Math.min(limit, 5000);
+  
   const client = await pool.connect();
 
   try {
+    // Count total pour pagination
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM ventes
+      WHERE tenant_id = $1
+    `;
+    const countParams = [tenantId];
+    
+    if (since) {
+      countQuery += ` AND updated_at > $2`;
+      countParams.push(since);
+    }
+    
+    const countRes = await client.query(countQuery, countParams);
+    const total = parseInt(countRes.rows[0].total);
+    
+    // Récupérer les ventes avec pagination
     let ventesQuery = `
       SELECT id, adherent_id, date, montant, mode_paiement_id, created_at, updated_at
       FROM ventes
       WHERE tenant_id = $1
     `;
     const ventesParams = [tenantId];
+    let paramIndex = 2;
     
     if (since) {
-      ventesQuery += ` AND updated_at > $2`;
+      ventesQuery += ` AND updated_at > $${paramIndex}`;
       ventesParams.push(since);
+      paramIndex++;
     }
     
-    ventesQuery += ` ORDER BY date, id`;
+    ventesQuery += ` ORDER BY date, id LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    ventesParams.push(safeLimit, offset);
     
     const ventesRes = await client.query(ventesQuery, ventesParams);
     const ventes = ventesRes.rows;
 
-    // Récupérer toutes les lignes pour ces ventes
+    // Récupérer toutes les lignes pour ces ventes (optimisé avec ANY)
     const ventesIds = ventes.map(v => v.id);
     let lignes = [];
     
@@ -997,6 +1028,14 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
       lignes = lignesRes.rows;
     }
 
+    const elapsed = Date.now() - startTime;
+    const hasMore = offset + ventes.length < total;
+    
+    // 📊 Log de performance
+    if (elapsed > 1000) {
+      console.warn(`[PERF] /sync/pull_ventes lent: ${elapsed}ms pour ${ventes.length} ventes`);
+    }
+
     res.json({
       ok: true,
       data: {
@@ -1005,8 +1044,13 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
       },
       meta: {
         count: ventes.length,
+        total: total,
+        offset: offset,
+        limit: safeLimit,
+        hasMore: hasMore,
         since: since || null,
         timestamp: new Date().toISOString(),
+        elapsed_ms: elapsed, // Temps de réponse pour monitoring
       },
     });
   } catch (e) {
@@ -1018,34 +1062,61 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// SYNC RECEPTIONS (historique complet avec lignes) - avec support since=
+// SYNC RECEPTIONS (historique complet avec lignes) - avec support since= et pagination
 // ═══════════════════════════════════════════════════════════════════
 app.get('/sync/pull_receptions', authRequired, async (req, res) => {
+  const startTime = Date.now(); // 📊 Performance monitoring
   const tenantId = req.user?.tenantId;
   if (!tenantId) return res.status(401).json({ ok: false, error: 'Tenant requis' });
 
   const since = req.query.since || null;
+  const limit = parseInt(req.query.limit) || 1000; // Pagination: max 1000 items par défaut
+  const offset = parseInt(req.query.offset) || 0; // Pagination: offset pour page suivante
+  
+  // Limiter à 5000 max pour éviter surcharge mémoire
+  const safeLimit = Math.min(limit, 5000);
+  
   const client = await pool.connect();
 
   try {
+    // Count total pour pagination
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM receptions
+      WHERE tenant_id = $1
+    `;
+    const countParams = [tenantId];
+    
+    if (since) {
+      countQuery += ` AND updated_at > $2`;
+      countParams.push(since);
+    }
+    
+    const countRes = await client.query(countQuery, countParams);
+    const total = parseInt(countRes.rows[0].total);
+    
+    // Récupérer les réceptions avec pagination
     let receptionsQuery = `
       SELECT id, fournisseur_id, date, reference, updated_at
       FROM receptions
       WHERE tenant_id = $1
     `;
     const receptionsParams = [tenantId];
+    let paramIndex = 2;
     
     if (since) {
-      receptionsQuery += ` AND updated_at > $2`;
+      receptionsQuery += ` AND updated_at > $${paramIndex}`;
       receptionsParams.push(since);
+      paramIndex++;
     }
     
-    receptionsQuery += ` ORDER BY date, id`;
+    receptionsQuery += ` ORDER BY date, id LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    receptionsParams.push(safeLimit, offset);
     
     const receptionsRes = await client.query(receptionsQuery, receptionsParams);
     const receptions = receptionsRes.rows;
 
-    // Récupérer toutes les lignes pour ces réceptions
+    // Récupérer toutes les lignes pour ces réceptions (optimisé avec ANY)
     const receptionsIds = receptions.map(r => r.id);
     let lignes = [];
     
@@ -1062,6 +1133,14 @@ app.get('/sync/pull_receptions', authRequired, async (req, res) => {
       lignes = lignesRes.rows;
     }
 
+    const elapsed = Date.now() - startTime;
+    const hasMore = offset + receptions.length < total;
+    
+    // 📊 Log de performance
+    if (elapsed > 1000) {
+      console.warn(`[PERF] /sync/pull_receptions lent: ${elapsed}ms pour ${receptions.length} réceptions`);
+    }
+
     res.json({
       ok: true,
       data: {
@@ -1070,8 +1149,13 @@ app.get('/sync/pull_receptions', authRequired, async (req, res) => {
       },
       meta: {
         count: receptions.length,
+        total: total,
+        offset: offset,
+        limit: safeLimit,
+        hasMore: hasMore,
         since: since || null,
         timestamp: new Date().toISOString(),
+        elapsed_ms: elapsed, // Temps de réponse pour monitoring
       },
     });
   } catch (e) {
@@ -2347,6 +2431,24 @@ app.post('/admin/backfill_stock', authRequired, async (req, res) => {
     client.release();
   }
 })();
+
+/* =========================
+ * 📊 ENDPOINT DE MONITORING
+ * =======================*/
+import { getStats, reset as resetPerfStats } from './middleware/performance.js';
+
+app.get('/api/performance/stats', authRequired, (req, res) => {
+  const stats = getStats();
+  res.json({ ok: true, stats });
+});
+
+app.post('/api/performance/reset', authRequired, (req, res) => {
+  resetPerfStats();
+  res.json({ ok: true, message: 'Métriques réinitialisées' });
+});
+
+// Démarrer le rapport périodique (toutes les 10 minutes)
+startPeriodicReport(10 * 60 * 1000);
 
 /* =========================
  * Start server

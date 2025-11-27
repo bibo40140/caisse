@@ -1,14 +1,17 @@
-// src/renderer/pages/parametres/historique/inventaires.js
-(() => {
-  // --- Busy helpers (no-op si absents) ---
-  const showBusy = (m) => (typeof window.showBusy === 'function' ? window.showBusy(m) : void 0);
-  const hideBusy = () => (typeof window.hideBusy === 'function' ? window.hideBusy() : void 0);
+/**
+ * Historique des inventaires - Module pour l'onglet Historique
+ * Affiche la liste des sessions d'inventaire dans le contexte Paramètres > Historique
+ */
 
-  // --- UI helpers ---
-  function formatEUR(v) {
-    const n = Number(v || 0);
-    return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-  }
+// --- Busy helpers (no-op si absents) ---
+const showBusy = (m) => (typeof window.showBusy === 'function' ? window.showBusy(m) : void 0);
+const hideBusy = () => (typeof window.hideBusy === 'function' ? window.hideBusy() : void 0);
+
+// --- UI helpers ---
+function formatEUR(v) {
+  const n = Number(v || 0);
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
 
   // --- CSV helper ---
   function toCSV(rows) {

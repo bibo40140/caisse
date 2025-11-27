@@ -43,10 +43,9 @@
       }
 
       if (key === 'receptions') {
-        if (window.PageReceptions?.renderReceptions) {
-          await window.PageReceptions.renderReceptions();
-        } else if (window.renderReceptions) {
-          await window.renderReceptions();
+        await inject('src/renderer/pages/parametres/historique/receptions.js');
+        if (window.PageParamsHistoriqueReceptions?.render) {
+          await window.PageParamsHistoriqueReceptions.render();
         } else {
           host.innerHTML = `<p>Module Historique des réceptions introuvable.</p>`;
         }
@@ -85,6 +84,15 @@
   async function render() {
     const content = document.getElementById('page-content');
     if (!content) return;
+
+    // Injecter le CSS commun si pas déjà présent
+    if (!document.getElementById('historique-common-css')) {
+      const link = document.createElement('link');
+      link.id = 'historique-common-css';
+      link.rel = 'stylesheet';
+      link.href = 'src/renderer/pages/parametres/historique/common-styles.css';
+      document.head.appendChild(link);
+    }
 
     content.innerHTML = `
       <h2>Historique</h2>

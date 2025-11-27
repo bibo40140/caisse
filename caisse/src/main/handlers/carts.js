@@ -50,31 +50,6 @@ const sanitizeItem = (raw) => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// Statements
-// ─────────────────────────────────────────────────────────────
-const upsertCart = db.prepare(`
-  INSERT INTO carts (id, name, sale_type, adherent_id, prospect_id, client_email, mode_paiement_id, meta, created_at, updated_at, status)
-  VALUES (@id, @name, @sale_type, @adherent_id, @prospect_id, @client_email, @mode_paiement_id, @meta, @created_at, @updated_at, @status)
-  ON CONFLICT(id) DO UPDATE SET
-    name=excluded.name,
-    sale_type=excluded.sale_type,
-    adherent_id=excluded.adherent_id,
-    prospect_id=excluded.prospect_id,
-    client_email=excluded.client_email,
-    mode_paiement_id=excluded.mode_paiement_id,
-    meta=excluded.meta,
-    updated_at=excluded.updated_at,
-    status=excluded.status
-`);
-
-const delCartItems = db.prepare(`DELETE FROM cart_items WHERE cart_id = ?`);
-
-const insCartItem  = db.prepare(`
-  INSERT INTO cart_items (cart_id, produit_id, nom, fournisseur_nom, unite, prix, quantite, remise_percent, type, created_at, updated_at)
-  VALUES (@cart_id, @produit_id, @nom, @fournisseur_nom, @unite, @prix, @quantite, @remise_percent, @type, @created_at, @updated_at)
-`);
-
-// ─────────────────────────────────────────────────────────────
 // IPC
 // ─────────────────────────────────────────────────────────────
 ipcMain.handle('cart-save', (e, payload) => {
@@ -88,11 +63,20 @@ ipcMain.handle('cart-save', (e, payload) => {
   const status = String(payload?.status || 'open').toLowerCase();
   const safeStatus = allowedStatus.has(status) ? status : 'open';
 
+  // On accepte l'adherent_id tel quel (pas de validation FK)
+  // car l'adhérent peut ne pas être encore synchronisé localement
+  const adherentId = (Number.isFinite(Number(payload?.adherent_id)) && Number(payload?.adherent_id) > 0)
+    ? Number(payload.adherent_id) : null;
+  
+  if (adherentId) {
+    console.log('[cart-save] Adhérent ID:', adherentId);
+  }
+
   const cart = {
     id,
     name: payload?.name || null,
     sale_type: payload?.sale_type || 'adherent',
-    adherent_id: toValidFk('adherents', payload?.adherent_id),
+    adherent_id: adherentId,
     // pas de FK côté prospects (volontaire), on garde un entier positif si fourni
     prospect_id: (Number.isFinite(Number(payload?.prospect_id)) && Number(payload?.prospect_id) > 0)
       ? Number(payload.prospect_id) : null,
@@ -107,13 +91,38 @@ ipcMain.handle('cart-save', (e, payload) => {
   const rawItems = Array.isArray(payload?.items) ? payload.items : [];
   const items = rawItems.map(sanitizeItem);
 
+  // Préparer les statements dans le handler pour éviter les problèmes avec le proxy DB
+  const upsertCart = db.prepare(`
+    INSERT INTO carts (id, name, sale_type, adherent_id, prospect_id, client_email, mode_paiement_id, meta, created_at, updated_at, status)
+    VALUES (@id, @name, @sale_type, @adherent_id, @prospect_id, @client_email, @mode_paiement_id, @meta, @created_at, @updated_at, @status)
+    ON CONFLICT(id) DO UPDATE SET
+      name=excluded.name,
+      sale_type=excluded.sale_type,
+      adherent_id=excluded.adherent_id,
+      prospect_id=excluded.prospect_id,
+      client_email=excluded.client_email,
+      mode_paiement_id=excluded.mode_paiement_id,
+      meta=excluded.meta,
+      updated_at=excluded.updated_at,
+      status=excluded.status
+  `);
+
+  const delCartItems = db.prepare(`DELETE FROM cart_items WHERE cart_id = ?`);
+
+  const insCartItem = db.prepare(`
+    INSERT INTO cart_items (cart_id, produit_id, nom, fournisseur_nom, unite, prix, quantite, remise_percent, type, created_at, updated_at)
+    VALUES (@cart_id, @produit_id, @nom, @fournisseur_nom, @unite, @prix, @quantite, @remise_percent, @type, @created_at, @updated_at)
+  `);
+
   const tx = db.transaction(() => {
     try {
+      console.log('[cart-save] Insertion du cart:', { id: cart.id, name: cart.name, status: cart.status, adherent_id: cart.adherent_id });
       upsertCart.run(cart);
       delCartItems.run(cart.id);
 
       for (const it of items) {
         try {
+          console.log('[cart-save] Insertion item:', { produit_id: it.produit_id, nom: it.nom, type: it.type });
           insCartItem.run({
             cart_id: cart.id,
             produit_id: it.produit_id, // peut être NULL
@@ -131,13 +140,18 @@ ipcMain.handle('cart-save', (e, payload) => {
           console.error('[cart-save] insert item FAILED:', {
             cart_id: cart.id,
             item: it,
-            error: err && err.message
+            error: err.message,
+            code: err.code
           });
           throw err;
         }
       }
     } catch (err) {
-      console.error('[cart-save] FAILED:', { cart, items, error: err && err.message });
+      console.error('[cart-save] FAILED:', { 
+        cart: { id: cart.id, adherent_id: cart.adherent_id }, 
+        error: err.message,
+        code: err.code 
+      });
       throw err;
     }
   });
@@ -152,9 +166,17 @@ ipcMain.handle('cart-save', (e, payload) => {
 });
 
 ipcMain.handle('cart-list', (e, { status = 'open', limit = 50 } = {}) => {
+  // Debug: voir TOUS les paniers
+  const allCarts = db.prepare(`SELECT id, name, status FROM carts ORDER BY updated_at DESC LIMIT 10`).all();
+  console.log(`[cart-list] Total paniers dans la base:`, allCarts.length, allCarts);
+  
   const rows = db.prepare(
     `SELECT * FROM carts WHERE status=? ORDER BY updated_at DESC LIMIT ?`
   ).all(status, limit);
+  console.log(`[cart-list] Trouvé ${rows.length} paniers avec status="${status}"`);
+  if (rows.length > 0) {
+    console.log('[cart-list] Exemple:', { id: rows[0].id, name: rows[0].name, status: rows[0].status });
+  }
   return rows.map(r => ({ ...r, meta: parseMeta(r.meta) }));
 });
 

@@ -134,6 +134,5 @@ if (typeof window !== 'undefined') {
   window.showError = showError;
   window.showSuccess = showSuccess;
   window.showWarning = showWarning;
+  window.getUserFriendlyError = getUserFriendlyError;
 }
-
-module.exports = { getUserFriendlyError, showError, showSuccess, showWarning };

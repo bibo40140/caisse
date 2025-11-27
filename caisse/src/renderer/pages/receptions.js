@@ -279,12 +279,19 @@
       const mods = await window.electronAPI.getModules();
       const stocksOn = !!(mods && mods.stocks);
 
+      // Générer un numéro de BL automatique au format BL-YYYYMMDD-XXX
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const timeStr = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0');
+      const autoRef = `BL-${dateStr}-${timeStr}`;
+
       zone.innerHTML = `
         <div style="max-width:980px">
           <div style="margin-bottom:10px">
             <label>Référence BL :
-              <input id="referenceInput" class="ui-field" placeholder="Ex : BL-2025-00123">
+              <input id="referenceInput" class="ui-field" placeholder="Ex : BL-2025-00123" value="${autoRef}">
             </label>
+            <small style="color: #666; margin-left: 10px;">Générée automatiquement (modifiable)</small>
           </div>
           <table class="reception-table">
             <thead>

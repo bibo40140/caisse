@@ -1,18 +1,18 @@
 {
   "modules": {
-    "cotisations": false,
-    "emails": false,
+    "cotisations": true,
+    "emails": true,
     "prospects": false,
     "inventaire": false,
-    "adherents": false,
-    "email": false,
+    "adherents": true,
+    "email": true,
     "receptions": false,
-    "ventes_exterieur": false,
+    "ventes_exterieur": true,
     "stocks": true,
     "exports": false,
     "multiusers": false,
     "fournisseurs": true,
-    "modes_paiement": false
+    "modes_paiement": true
   },
   "ventes_exterieur_margin_percent": 30,
   "last_email": "azeqsd",

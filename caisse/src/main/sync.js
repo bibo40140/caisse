@@ -6,6 +6,7 @@ const db = require('./db/db');
 const { apiFetch } = require('./apiClient');
 const { getDeviceId } = require('./device');
 const logger = require('./logger');
+const cache = require('./cache'); // 📦 Système de cache
 
 // ID du device (stable pour ce poste)
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
@@ -424,6 +425,25 @@ async function pullRefs({ since = null } = {}) {
       // Ne plus émettre data:refreshed automatiquement pour éviter de perturber l'utilisateur
       // Les pages se rechargeront naturellement lors de la navigation ou au besoin
       // notifyRenderer('data:refreshed', { from: 'pull_refs' });
+      
+      // 📦 Mettre à jour le cache après l'import
+      if (produits.length > 0) {
+        cache.invalidateByPrefix('produits:');
+        console.log('[cache] 🔄 Cache produits invalidé après pull');
+      }
+      if (categories.length > 0) {
+        cache.invalidateByPrefix('categories:');
+        console.log('[cache] 🔄 Cache catégories invalidé après pull');
+      }
+      if (modes_paiement.length > 0) {
+        cache.invalidateByPrefix('modes_paiement:');
+        console.log('[cache] 🔄 Cache modes_paiement invalidé après pull');
+      }
+      if (fournisseurs.length > 0) {
+        cache.invalidateByPrefix('fournisseurs:');
+        console.log('[cache] 🔄 Cache fournisseurs invalidé après pull');
+      }
+      
       setState('online', { phase: 'pulled' });
 
       return {
@@ -443,7 +463,7 @@ async function pullRefs({ since = null } = {}) {
 
 /* -------------------------------------------------
    PULL VENTES (historique complet avec lignes)
-   Support incrémental via since= timestamp
+   Support incrémental via since= timestamp + pagination
 --------------------------------------------------*/
 async function pullVentes({ since = null } = {}) {
   // Récupérer le dernier sync depuis sync_state si since non fourni
@@ -456,31 +476,65 @@ async function pullVentes({ since = null } = {}) {
     }
   }
 
-  const qs = since ? `?since=${encodeURIComponent(since)}` : '';
-  
   setState('pulling');
   
   return await withRetry(async () => {
-    let res;
-    try {
-      res = await apiFetch(`/sync/pull_ventes${qs}`, { method: 'GET' });
-    } catch (e) {
-      const errorInfo = classifyNetworkError(e);
-      logger.error('sync', 'pullVentes: erreur réseau', { error: String(e), type: errorInfo.type });
-      setState('offline', { error: errorInfo.message });
-      throw e;
-    }
+    let allVentes = [];
+    let allLignesVente = [];
+    let offset = 0;
+    const limit = 1000; // Pagination: 1000 ventes par requête
+    let hasMore = true;
+    
+    // 📊 Boucle de pagination
+    while (hasMore) {
+      const qs = new URLSearchParams();
+      if (since) qs.append('since', since);
+      qs.append('limit', limit);
+      qs.append('offset', offset);
+      
+      let res;
+      try {
+        res = await apiFetch(`/sync/pull_ventes?${qs.toString()}`, { method: 'GET' });
+      } catch (e) {
+        const errorInfo = classifyNetworkError(e);
+        logger.error('sync', 'pullVentes: erreur réseau', { error: String(e), type: errorInfo.type });
+        setState('offline', { error: errorInfo.message });
+        throw e;
+      }
 
-    if (!res.ok) {
-      const t = await res.text().catch(() => '');
-      logger.error('sync', `pullVentes: HTTP ${res.status}`, { response: t });
-      setState('offline', { error: `HTTP ${res.status}` });
-      throw new Error(`pull_ventes ${res.status} ${t}`);
-    }
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        logger.error('sync', `pullVentes: HTTP ${res.status}`, { response: t });
+        setState('offline', { error: `HTTP ${res.status}` });
+        throw new Error(`pull_ventes ${res.status} ${t}`);
+      }
 
-    const json = await res.json();
-    const { ventes = [], lignes_vente = [] } = json?.data || {};
-    const timestamp = json?.meta?.timestamp || new Date().toISOString();
+      const json = await res.json();
+      const { ventes = [], lignes_vente = [] } = json?.data || {};
+      const meta = json?.meta || {};
+      
+      allVentes.push(...ventes);
+      allLignesVente.push(...lignes_vente);
+      
+      hasMore = meta.hasMore || false;
+      offset += limit;
+      
+      logger.info('sync', `pullVentes page: ${ventes.length} vente(s), total: ${allVentes.length}/${meta.total || '?'}`, { 
+        offset: meta.offset,
+        hasMore,
+        elapsed: meta.elapsed_ms + 'ms'
+      });
+      
+      // Limiter à 10000 ventes max pour éviter surcharge mémoire
+      if (allVentes.length >= 10000) {
+        console.warn('[sync] ⚠️  Limite de 10000 ventes atteinte, arrêt de la pagination');
+        break;
+      }
+    }
+    
+    const timestamp = new Date().toISOString();
+    const ventes = allVentes;
+    const lignes_vente = allLignesVente;
 
     logger.info('sync', `pullVentes: ${ventes.length} vente(s) reçue(s)`, { since: since || 'null' });
 
@@ -555,7 +609,7 @@ async function pullVentes({ since = null } = {}) {
 
 /* -------------------------------------------------
    PULL RECEPTIONS (historique complet avec lignes)
-   Support incrémental via since= timestamp
+   Support incrémental via since= timestamp + pagination
 --------------------------------------------------*/
 async function pullReceptions({ since = null } = {}) {
   if (!since) {
@@ -567,31 +621,65 @@ async function pullReceptions({ since = null } = {}) {
     }
   }
 
-  const qs = since ? `?since=${encodeURIComponent(since)}` : '';
-  
   setState('pulling');
   
   return await withRetry(async () => {
-    let res;
-    try {
-      res = await apiFetch(`/sync/pull_receptions${qs}`, { method: 'GET' });
-    } catch (e) {
-      const errorInfo = classifyNetworkError(e);
-      logger.error('sync', 'pullReceptions: erreur réseau', { error: String(e), type: errorInfo.type });
-      setState('offline', { error: errorInfo.message });
-      throw e;
-    }
+    let allReceptions = [];
+    let allLignesReception = [];
+    let offset = 0;
+    const limit = 1000; // Pagination: 1000 réceptions par requête
+    let hasMore = true;
+    
+    // 📊 Boucle de pagination
+    while (hasMore) {
+      const qs = new URLSearchParams();
+      if (since) qs.append('since', since);
+      qs.append('limit', limit);
+      qs.append('offset', offset);
+      
+      let res;
+      try {
+        res = await apiFetch(`/sync/pull_receptions?${qs.toString()}`, { method: 'GET' });
+      } catch (e) {
+        const errorInfo = classifyNetworkError(e);
+        logger.error('sync', 'pullReceptions: erreur réseau', { error: String(e), type: errorInfo.type });
+        setState('offline', { error: errorInfo.message });
+        throw e;
+      }
 
-    if (!res.ok) {
-      const t = await res.text().catch(() => '');
-      logger.error('sync', `pullReceptions: HTTP ${res.status}`, { response: t });
-      setState('offline', { error: `HTTP ${res.status}` });
-      throw new Error(`pull_receptions ${res.status} ${t}`);
-    }
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        logger.error('sync', `pullReceptions: HTTP ${res.status}`, { response: t });
+        setState('offline', { error: `HTTP ${res.status}` });
+        throw new Error(`pull_receptions ${res.status} ${t}`);
+      }
 
-    const json = await res.json();
-    const { receptions = [], lignes_reception = [] } = json?.data || {};
-    const timestamp = json?.meta?.timestamp || new Date().toISOString();
+      const json = await res.json();
+      const { receptions = [], lignes_reception = [] } = json?.data || {};
+      const meta = json?.meta || {};
+      
+      allReceptions.push(...receptions);
+      allLignesReception.push(...lignes_reception);
+      
+      hasMore = meta.hasMore || false;
+      offset += limit;
+      
+      logger.info('sync', `pullReceptions page: ${receptions.length} réception(s), total: ${allReceptions.length}/${meta.total || '?'}`, { 
+        offset: meta.offset,
+        hasMore,
+        elapsed: meta.elapsed_ms + 'ms'
+      });
+      
+      // Limiter à 10000 réceptions max pour éviter surcharge mémoire
+      if (allReceptions.length >= 10000) {
+        console.warn('[sync] ⚠️  Limite de 10000 réceptions atteinte, arrêt de la pagination');
+        break;
+      }
+    }
+    
+    const timestamp = new Date().toISOString();
+    const receptions = allReceptions;
+    const lignes_reception = allLignesReception;
 
     logger.info('sync', `pullReceptions: ${receptions.length} réception(s) reçue(s)`, { since: since || 'null' });
 

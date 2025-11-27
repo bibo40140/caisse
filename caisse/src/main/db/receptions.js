@@ -195,13 +195,57 @@ function enregistrerReception(reception, lignes) {
 
 function getReceptions(opts = {}) {
   const { limit = 100, offset = 0 } = opts;
-  return db.prepare(`
-    SELECT r.id, r.date, r.reference, r.fournisseur_id, f.nom AS fournisseur
+  const receptions = db.prepare(`
+    SELECT 
+      r.id, 
+      r.date, 
+      r.reference, 
+      r.fournisseur_id, 
+      f.nom AS fournisseur
     FROM receptions r
     LEFT JOIN fournisseurs f ON f.id = r.fournisseur_id
     ORDER BY r.date DESC, r.id DESC
     LIMIT ? OFFSET ?
   `).all(Number(limit), Number(offset));
+
+  // Calculer le montant total pour chaque réception
+  return receptions.map(r => {
+    const lignes = db.prepare(`
+      SELECT lr.quantite, lr.prix_unitaire, p.prix as prix_produit, p.nom as produit_nom
+      FROM lignes_reception lr
+      LEFT JOIN produits p ON p.id = lr.produit_id
+      WHERE lr.reception_id = ?
+    `).all(r.id);
+
+    const montant_total = lignes.reduce((sum, ligne) => {
+      const qte = Number(ligne.quantite) || 0;
+      const prix = Number(ligne.prix_unitaire) || Number(ligne.prix_produit) || 0;
+      const sousTotal = qte * prix;
+      
+      // Debug pour voir ce qui se passe
+      if (r.id === 9) { // ID de la réception test
+        console.log('[getReceptions] Ligne:', {
+          produit: ligne.produit_nom,
+          qte,
+          prix_unitaire: ligne.prix_unitaire,
+          prix_produit: ligne.prix_produit,
+          prix_utilise: prix,
+          sousTotal
+        });
+      }
+      
+      return sum + sousTotal;
+    }, 0);
+    
+    if (r.id === 9) {
+      console.log('[getReceptions] Montant total réception 9:', montant_total);
+    }
+
+    return {
+      ...r,
+      montant_total: montant_total
+    };
+  });
 }
 
 function getDetailsReception(receptionId) {

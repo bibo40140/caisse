@@ -10,46 +10,197 @@ function ensureLocalSchema(db) {
     const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='receptions'").get();
     if (schema && schema.sql && schema.sql.includes('FOREIGN KEY (fournisseur_id)')) {
       console.log('[schema] Migration: suppression FK sur receptions.fournisseur_id...');
+      console.log('[schema] ⚠️  Cette migration nécessite de supprimer et recréer les tables.');
+      console.log('[schema] Les données existantes seront préservées si possible.');
       
       db.exec('PRAGMA foreign_keys = OFF;');
-      db.exec(`
-        BEGIN TRANSACTION;
-        CREATE TABLE IF NOT EXISTS receptions_backup AS SELECT * FROM receptions;
-        CREATE TABLE IF NOT EXISTS lignes_reception_backup AS SELECT * FROM lignes_reception;
-        DROP TABLE IF EXISTS lignes_reception;
-        DROP TABLE IF EXISTS receptions;
-        
-        CREATE TABLE receptions (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          fournisseur_id INTEGER,
-          date TEXT DEFAULT (datetime('now','localtime')),
-          reference TEXT,
-          updated_at TEXT DEFAULT (datetime('now','localtime')),
-          remote_uuid TEXT UNIQUE
-        );
-        
-        CREATE TABLE lignes_reception (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          reception_id INTEGER NOT NULL,
-          produit_id INTEGER NOT NULL,
-          quantite REAL NOT NULL,
-          prix_unitaire REAL,
-          updated_at TEXT DEFAULT (datetime('now','localtime')),
-          remote_uuid TEXT UNIQUE,
-          FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE,
-          FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
-        );
-        
-        INSERT INTO receptions SELECT * FROM receptions_backup;
-        INSERT INTO lignes_reception SELECT * FROM lignes_reception_backup;
-        DROP TABLE receptions_backup;
-        DROP TABLE lignes_reception_backup;
-        COMMIT;
-      `);
-      console.log('[schema] Migration terminée avec succès');
+      
+      try {
+        db.exec(`
+          BEGIN TRANSACTION;
+          
+          -- Sauvegarder les données
+          CREATE TEMP TABLE receptions_backup AS 
+          SELECT id, fournisseur_id, date, reference, 
+                 COALESCE(updated_at, datetime('now','localtime')) as updated_at 
+          FROM receptions;
+          
+          CREATE TEMP TABLE lignes_reception_backup AS 
+          SELECT id, reception_id, produit_id, quantite, prix_unitaire,
+                 COALESCE(updated_at, datetime('now','localtime')) as updated_at
+          FROM lignes_reception;
+          
+          -- Supprimer les anciennes tables
+          DROP TABLE lignes_reception;
+          DROP TABLE receptions;
+          
+          -- Recréer sans FK sur fournisseur
+          CREATE TABLE receptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fournisseur_id INTEGER,
+            date TEXT DEFAULT (datetime('now','localtime')),
+            reference TEXT,
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            remote_uuid TEXT UNIQUE
+          );
+          
+          CREATE TABLE lignes_reception (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reception_id INTEGER NOT NULL,
+            produit_id INTEGER NOT NULL,
+            quantite REAL NOT NULL,
+            prix_unitaire REAL,
+            updated_at TEXT DEFAULT (datetime('now','localtime')),
+            remote_uuid TEXT UNIQUE,
+            FOREIGN KEY (reception_id) REFERENCES receptions(id) ON DELETE CASCADE,
+            FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
+          );
+          
+          -- Restaurer les données
+          INSERT INTO receptions (id, fournisseur_id, date, reference, updated_at)
+          SELECT id, fournisseur_id, date, reference, updated_at FROM receptions_backup;
+          
+          INSERT INTO lignes_reception (id, reception_id, produit_id, quantite, prix_unitaire, updated_at)
+          SELECT id, reception_id, produit_id, quantite, prix_unitaire, updated_at FROM lignes_reception_backup;
+          
+          COMMIT;
+        `);
+        console.log('[schema] Migration terminée avec succès');
+      } catch (innerErr) {
+        db.exec('ROLLBACK;');
+        console.error('[schema] ❌ Migration échouée:', innerErr?.message);
+        console.log('[schema] Les tables n\'ont pas été modifiées');
+      }
     }
   } catch (e) {
-    console.warn('[schema] Migration receptions FK:', e?.message || e);
+    console.warn('[schema] Migration receptions FK (erreur externe):', e?.message || e);
+  }
+
+  // 🔥 MIGRATION 1: Supprimer la FK sur cart_items.produit_id si elle existe
+  try {
+    const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='cart_items'").get();
+    if (schema && schema.sql && schema.sql.includes('FOREIGN KEY (produit_id)')) {
+      console.log('[schema] Migration 1: suppression FK sur cart_items.produit_id...');
+      
+      db.exec('PRAGMA foreign_keys = OFF;');
+      
+      try {
+        db.exec(`
+          BEGIN TRANSACTION;
+          
+          -- Sauvegarder les données existantes
+          CREATE TEMP TABLE cart_items_backup AS SELECT * FROM cart_items;
+          
+          -- Supprimer l'ancienne table
+          DROP TABLE cart_items;
+          
+          -- Recréer sans FK sur produit_id
+          CREATE TABLE cart_items (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            cart_id         TEXT NOT NULL,
+            produit_id      INTEGER,
+            nom             TEXT,
+            fournisseur_nom TEXT,
+            unite           TEXT,
+            prix            REAL,
+            quantite        REAL,
+            remise_percent  REAL,
+            type            TEXT,
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            FOREIGN KEY (cart_id) REFERENCES carts(id) ON DELETE CASCADE
+          );
+          
+          -- Restaurer les données
+          INSERT INTO cart_items SELECT * FROM cart_items_backup;
+          
+          -- Nettoyer
+          DROP TABLE cart_items_backup;
+          
+          COMMIT;
+        `);
+        console.log('[schema] Migration 1 (cart_items) terminée avec succès');
+      } catch (innerErr) {
+        db.exec('ROLLBACK;');
+        console.error('[schema] ❌ Migration 1 (cart_items) échouée:', innerErr?.message);
+      }
+      
+      db.exec('PRAGMA foreign_keys = ON;');
+    }
+  } catch (e) {
+    console.warn('[schema] Migration 1 (cart_items) - erreur externe:', e?.message || e);
+  }
+
+  // 🔥 MIGRATION 2: Supprimer la FK sur carts.adherent_id si elle existe
+  try {
+    const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='carts'").get();
+    if (schema && schema.sql && schema.sql.includes('FOREIGN KEY (adherent_id)')) {
+      console.log('[schema] Migration 2: suppression FK sur carts.adherent_id...');
+      
+      db.exec('PRAGMA foreign_keys = OFF;');
+      
+      try {
+        db.exec(`
+          BEGIN TRANSACTION;
+          
+          -- Sauvegarder les données existantes
+          CREATE TEMP TABLE carts_backup AS SELECT * FROM carts;
+          
+          -- Supprimer l'ancienne table avec items (cascade)
+          DROP TABLE IF EXISTS cart_items;
+          DROP TABLE carts;
+          
+          -- Recréer carts sans FK sur adherent_id
+          CREATE TABLE carts (
+            id               TEXT PRIMARY KEY,
+            name             TEXT,
+            sale_type        TEXT NOT NULL DEFAULT 'adherent',
+            adherent_id      INTEGER,
+            prospect_id      INTEGER,
+            client_email     TEXT,
+            mode_paiement_id INTEGER,
+            meta             TEXT,
+            created_at       INTEGER NOT NULL,
+            updated_at       INTEGER NOT NULL,
+            status           TEXT NOT NULL DEFAULT 'open',
+            FOREIGN KEY (mode_paiement_id) REFERENCES modes_paiement(id)
+          );
+          
+          -- Recréer cart_items
+          CREATE TABLE cart_items (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            cart_id         TEXT NOT NULL,
+            produit_id      INTEGER,
+            nom             TEXT,
+            fournisseur_nom TEXT,
+            unite           TEXT,
+            prix            REAL,
+            quantite        REAL,
+            remise_percent  REAL,
+            type            TEXT,
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            FOREIGN KEY (cart_id) REFERENCES carts(id) ON DELETE CASCADE
+          );
+          
+          -- Restaurer les données carts
+          INSERT INTO carts SELECT * FROM carts_backup;
+          
+          -- Nettoyer
+          DROP TABLE carts_backup;
+          
+          COMMIT;
+        `);
+        console.log('[schema] Migration 2 (carts) terminée avec succès');
+      } catch (innerErr) {
+        db.exec('ROLLBACK;');
+        console.error('[schema] ❌ Migration 2 (carts) échouée:', innerErr?.message);
+      }
+      
+      db.exec('PRAGMA foreign_keys = ON;');
+    }
+  } catch (e) {
+    console.warn('[schema] Migration 2 (carts) - erreur externe:', e?.message || e);
   }
 
   // Toujours activer les FK en SQLite
@@ -285,7 +436,7 @@ function ensureLocalSchema(db) {
       id               TEXT PRIMARY KEY,
       name             TEXT,
       sale_type        TEXT NOT NULL DEFAULT 'adherent',
-      adherent_id      INTEGER,
+      adherent_id      INTEGER,  -- Pas de FK: permet de mettre l'ID même si adhérent pas encore sync
       prospect_id      INTEGER,
       client_email     TEXT,
       mode_paiement_id INTEGER,
@@ -293,7 +444,6 @@ function ensureLocalSchema(db) {
       created_at       INTEGER NOT NULL,
       updated_at       INTEGER NOT NULL,
       status           TEXT NOT NULL DEFAULT 'open',
-      FOREIGN KEY (adherent_id)      REFERENCES adherents(id),
       FOREIGN KEY (mode_paiement_id) REFERENCES modes_paiement(id)
     );
   `);
@@ -311,8 +461,9 @@ function ensureLocalSchema(db) {
       type            TEXT,          -- 'produit' | 'cotisation' | 'acompte'
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER NOT NULL,
-      FOREIGN KEY (cart_id)    REFERENCES carts(id)     ON DELETE CASCADE,
-      FOREIGN KEY (produit_id) REFERENCES produits(id)  ON DELETE CASCADE
+      FOREIGN KEY (cart_id)    REFERENCES carts(id)     ON DELETE CASCADE
+      -- Pas de FK sur produit_id car on veut garder l'historique même si produit supprimé
+      -- et pour éviter les problèmes de sync entre IDs locaux et UUIDs distants
     );
   `);
   db.exec(`
@@ -431,11 +582,66 @@ function ensureLocalSchema(db) {
       FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
     );
   `);
+  
+  // Index optimisés pour les requêtes fréquentes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_sm_produit ON stock_movements(produit_id);
     CREATE INDEX IF NOT EXISTS idx_sm_created ON stock_movements(created_at);
     CREATE INDEX IF NOT EXISTS idx_sm_remote_uuid ON stock_movements(remote_uuid);
+    CREATE INDEX IF NOT EXISTS idx_sm_source ON stock_movements(source, source_id);
   `);
+  
+  // Index pour les produits (recherche rapide par code-barre, référence)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_produits_code_barre ON produits(code_barre) WHERE code_barre IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_produits_reference ON produits(reference) WHERE reference IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_produits_categorie ON produits(categorie_id);
+    CREATE INDEX IF NOT EXISTS idx_produits_fournisseur ON produits(fournisseur_id);
+  `);
+  
+  // Index pour les ventes et réceptions (tri chronologique)
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_ventes_date ON ventes(date DESC);
+      CREATE INDEX IF NOT EXISTS idx_receptions_date ON receptions(date DESC);
+    `);
+  } catch (e) {
+    console.warn('[schema] Erreur création index dates:', e?.message);
+  }
+  
+  // Index updated_at (seulement si colonnes existent)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_ventes_updated ON ventes(updated_at);`);
+  } catch (e) {
+    // Colonne updated_at n'existe peut-être pas encore
+  }
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_receptions_updated ON receptions(updated_at);`);
+  } catch (e) {
+    // Colonne updated_at n'existe peut-être pas encore
+  }
+  
+  // Index pour les lignes (JOIN rapides)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_lignes_vente_vente ON lignes_vente(vente_id);
+    CREATE INDEX IF NOT EXISTS idx_lignes_vente_produit ON lignes_vente(produit_id);
+    CREATE INDEX IF NOT EXISTS idx_lignes_reception_reception ON lignes_reception(reception_id);
+    CREATE INDEX IF NOT EXISTS idx_lignes_reception_produit ON lignes_reception(produit_id);
+  `);
+  
+  // Index pour ops_queue (sync rapide)
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_ops_ack ON ops_queue(ack, created_at);`);
+  } catch (e) {
+    console.warn('[schema] Erreur index ops_queue:', e?.message);
+  }
+  
+  // Index remote_uuid seulement si colonne existe
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_ops_remote_uuid ON ops_queue(remote_uuid) WHERE remote_uuid IS NOT NULL;`);
+  } catch (e) {
+    // Colonne remote_uuid n'existe peut-être pas encore
+  }
 
   // --- PATCHS DOUX (ajout de remote_uuid si base existante)
   try { db.prepare("ALTER TABLE produits ADD COLUMN remote_uuid TEXT").run(); } catch {}
