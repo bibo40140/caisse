@@ -283,6 +283,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listSessions:  () => ipcRenderer.invoke('inventory:listSessions'),
     getSummary:    (sessionId) => ipcRenderer.invoke('inventory:getSummary', sessionId),
     closeAllOpen:  () => ipcRenderer.invoke('inventory:closeAllOpen'),
+    markFinished:  ({ sessionId, device_id }) => ipcRenderer.invoke('inventory:markFinished', { sessionId, device_id }),
+    getDeviceStatus: ({ sessionId }) => ipcRenderer.invoke('inventory:getDeviceStatus', { sessionId }),
   },
 
   produits: {

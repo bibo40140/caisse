@@ -462,4 +462,87 @@ router.get('/inventory/:sessionId/counts', authRequired, async (req, res) => {
   }
 });
 
+/**
+ * POST /inventory/:sessionId/mark-finished
+ * body: { device_id }
+ * Marque qu'un device a terminé ses comptages.
+ * Quand tous les devices ont terminé, l'inventaire peut être clôturé.
+ */
+router.post('/:sessionId/mark-finished', authRequired, async (req, res) => {
+  const tenantId = req.user?.tenant_id;
+  const sessionId = req.params.sessionId;
+  const { device_id } = req.body || {};
+
+  if (!tenantId || !sessionId || !device_id) {
+    console.error('[mark-finished] BAD ARG', { tenantId, sessionId, device_id });
+    return res.status(400).json({ error: 'sessionId et device_id requis', tenantId, sessionId, device_id });
+  }
+
+  try {
+    // Créer ou mettre à jour le statut
+    const result = await pool.query(
+      `INSERT INTO inventory_device_status (session_id, tenant_id, device_id, status, last_activity, finished_at)
+       VALUES ($1, $2, $3, 'finished', NOW(), NOW())
+       ON CONFLICT (session_id, device_id)
+       DO UPDATE SET
+         status = 'finished',
+         finished_at = NOW(),
+         last_activity = NOW()`,
+      [sessionId, tenantId, device_id]
+    );
+    console.log('[mark-finished] OK', { sessionId, tenantId, device_id, rowCount: result.rowCount });
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('[POST /inventory/:sessionId/mark-finished] error:', e, { sessionId, tenantId, device_id });
+    return res.status(500).json({ error: 'failed to mark finished', details: e.message, sessionId, tenantId, device_id });
+  }
+});
+
+/**
+ * GET /inventory/:sessionId/device-status
+ * Retourne le statut de tous les devices qui ont participé à l'inventaire.
+ * Permet de savoir qui a terminé et qui est encore en train de compter.
+ */
+router.get('/:sessionId/device-status', authRequired, async (req, res) => {
+  const tenantId = req.user?.tenant_id;
+  const sessionId = req.params.sessionId;
+
+  if (!tenantId || !sessionId) {
+    return res.status(400).json({ error: 'sessionId requis' });
+  }
+
+  try {
+    // Récupérer tous les devices qui ont compté + leur statut
+    const devices = await pool.query(
+      `SELECT DISTINCT 
+         ic.device_id,
+         COALESCE(ids.status, 'counting') as status,
+         ids.finished_at,
+         MAX(ic.updated_at) as last_count_at
+       FROM inventory_counts ic
+       LEFT JOIN inventory_device_status ids 
+         ON ids.session_id = ic.session_id AND ids.device_id = ic.device_id
+       WHERE ic.session_id = $1 AND ic.tenant_id = $2
+       GROUP BY ic.device_id, ids.status, ids.finished_at
+       ORDER BY ic.device_id`,
+      [sessionId, tenantId]
+    );
+
+    const total = devices.rows.length;
+    const finished = devices.rows.filter(d => d.status === 'finished').length;
+    const allFinished = total > 0 && finished === total;
+
+    return res.json({
+      ok: true,
+      devices: devices.rows,
+      total,
+      finished,
+      allFinished
+    });
+  } catch (e) {
+    console.error('[GET /inventory/:sessionId/device-status] error:', e);
+    return res.status(500).json({ error: 'failed to fetch device status', details: e.message });
+  }
+});
+
 export default router;

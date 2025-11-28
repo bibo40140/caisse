@@ -304,9 +304,16 @@
           <input id="inv-search" placeholder="Rechercher (nom / fournisseur / code-barres)..." />
           <div class="spacer"></div>
           <button id="btnStartSession">Commencer une session</button>
+          <button id="btnMarkFinished" style="display:none;">✅ J'ai terminé mes comptages</button>
           <button id="inv-apply" disabled>Clôturer l'inventaire</button>
           <button id="btnManageSessions">Gérer les sessions</button>
-
+        </div>
+        
+        <div id="device-status-bar" style="display:none; background: #e3f2fd; padding: 12px; margin: 8px 0; border-radius: 8px; font-size: 0.9rem;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-weight: 600;">📊 Statut multiposte :</span>
+            <div id="device-status-list" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+          </div>
         </div>
 
         <div id="inv-scroll" class="inv-scroll">
@@ -773,6 +780,121 @@
 
       await resumeIfWanted();
 
+      // ---- Gestion multiposte : statut des terminaux
+      const $btnMarkFinished = document.getElementById('btnMarkFinished');
+      const $deviceStatusBar = document.getElementById('device-status-bar');
+      const $deviceStatusList = document.getElementById('device-status-list');
+      let deviceStatusInterval = null;
+      let hasMarkedFinished = false;
+
+      async function updateDeviceStatus() {
+        const sid = getSessionId();
+        if (!sid) {
+          $deviceStatusBar.style.display = 'none';
+          $btnMarkFinished.style.display = 'none';
+          return;
+        }
+
+        // Affichage conditionnel des boutons selon le mode solo/multiposte
+        const result = await window.electronAPI.inventory.getDeviceStatus({ sessionId: sid });
+        const { devices, total, finished, allFinished } = result;
+
+        if (total > 1) {
+          $btnMarkFinished.style.display = 'inline-block';
+          $apply.style.display = 'none';
+        } else if (total === 1) {
+          $btnMarkFinished.style.display = 'none';
+          $apply.style.display = 'inline-block';
+        } else {
+          $btnMarkFinished.style.display = 'none';
+          $apply.style.display = 'none';
+        }
+
+        try {
+
+          // Afficher la barre de statut si plusieurs devices ont compté
+          if (total > 1) {
+            $deviceStatusBar.style.display = 'block';
+
+            // Mettre à jour la liste des devices
+            $deviceStatusList.innerHTML = devices.map(d => {
+              const isFinished = d.status === 'finished';
+              const icon = isFinished ? '✅' : '⏳';
+              const style = isFinished 
+                ? 'background: #4CAF50; color: white;' 
+                : 'background: #FFA726; color: white;';
+              return `<span style="padding: 4px 12px; border-radius: 16px; font-size: 0.85rem; ${style}">${icon} ${d.device_id}</span>`;
+            }).join('');
+
+            // Afficher le compteur
+            const counterHtml = `<span style="margin-left: 8px; font-weight: bold; color: ${allFinished ? '#4CAF50' : '#666'};">(${finished}/${total})</span>`;
+            $deviceStatusList.innerHTML += counterHtml;
+
+            // Si tous ont terminé, clôturer automatiquement
+            if (allFinished && total > 1) {
+              console.log('[inventaire] Tous les terminaux ont terminé, clôture automatique...');
+              clearInterval(deviceStatusInterval);
+              
+              // Attendre 2 secondes pour que l'utilisateur voie le statut
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              // Clôturer automatiquement
+              $apply.click();
+            }
+          } else if (total === 1) {
+            // Un seul device : afficher un message simple
+            $deviceStatusBar.style.display = 'block';
+            $deviceStatusList.innerHTML = '<span style="color: #666; font-style: italic;">Mode solo - Cliquez sur "J\'ai terminé" pour clôturer</span>';
+          } else {
+            // Aucun device n'a compté encore
+            $deviceStatusBar.style.display = 'none';
+          }
+        } catch (e) {
+          console.warn('[inventaire] Erreur updateDeviceStatus:', e);
+        }
+      }
+
+      $btnMarkFinished.addEventListener('click', async () => {
+        const sid = getSessionId();
+        if (!sid) return;
+
+        try {
+          setBusy(true, 'Marquage terminé...');
+          const deviceId = await window.electronAPI.getDeviceId();
+          await window.electronAPI.inventory.markFinished({ sessionId: sid, device_id: deviceId });
+          hasMarkedFinished = true;
+          
+          $btnMarkFinished.textContent = '✅ Vous avez terminé';
+          $btnMarkFinished.disabled = true;
+          $btnMarkFinished.style.background = '#4CAF50';
+          $btnMarkFinished.style.color = 'white';
+          
+          // Refresh immédiat du statut
+          await updateDeviceStatus();
+          
+          // Vérifier si on est en mode solo ou multiposte
+          const result = await window.electronAPI.inventory.getDeviceStatus({ sessionId: sid });
+          const { total, allFinished } = result;
+          
+          if (total === 1 || allFinished) {
+            // Mode solo OU tous ont terminé : clôturer immédiatement
+            status.show('✅ Clôture de l\'inventaire...', 'ok');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            $apply.click();
+          } else {
+            status.show(`✅ Vous avez terminé. En attente des autres terminaux... (${result.finished}/${total})`, 'ok');
+          }
+        } catch (e) {
+          alert('Erreur lors du marquage : ' + (e?.message || e));
+        } finally {
+          setBusy(false);
+        }
+      });
+
+      // Démarrer le polling du statut des devices toutes les 3 secondes
+      deviceStatusInterval = setInterval(updateDeviceStatus, 3000);
+      updateDeviceStatus(); // Premier appel immédiat
+
       // ---- Auto-refresh pour détecter sessions créées par autres postes
       let refreshInterval = setInterval(() => {
         const sid = getSessionId();
@@ -793,7 +915,17 @@
       // Cleanup au déchargement
       window.addEventListener('beforeunload', () => {
         if (refreshInterval) clearInterval(refreshInterval);
+        if (deviceStatusInterval) clearInterval(deviceStatusInterval);
       });
+
+      // Réinitialiser le statut "terminé" quand on change de session
+      function resetFinishedStatus() {
+        hasMarkedFinished = false;
+        $btnMarkFinished.textContent = '✅ J\'ai terminé mes comptages';
+        $btnMarkFinished.disabled = false;
+        $btnMarkFinished.style.background = '';
+        $btnMarkFinished.style.color = '';
+      }
 
       // ---- recherche
       $search.addEventListener("input", () => { renderRows(); saveDraftDebounced(); });

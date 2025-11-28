@@ -331,6 +331,51 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     return (await apiInventorySummary(sessionId)).raw;
   });
 
+  safeHandle(ipcMain, 'inventory:markFinished', async (_e, payload = {}) => {
+    const sessionId = payload?.sessionId;
+    const device_id = payload?.device_id || DEFAULT_DEVICE_ID;
+    if (!sessionId) throw new Error('inventory:markFinished BAD_ARG sessionId');
+    
+    const { token } = resolveAuthContext();
+    const res = await fetch(`${API}/inventory/${encodeURIComponent(sessionId)}/mark-finished`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ device_id })
+    });
+
+    let rawBody = null;
+    try {
+      rawBody = await res.text();
+      console.log('[markFinished] API response:', rawBody);
+      const json = JSON.parse(rawBody);
+      if (!res.ok || !json.ok) {
+        throw new Error(`markFinished HTTP ${res.status} ${rawBody}`);
+      }
+      return json;
+    } catch (e) {
+      // Si le body n'est pas JSON ou autre erreur
+      throw new Error(`markFinished HTTP ${res.status} ${rawBody || e.message}`);
+    }
+  });
+
+  safeHandle(ipcMain, 'inventory:getDeviceStatus', async (_e, payload = {}) => {
+    const sessionId = payload?.sessionId;
+    if (!sessionId) throw new Error('inventory:getDeviceStatus BAD_ARG sessionId');
+    
+    const { token } = resolveAuthContext();
+    const res = await fetch(`${API}/inventory/${encodeURIComponent(sessionId)}/device-status`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`getDeviceStatus HTTP ${res.status} ${body}`);
+    }
+    
+    return await res.json();
+  });
+
   safeHandle(ipcMain, 'inventory:finalize', async (_evt, { sessionId, user } = {}) => {
     if (!sessionId) throw new Error('inventory:finalize BAD_ARG sessionId');
     const { token } = resolveAuthContext();
