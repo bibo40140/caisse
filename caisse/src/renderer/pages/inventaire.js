@@ -148,28 +148,48 @@
   }
 
   /* ================== UI: une ligne produit ================== */
-  function rowHTML(p, st, fournisseursById, unitesById) {
+  function rowHTML(p, st, fournisseursById, unitesById, currentDeviceId) {
     const draft = st.draft ?? (st.counted ?? "");
     const validated = !!st.validated;
 
+    // Calculs multiposte - utiliser device_counts si disponible
+    const deviceCounts = st.device_counts || {};
+    const localCounted = Number(st.counted || 0);
+    
+    // Calculer le total remote et les autres terminaux
+    let remoteTotal = 0;
+    let othersCounted = 0;
+    for (const [deviceId, qty] of Object.entries(deviceCounts)) {
+      const qtyNum = Number(qty || 0);
+      remoteTotal += qtyNum;
+      if (deviceId !== currentDeviceId) {
+        othersCounted += qtyNum;
+      }
+    }
+    
+    // Si pas de device_counts, fallback sur ancienne méthode
+    if (Object.keys(deviceCounts).length === 0) {
+      remoteTotal = Number(st.remoteCount || 0);
+      othersCounted = Math.max(0, remoteTotal - localCounted);
+    }
+
     let deltaCell = "";
     let rowCls = "";
+    
     if (validated) {
-      const effectiveCount = (Number(st.remoteCount) > 0) ? Number(st.remoteCount) : Number(st.counted ?? 0);
+      const effectiveCount = remoteTotal > 0 ? remoteTotal : localCounted;
       const delta = effectiveCount - Number(st.system);
       deltaCell = `${delta > 0 ? "+" : ""}${delta}`;
       rowCls = delta === 0 ? "validated delta0" : (delta > 0 ? "validated pos" : "validated neg");
-    } else {
-      // Afficher le total agrégé si présent
-      if (Number(st.remoteCount) > 0) {
-        const localCounted = Number(st.counted || 0);
-        const othersCounted = Number(st.remoteCount) - localCounted;
-        let title = `Total: ${st.remoteCount}`;
-        if (othersCounted > 0) {
-          title += ` (Vous: ${localCounted}, Autres: ${othersCounted})`;
-        }
-        deltaCell = `<span class="live-badge" title="${title}">∑ ${Number(st.remoteCount)}</span>`;
+    } else if (remoteTotal > 0 || localCounted > 0) {
+      // Afficher badge multiposte
+      let badgeHtml = '';
+      if (othersCounted > 0) {
+        badgeHtml = `<span class="multiposte-badge" title="Vous: ${localCounted}, Autres terminaux: ${othersCounted}">🔄 ${remoteTotal}</span>`;
+      } else if (localCounted > 0) {
+        badgeHtml = `<span class="local-badge" title="Votre comptage">📱 ${localCounted}</span>`;
       }
+      deltaCell = badgeHtml;
     }
 
     const prixVal = (typeof p.prix === "number" ? p.prix : Number(p.prix || 0));
@@ -190,6 +210,7 @@
         <td class="cnt">
           <input type="text" inputmode="decimal" value="${draft === null ? "" : draft}" class="counted" placeholder="${isDecimalUnit(unitName) ? 'ex: 1,25' : 'ex: 3'}" />
         </td>
+        <td class="others">${othersCounted > 0 ? `<span class="other-count" title="Compté par d'autres terminaux">💻 ${othersCounted}</span>` : ''}</td>
         <td class="dlt">${deltaCell}</td>
         <td class="price">${prixStr}</td>
         <td class="actions">
@@ -214,6 +235,20 @@
       try { localStorage.removeItem(DRAFT_KEY); } catch {}
     };
 
+    // Device ID du terminal actuel
+    let currentDeviceId = null;
+    async function getCurrentDeviceId() {
+      if (!currentDeviceId) {
+        try {
+          currentDeviceId = await window.electronAPI.getDeviceId();
+        } catch (err) {
+          console.warn('[inventaire] Impossible de récupérer le device ID:', err);
+          currentDeviceId = 'unknown';
+        }
+      }
+      return currentDeviceId;
+    }
+
     // helpers message barre
     function useStatusBar() {
       const statusBar = document.createElement('div');
@@ -236,6 +271,11 @@
         fetchProduits(), fetchFournisseurs(), fetchCategoriesProduits(), fetchUnites()
       ]);
 
+      console.log('[inventaire] Fournisseurs chargés:', fournisseurs?.length || 0);
+      console.log('[inventaire] Catégories chargées:', categories?.length || 0);
+      console.log('[inventaire] Produits chargés:', produits?.length || 0);
+      console.log('[inventaire] Unités chargées:', unites?.length || 0);
+
       const cfg = await getConfig().catch(() => ({}));
       const pollEverySec = Number(cfg?.inventory?.poll_interval_sec || 5);
       const emailTo = cfg?.inventory?.email_to || null;
@@ -248,6 +288,10 @@
       // ---- état
       const fournisseursById = Object.fromEntries((fournisseurs || []).map(f => [f.id, f]));
       const unitesById = Object.fromEntries((unites || []).map(u => [u.id, u]));
+      
+      console.log('[inventaire] Fournisseurs chargés:', fournisseurs?.length || 0);
+      console.log('[inventaire] Catégories chargées:', categories?.length || 0);
+      console.log('[inventaire] Produits chargés:', produits?.length || 0);
 
       const state = new Map();
       for (const p of produits) {
@@ -276,6 +320,7 @@
                 <th>Code</th>
                 <th>Stock</th>
                 <th>Compté</th>
+                <th>Autres</th>
                 <th>Écart</th>
                 <th>Prix</th>
                 <th></th>
@@ -307,6 +352,41 @@
           @keyframes spin { to { transform: rotate(360deg);} }
           tr.row-busy { opacity:.6; }
           .disabled { opacity: .6; pointer-events: none; }
+          .multiposte-badge { 
+            display: inline-block; 
+            padding: 2px 8px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; 
+            border-radius: 12px; 
+            font-size: 0.85em; 
+            font-weight: 600; 
+            cursor: help;
+            animation: pulse 2s ease-in-out infinite;
+          }
+          .local-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+          }
+          .others { text-align: center; }
+          .other-count {
+            display: inline-block;
+            padding: 3px 8px;
+            background: #FFA726;
+            color: white;
+            border-radius: 12px;
+            font-size: 0.9em;
+            font-weight: 600;
+            cursor: help;
+          }
         </style>
       `;
 
@@ -496,12 +576,13 @@
       }
 
       // ---- rendu lignes
-      function renderRows() {
+      async function renderRows() {
         const q = $search.value || "";
         const filtered = filterList(produits, q, fournisseursById);
         const prevTop = $scroll.scrollTop;
         filtered.sort(byName);
-        const html = filtered.length ? filtered.map((p) => rowHTML(p, state.get(p.id), fournisseursById, unitesById)).join("")
+        const devId = await getCurrentDeviceId();
+        const html = filtered.length ? filtered.map((p) => rowHTML(p, state.get(p.id), fournisseursById, unitesById, devId)).join("")
                                      : `<tr><td colspan="10"><em>Aucun produit</em></td></tr>`;
         $rows.innerHTML = html;
         $scroll.scrollTop = prevTop;
@@ -741,6 +822,9 @@
               const st2 = state.get(exact.id);
               st2.prevSent = Number(st2.prevSent || 0) + 1;
               state.set(exact.id, st2);
+              
+              // Refresh immédiat
+              refreshSummary();
             } catch (err) {
               const msg = (err?.message || '') + ' ' + (err?.stack || '');
               if (String(msg).includes('session_locked')) {
@@ -798,9 +882,19 @@
               const effective = (st.counted === null ? 0 : Number(st.counted));
               const deltaToSend = effective - Number(st.prevSent || 0);
               if (Number.isFinite(deltaToSend) && deltaToSend !== 0) {
-                await window.electronAPI.inventory.countAdd({ sessionId: sid, product_id: id, qty: deltaToSend, user: currentUser });
+                // Récupérer le remote_uuid du produit pour l'envoi à l'API
+                const p = produits.find(x => x.id === id);
+                const product_uuid = p?.remote_uuid || null;
+                if (!product_uuid) {
+                  console.error('[inventaire] Produit sans remote_uuid, comptage impossible:', id, p?.nom);
+                  throw new Error('Produit non synchronisé avec le serveur');
+                }
+                await window.electronAPI.inventory.countAdd({ sessionId: sid, product_id: product_uuid, qty: deltaToSend, user: currentUser });
                 st.prevSent = effective;
                 state.set(id, st);
+                
+                // Refresh immédiat pour voir les comptages des autres terminaux
+                refreshSummary();
               }
             } catch (err) {
               const msg = String(err?.message || err);
@@ -851,10 +945,108 @@
         const tr = e.target.closest("tr[data-id]"); if (!tr) return;
         const id = Number(tr.dataset.id);
 
+        // Clic sur badge multiposte : afficher détails
+        if (e.target.classList.contains('multiposte-badge') || e.target.classList.contains('local-badge')) {
+          await showDeviceDetails(id);
+          return;
+        }
+
         if (e.target.closest(".row-validate")) { validateRow(id); return; }
         if (e.target.closest(".row-edit")) { await openEditModal(id); return; }
         if (e.target.closest(".row-delete")) { await deleteProduct(id); return; }
       });
+
+      // Afficher les comptages par device pour un produit
+      async function showDeviceDetails(productId) {
+        const sid = getSessionId();
+        if (!sid) return;
+
+        const p = produits.find(x => x.id === productId);
+        if (!p) return;
+
+        setBusy(true, 'Chargement des détails...');
+        try {
+          const result = await window.electronAPI.inventory.getCounts({ sessionId: sid });
+          setBusy(false);
+
+          if (!result?.counts) {
+            alert('Aucun détail disponible');
+            return;
+          }
+
+          // Filtrer les comptages pour ce produit
+          const pUuid = p.remote_uuid || p.remote_id || p.neon_id;
+          const pBarcode = (p.code_barre || p.code_barres || '').replace(/\s+/g, '').trim();
+          
+          const deviceCounts = result.counts.filter(c => {
+            if (pUuid && String(c.produit_id) === String(pUuid)) return true;
+            const cBarcode = (c.code_barre || c.code_barres || '').replace(/\s+/g, '').trim();
+            return pBarcode && cBarcode && pBarcode === cBarcode;
+          });
+
+          if (deviceCounts.length === 0) {
+            alert('Aucun comptage trouvé pour ce produit');
+            return;
+          }
+
+          // Grouper par device_id
+          const byDevice = {};
+          for (const c of deviceCounts) {
+            const device = c.device_id || 'Inconnu';
+            if (!byDevice[device]) {
+              byDevice[device] = { device, total: 0, user: c.user, updated_at: c.updated_at };
+            }
+            byDevice[device].total += Number(c.qty || 0);
+          }
+
+          const devicesHtml = Object.values(byDevice).map(d => {
+            const date = d.updated_at ? new Date(d.updated_at).toLocaleString('fr-FR') : '';
+            return `
+              <div style="padding: 8px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between;">
+                <div>
+                  <strong>${d.device}</strong>
+                  ${d.user ? `<br/><small style="color: #666;">Par: ${d.user}</small>` : ''}
+                  ${date ? `<br/><small style="color: #999;">${date}</small>` : ''}
+                </div>
+                <div style="font-size: 1.2em; font-weight: 600; color: #667eea;">
+                  ${d.total}
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          const totalAll = Object.values(byDevice).reduce((sum, d) => sum + d.total, 0);
+
+          const modal = document.createElement('div');
+          modal.className = 'inv-modal-overlay';
+          modal.innerHTML = `
+            <div class="inv-modal-panel" style="max-width: 500px;">
+              <div class="modal-header">
+                <h3>📊 Détails des comptages</h3>
+                <button class="modal-close">✕</button>
+              </div>
+              <div class="modal-body" style="max-height: 400px; overflow-y: auto;">
+                <h4 style="margin: 0 0 12px 0;">${p.nom}</h4>
+                <div style="background: #f5f5f5; padding: 12px; border-radius: 6px; margin-bottom: 16px; text-align: center;">
+                  <div style="font-size: 0.9em; color: #666; margin-bottom: 4px;">Total agrégé</div>
+                  <div style="font-size: 2em; font-weight: 700; color: #667eea;">${totalAll}</div>
+                </div>
+                <h5 style="margin: 16px 0 8px 0; color: #666;">Comptages par terminal:</h5>
+                ${devicesHtml}
+              </div>
+            </div>
+          `;
+
+          document.body.appendChild(modal);
+          modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+          modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.remove();
+          });
+        } catch (err) {
+          setBusy(false);
+          alert('Erreur chargement détails: ' + (err?.message || err));
+        }
+      }
 
       async function openEditModal(id) {
         const p = produits.find(x => x.id === id); if (!p) return;
@@ -898,33 +1090,77 @@
             const remoteId = r.product_id || r.remote_product_id;
             const barcode = (r.barcode || r.code_barres || '').replace(/\s+/g, '').trim();
             const counted = Number(r.counted_total || 0);
+            const deviceCounts = r.device_counts || {}; // NOUVEAU
             
-            if (remoteId) byRemoteUuid.set(String(remoteId), counted);
-            if (barcode) byBarcode.set(barcode, counted);
+            if (remoteId) {
+              byRemoteUuid.set(String(remoteId), { counted, deviceCounts });
+            }
+            if (barcode) {
+              byBarcode.set(barcode, { counted, deviceCounts });
+            }
           }
 
           let changed = false;
+          // Créer aussi un mapping par nom pour les cas où remote_uuid est absent
+          const byName = new Map();
+          for (const r of (sum?.lines || [])) {
+            const remoteId = r.product_id || r.remote_product_id;
+            const barcode = (r.barcode || r.code_barres || '').replace(/\s+/g, '').trim();
+            const counted = Number(r.counted_total || 0);
+            const deviceCounts = r.device_counts || {};
+            const nom = (r.nom || '').trim().toLowerCase();
+            
+            if (nom) {
+              byName.set(nom, { counted, deviceCounts, remoteId });
+            }
+          }
+
           for (const p of produits) {
             const st = state.get(p.id);
             if (!st) continue;
             
             let remoteCounted = 0;
+            let deviceCounts = {};
             
-            // Essayer de matcher par remote_uuid d'abord
+            // 1) Essayer de matcher par remote_uuid
             const pUuid = p.remote_uuid || p.remote_id || p.neon_id;
             if (pUuid && byRemoteUuid.has(String(pUuid))) {
-              remoteCounted = byRemoteUuid.get(String(pUuid));
-            } else {
-              // Fallback sur barcode
+              const data = byRemoteUuid.get(String(pUuid));
+              remoteCounted = data.counted;
+              deviceCounts = data.deviceCounts;
+            }
+            // 2) Sinon essayer par ID local (si pas de remote_uuid)
+            else if (byRemoteUuid.has(String(p.id))) {
+              const data = byRemoteUuid.get(String(p.id));
+              remoteCounted = data.counted;
+              deviceCounts = data.deviceCounts;
+            }
+            // 3) Fallback sur barcode
+            else if (p.code_barre || p.code_barres) {
               const pBarcode = (p.code_barre || p.code_barres || '').replace(/\s+/g, '').trim();
               if (pBarcode && byBarcode.has(pBarcode)) {
-                remoteCounted = byBarcode.get(pBarcode);
+                const data = byBarcode.get(pBarcode);
+                remoteCounted = data.counted;
+                deviceCounts = data.deviceCounts;
+              }
+            }
+            // 4) Dernier fallback : matcher par nom
+            else {
+              const pNom = (p.nom || '').trim().toLowerCase();
+              if (pNom && byName.has(pNom)) {
+                const data = byName.get(pNom);
+                remoteCounted = data.counted;
+                deviceCounts = data.deviceCounts;
               }
             }
             
-            const prev = st.remoteCount;
-            if (prev !== remoteCounted) { 
-              st.remoteCount = remoteCounted; 
+            const prevCount = st.remoteCount;
+            const prevDevices = JSON.stringify(st.device_counts || {});
+            const newDevices = JSON.stringify(deviceCounts);
+            
+            if (prevCount !== remoteCounted || prevDevices !== newDevices) { 
+              st.remoteCount = remoteCounted;
+              st.device_counts = deviceCounts; // NOUVEAU
               state.set(p.id, st); 
               changed = true; 
             }
@@ -985,10 +1221,24 @@
         $apply.disabled = true;
         setBusy(true, 'Clôture de l’inventaire en cours…');
 
-        // Récap local
+        // Récap depuis le serveur (comptages agrégés de TOUS les terminaux)
         let countedProducts = 0;
         let inventoryValue = 0;
         try {
+          const summary = await window.electronAPI.inventory.summary({ sessionId: sid });
+          if (summary?.lines) {
+            for (const line of summary.lines) {
+              if (Number(line.counted_total || 0) > 0) {
+                countedProducts++;
+                const qty = Number(line.counted_total || 0);
+                const pu = Number(line.prix || line.unit_cost || line.price || 0);
+                inventoryValue += qty * pu;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[inventaire] Erreur récup summary:', err);
+          // Fallback sur calcul local si échec
           for (const [id, st] of state.entries()) {
             if (st.validated && st.draft !== '') {
               countedProducts++;
@@ -998,28 +1248,42 @@
               inventoryValue += qty * pu;
             }
           }
-        } catch {}
+        }
 
         try {
           const res = await window.electronAPI.inventory.finalize({ sessionId: sid, user: 'Inventaire', email_to: emailTo });
-
-          try { await window.electronAPI.syncPullAll?.(); } catch {}
 
           purgeLocalSessionAndDraft();
           setSessionId(null);
 
           const end = new Date();
           const dateStr = end.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
+
+          // Forcer la synchronisation COMPLÈTE des produits depuis le serveur
+          setBusy(true, 'Synchronisation des stocks depuis le serveur…');
+          try {
+            // Attendre que l'API finisse de mettre à jour les stocks
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Puis pull les mises à jour
+            await window.electronAPI.syncPullAll?.();
+            // Attendre que la sync se termine
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } catch (syncErr) {
+            console.warn('[inventaire] Erreur sync après finalisation:', syncErr);
+          }
+          
           alert(
             "✅ Inventaire clôturé.\n\n" +
             `Date : ${dateStr}\n` +
             `Produits inventoriés : ${countedProducts}\n` +
-            `Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €`
+            `Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €\n\n` +
+            `Les stocks ont été synchronisés.`
           );
           
-          // Recharger la page pour nettoyer l'UI
+          // Recharger la page pour afficher les nouveaux stocks
           location.reload();
 
+          // Envoyer email récapitulatif si configuré
           try {
             const mods = await getModules();
             const emailsOn = !!(mods?.email || mods?.emails);
@@ -1035,8 +1299,6 @@ Session #${res?.recap?.session?.id || ''}`;
               await window.electronAPI.sendInventoryRecapEmail?.({ to: emailTo, subject, text });
             }
           } catch {}
-
-          location.reload();
 
         } catch (e) {
           const msg = String(e?.message || e);

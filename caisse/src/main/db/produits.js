@@ -59,12 +59,9 @@ function getProduits({ search = '', limit = 5000, offset = 0 } = {}) {
       p.id,
       p.nom,
       p.reference,
-      -- Stock calculé depuis stock_movements, fallback sur p.stock si aucun mouvement
-      COALESCE(
-        (SELECT SUM(delta) FROM stock_movements WHERE produit_id = p.id),
-        p.stock,
-        0
-      ) AS stock,
+      p.remote_uuid,
+      -- Stock synchronisé depuis le serveur (source de vérité)
+      COALESCE(p.stock, 0) AS stock,
       p.prix,
       p.code_barre,
       p.unite_id,

@@ -243,10 +243,10 @@ CREATE TABLE IF NOT EXISTS inventory_sessions (
 CREATE TABLE IF NOT EXISTS inventory_snapshot (
   session_id  uuid        NOT NULL REFERENCES inventory_sessions(id) ON DELETE CASCADE,
   tenant_id   uuid        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  product_id  uuid        NOT NULL REFERENCES produits(id) ON DELETE CASCADE,
+  produit_id  uuid        NOT NULL REFERENCES produits(id) ON DELETE CASCADE,
   stock_start numeric(14,3),
   unit_cost   numeric(12,2),
-  PRIMARY KEY (session_id, product_id)
+  PRIMARY KEY (session_id, produit_id)
 );
 
 CREATE TABLE IF NOT EXISTS inventory_counts (
@@ -263,14 +263,14 @@ CREATE TABLE IF NOT EXISTS inventory_counts (
 CREATE TABLE IF NOT EXISTS inventory_adjust (
   session_id    uuid        NOT NULL REFERENCES inventory_sessions(id) ON DELETE CASCADE,
   tenant_id     uuid        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  product_id    uuid        NOT NULL REFERENCES produits(id) ON DELETE CASCADE,
+  produit_id    uuid        NOT NULL REFERENCES produits(id) ON DELETE CASCADE,
   stock_start   numeric(14,3),
   counted_total numeric(14,3),
   delta         numeric(14,3),
   unit_cost     numeric(12,2),
   delta_value   numeric(14,3),
   created_at    timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (session_id, tenant_id, product_id)
+  PRIMARY KEY (session_id, tenant_id, produit_id)
 );
 
 -- 11) Index divers

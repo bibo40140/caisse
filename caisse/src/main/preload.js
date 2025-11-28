@@ -291,6 +291,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   sendInventoryRecapEmail: (payload) => ipcRenderer.invoke('send-inventory-recap-email', payload),
 
+  /* -------------- Device ID ---------------------- */
+  getDeviceId: () => ipcRenderer.invoke('get-device-id'),
+
   /* -------------- Auth / onboarding -------------- */
   authLogin: ({ email, password }) => ipcRenderer.invoke('auth:login', { email, password }),
   afterLoginRoute: () => ipcRenderer.invoke('auth:after-login-route'),

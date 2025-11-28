@@ -82,6 +82,17 @@ function registerInventoryHandlers() {
     notifyRenderer('inventory:session-changed', { session: { id: sessionId, status: 'closed' }, recap: r.recap });
     return r;
   });
+
+  // Détails des comptages par device (multiposte)
+  ipcMain.handle('inventory:getCounts', async (_evt, { sessionId } = {}) => {
+    const r = await apiGet(`/inventory/${Number(sessionId)}/counts`);
+    return r;
+  });
+
+  // Handler pour récupérer le device ID
+  ipcMain.handle('get-device-id', async () => {
+    return getDeviceId();
+  });
 }
 
 module.exports = { registerInventoryHandlers };

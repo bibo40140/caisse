@@ -263,9 +263,8 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     if (!Number.isFinite(qty)) throw new Error('inventory:count-add BAD_ARG qty');
     if (!device_id) throw new Error('inventory:count-add BAD_ARG device_id');
 
-    const localProductId = (payload?.product_id ?? payload?.productId ?? payload?.id);
-    const localNum = Number(localProductId);
-    if (!Number.isFinite(localNum)) throw new Error('inventory:count-add BAD_ARG product (local id attendu)');
+    const productIdInput = (payload?.product_id ?? payload?.productId ?? payload?.id);
+    if (!productIdInput) throw new Error('inventory:count-add BAD_ARG product_id requis');
 
     const db = getDb();
     const cols = listColumns('produits');
@@ -273,27 +272,56 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     const selectUuid = uuidCols.length ? `COALESCE(${uuidCols.join(', ')}, '')` : 'NULL';
 
     let row = null;
-    try {
-      row = db.prepare(`SELECT ${selectUuid} AS remote_uuid FROM produits WHERE id = ?`).get(localNum);
-    } catch {}
+    let localNum = null;
+    let remoteUUID = null;
 
-    const remoteUUID = row?.remote_uuid && isUuidLike(String(row.remote_uuid)) ? String(row.remote_uuid) : null;
+    // Détecter si on reçoit un UUID ou un ID local
+    const isUuid = isUuidLike(String(productIdInput));
+    
+    if (isUuid) {
+      // On reçoit un UUID → trouver l'ID local
+      try {
+        row = db.prepare(`SELECT id, ${selectUuid} AS remote_uuid FROM produits WHERE remote_uuid = ?`).get(String(productIdInput));
+        if (!row) throw new Error(`Produit avec UUID ${productIdInput} non trouvé localement`);
+        localNum = row.id;
+        remoteUUID = String(productIdInput);
+      } catch (e) {
+        throw new Error(`inventory:count-add: produit UUID ${productIdInput} introuvable: ${e.message}`);
+      }
+    } else {
+      // On reçoit un ID local → trouver l'UUID
+      localNum = Number(productIdInput);
+      if (!Number.isFinite(localNum)) throw new Error('inventory:count-add BAD_ARG product (ni ID ni UUID valide)');
+      try {
+        row = db.prepare(`SELECT ${selectUuid} AS remote_uuid FROM produits WHERE id = ?`).get(localNum);
+        remoteUUID = row?.remote_uuid && isUuidLike(String(row.remote_uuid)) ? String(row.remote_uuid) : null;
+      } catch {}
+    }
 
     // 1) Always persist locally to inventory_counts for offline use / UI
     try {
       db.prepare(`INSERT INTO inventory_counts (session_id, produit_id, qty, user, device_id, created_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))`).run(sessionId, localNum, qty, user, device_id);
     } catch (e) { console.warn('[inventory] unable to persist local count', e?.message || e); }
 
-    // 2) Enqueue op for server-side aggregation / sync. Include both local product id and remote uuid if available
-    try {
-      enqueueOp({ deviceId: DEFAULT_DEVICE_ID, opType: 'inventory.count_add', entityType: 'inventory', entityId: sessionId, payload: { session_id: sessionId, local_product_id: localNum, product_uuid: remoteUUID, qty, user, device_id } });
-    } catch (e) { console.warn('[inventory] enqueueOp failed', e?.message || e); }
-
-    // 3) Try to call remote API immediately (best-effort)
+    // 2) Appeler l'API directement pour synchronisation immédiate (multiposte)
+    // Ne PAS enqueue car cela créerait un double comptage (l'API est déjà appelée ici)
     if (remoteUUID) {
-      try { return apiInventoryCountAdd({ sessionId, product_uuid: remoteUUID, qty, user, device_id }); } catch (e) { /* non blocking */ }
+      try { 
+        await apiInventoryCountAdd({ sessionId, product_uuid: remoteUUID, qty, user, device_id });
+        return { ok: true, synced: true };
+      } catch (e) { 
+        console.warn('[inventory] count-add API failed, will retry later:', e?.message || e);
+        // Si l'API échoue, enqueue pour retry
+        try {
+          enqueueOp({ deviceId: DEFAULT_DEVICE_ID, opType: 'inventory.count_add', entityType: 'inventory', entityId: sessionId, payload: { session_id: sessionId, local_product_id: localNum, product_uuid: remoteUUID, qty, user, device_id } });
+          return { ok: true, queued: true };
+        } catch (e2) { 
+          console.warn('[inventory] enqueueOp failed', e2?.message || e2);
+          return { ok: true, local_only: true };
+        }
+      }
     }
-    return { ok: true, queued: true };
+    return { ok: true, local_only: true };
   };
   safeHandle(ipcMain, 'inventory:countAdd', doCountAdd);
   safeHandle(ipcMain, 'inventory:count-add', doCountAdd);
@@ -421,6 +449,12 @@ module.exports = function registerInventoryHandlers(ipcMain) {
   safeHandle(ipcMain, 'inventory:getSummary', async (_e, sessionId) => {
     const sum = await apiInventorySummary(sessionId);
     return sum.raw;
+    // Alias pour compatibilité avec le code frontend qui appelle inventory.summary()
+    safeHandle(ipcMain, 'inventory:summary', async (_e, { sessionId }) => {
+      const sum = await apiInventorySummary(sessionId);
+      return sum.raw;
+    });
+
   });
 
   // Récupérer comptages détaillés par device (multiposte)
@@ -521,5 +555,10 @@ module.exports = function registerInventoryHandlers(ipcMain) {
       }
     }
     return { ok: true, closed, errors };
+  });
+
+  // Handler pour récupérer le device ID
+  ipcMain.handle('get-device-id', async () => {
+    return getDeviceId();
   });
 };

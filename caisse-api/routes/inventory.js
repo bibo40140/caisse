@@ -106,16 +106,27 @@ router.post('/inventory/:sessionId/count-add', authRequired, async (req, res) =>
   const deviceIdFinal = device_id || req.headers['x-device-id'] || 'unknown';
 
   try {
-    // Upsert: si déjà un comptage pour cette combinaison session/produit/device, on accumule
+    // Upsert: si déjà un comptage pour cette combinaison session/produit/device, on REMPLACE (pas d'accumulation)
+    // Le frontend envoie des deltas, mais on veut stocker la valeur absolue finale
+    // Donc on lit d'abord la valeur actuelle, on ajoute le delta, puis on stocke le résultat
+    const current = await pool.query(
+      `SELECT qty FROM inventory_counts 
+       WHERE session_id = $1 AND produit_id = $2 AND device_id = $3`,
+      [sessionId, produit_id, deviceIdFinal]
+    );
+    
+    const currentQty = current.rows[0]?.qty || 0;
+    const newQty = Number(currentQty) + Number(qty);
+    
     await pool.query(
       `INSERT INTO inventory_counts (session_id, tenant_id, produit_id, device_id, "user", qty, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, NOW())
        ON CONFLICT (session_id, produit_id, device_id)
        DO UPDATE SET
-         qty = inventory_counts.qty + EXCLUDED.qty,
+         qty = EXCLUDED.qty,
          "user" = COALESCE(EXCLUDED."user", inventory_counts."user"),
          updated_at = NOW()`,
-      [sessionId, tenantId, produit_id, deviceIdFinal, user, Number(qty)]
+      [sessionId, tenantId, produit_id, deviceIdFinal, user, newQty]
     );
 
     return res.json({ ok: true });
@@ -158,9 +169,9 @@ router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
       });
     });
 
-    // Récupérer comptages agrégés par produit (tous devices)
+    // Agréger les comptages par produit (somme des device_id)
     const counts = await pool.query(
-      `SELECT produit_id, SUM(qty)::numeric AS counted_total
+      `SELECT produit_id, SUM(qty) AS counted_total
        FROM inventory_counts
        WHERE session_id = $1 AND tenant_id = $2
        GROUP BY produit_id`,
@@ -172,9 +183,26 @@ router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
       countsMap.set(row.produit_id, Number(row.counted_total || 0));
     });
 
+    // Récupérer aussi le détail par device_id pour l'affichage multiposte
+    const countsByDevice = await pool.query(
+      `SELECT produit_id, device_id, qty
+       FROM inventory_counts
+       WHERE session_id = $1 AND tenant_id = $2`,
+      [sessionId, tenantId]
+    );
+
+    // Construire une map: product_id => { device_id => qty }
+    const deviceCountsMap = new Map();
+    countsByDevice.rows.forEach(row => {
+      if (!deviceCountsMap.has(row.produit_id)) {
+        deviceCountsMap.set(row.produit_id, {});
+      }
+      deviceCountsMap.get(row.produit_id)[row.device_id] = Number(row.qty || 0);
+    });
+
     // Récupérer tous les produits du tenant avec infos de base
     const produits = await pool.query(
-      `SELECT id, nom, code_barre, code_barres, stock, prix
+      `SELECT id, nom, code_barre, code_barres, stock, prix, fournisseur_id, categorie_id
        FROM produits
        WHERE tenant_id = $1 AND deleted IS NOT TRUE
        ORDER BY nom`,
@@ -186,6 +214,7 @@ router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
       const snp = snapshotMap.get(p.id) || { stock_start: Number(p.stock || 0), unit_cost: Number(p.prix || 0) };
       const counted = countsMap.get(p.id) || 0;
       const delta = counted - snp.stock_start;
+      const device_counts = deviceCountsMap.get(p.id) || {};
 
       return {
         product_id: p.id,
@@ -199,16 +228,31 @@ router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
         delta: delta,
         prix: Number(p.prix || 0),
         price: Number(p.prix || 0),
-        unit_cost: snp.unit_cost
+        unit_cost: snp.unit_cost,
+        fournisseur_id: p.fournisseur_id || null,
+        categorie_id: p.categorie_id || null,
+        device_counts: device_counts // NOUVEAU: détail par terminal
       };
     });
+
+    // Logs de debug pour diagnostic
+    console.log('[summary] Renvoi de', lines.length, 'produits');
+    const countedLines = lines.filter(l => l.counted_total > 0);
+    if (countedLines.length > 0) {
+      console.log('[summary] Exemple ligne comptée:', {
+        nom: countedLines[0].nom,
+        counted_total: countedLines[0].counted_total,
+        prix: countedLines[0].prix,
+        device_counts: countedLines[0].device_counts
+      });
+    }
 
     return res.json({
       ok: true,
       sessionId: sessionId,
       lines: lines,
       total_products: lines.length,
-      counted_products: lines.filter(l => l.counted_total > 0).length
+      counted_products: countedLines.length
     });
   } catch (e) {
     console.error('[GET /inventory/:sessionId/summary] error:', e);
@@ -303,20 +347,27 @@ router.post('/inventory/:sessionId/finalize', authRequired, async (req, res) => 
       const counted = countsMap.get(prod.id) || 0;
       const delta = counted - stockStart;
 
-      if (delta !== 0) {
-        // Créer mouvement de stock
-        await client.query(
-          `INSERT INTO stock_movements (tenant_id, produit_id, qty, source, reference_type, reference_id, created_at, meta)
-           VALUES ($1, $2, $3, 'inventory', 'inventory_session', $4, NOW(), $5)`,
-          [tenantId, prod.id, delta, sessionId, JSON.stringify({ counted, stock_start: stockStart, delta })]
-        );
-
-        // Mettre à jour stock produit
+      // Créer mouvement et mettre à jour stock UNIQUEMENT pour les produits comptés
+      if (countsMap.has(prod.id)) {
+        // Produit a été compté : créer movement si delta !== 0 et toujours mettre à jour stock
+        if (delta !== 0) {
+          await client.query(
+            `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id, created_at)
+             VALUES ($1, $2, $3, 'inventory', $4, NOW())`,
+            [tenantId, prod.id, delta, sessionId]
+          );
+        }
+        
+        // Mettre à jour le stock avec la quantité comptée
         await client.query(
           `UPDATE produits SET stock = $1 WHERE id = $2 AND tenant_id = $3`,
           [counted, prod.id, tenantId]
         );
+      }
+      // Si produit non compté : on ne touche PAS au stock (garde valeur actuelle)
 
+      // Enregistrer l'ajustement si stock initial > 0 OU comptage > 0
+      if (stockStart > 0 || counted > 0) {
         adjustments.push({
           product_id: prod.id,
           stock_start: stockStart,

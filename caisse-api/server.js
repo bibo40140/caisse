@@ -476,32 +476,60 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
       return res.status(404).json({ ok: false, error: 'session_not_found' });
     }
 
-    const r = await client.query(
+    // Comptages par produit (total)
+    const summed = await client.query(
       `
-      WITH summed AS (
-         SELECT produit_id, SUM(qty)::numeric AS counted_total
-         FROM inventory_counts
-         WHERE tenant_id=$1 AND session_id=$2
-         GROUP BY produit_id
-       )
-       SELECT
-         p.id   AS product_id,
-         p.nom,
-         p.prix,
-         COALESCE(s.counted_total, 0) AS counted_total
-       FROM inventory_snapshot snap
-       JOIN produits p
-         ON p.id = snap.product_id
-        AND p.tenant_id = snap.tenant_id
-       LEFT JOIN summed s
-         ON s.produit_id = snap.product_id
-       WHERE snap.tenant_id=$1 AND snap.session_id=$2
-       ORDER BY p.nom
+      SELECT produit_id, SUM(qty)::numeric AS counted_total
+      FROM inventory_counts
+      WHERE tenant_id=$1 AND session_id=$2
+      GROUP BY produit_id
       `,
       [tenantId, sessionId]
     );
+    const countsMap = new Map(summed.rows.map(r => [r.produit_id, Number(r.counted_total || 0)]));
 
-    res.json({ ok: true, lines: r.rows });
+    // Comptages par device
+    const byDevice = await client.query(
+      `
+      SELECT produit_id, device_id, SUM(qty)::numeric AS qty
+      FROM inventory_counts
+      WHERE tenant_id=$1 AND session_id=$2
+      GROUP BY produit_id, device_id
+      `,
+      [tenantId, sessionId]
+    );
+    const deviceCountsMap = new Map();
+    for (const row of byDevice.rows) {
+      if (!deviceCountsMap.has(row.produit_id)) deviceCountsMap.set(row.produit_id, {});
+      deviceCountsMap.get(row.produit_id)[row.device_id] = Number(row.qty || 0);
+    }
+
+    // Produits de ce tenant (inclure code barre et FK utiles)
+    const produits = await client.query(
+      `
+      SELECT id, nom, prix, code_barre, fournisseur_id, categorie_id
+      FROM produits
+      WHERE tenant_id=$1 AND (deleted IS NULL OR deleted = false)
+      ORDER BY nom
+      `,
+      [tenantId]
+    );
+
+    const lines = produits.rows.map(p => ({
+      product_id: p.id,
+      remote_product_id: p.id,
+      nom: p.nom,
+      barcode: p.code_barre || '',
+      code_barres: p.code_barre || '',
+      prix: Number(p.prix || 0),
+      price: Number(p.prix || 0),
+      counted_total: countsMap.get(p.id) || 0,
+      fournisseur_id: p.fournisseur_id || null,
+      categorie_id: p.categorie_id || null,
+      device_counts: deviceCountsMap.get(p.id) || {}
+    }));
+
+    res.json({ ok: true, sessionId, lines, total_products: lines.length });
   } catch (e) {
     console.error('GET /inventory/:id/summary', e);
     res.status(500).json({ ok: false, error: e.message });

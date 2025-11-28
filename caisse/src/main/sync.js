@@ -219,6 +219,59 @@ async function pullRefs({ since = null } = {}) {
       }
     }
 
+    // 🔥 Importer les fournisseurs depuis Neon dans la base locale
+    if (fournisseurs && fournisseurs.length > 0) {
+      try {
+        console.log(`[sync] pull: ${fournisseurs.length} fournisseurs reçus depuis Neon`);
+        const checkF = db.prepare('SELECT id FROM fournisseurs WHERE remote_uuid = ?');
+        const insertF = db.prepare(`
+          INSERT INTO fournisseurs (remote_uuid, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+        `);
+        const updateF = db.prepare(`
+          UPDATE fournisseurs SET
+            nom = ?, contact = ?, email = ?, telephone = ?, adresse = ?, code_postal = ?, ville = ?
+          WHERE remote_uuid = ?
+        `);
+
+        const txF = db.transaction(() => {
+          for (const f of fournisseurs) {
+            try {
+              const exists = checkF.get(f.id);
+              if (exists) {
+                updateF.run(
+                  f.nom || '',
+                  f.contact || null,
+                  f.email || null,
+                  f.telephone || null,
+                  f.adresse || null,
+                  f.code_postal || null,
+                  f.ville || null,
+                  f.id
+                );
+              } else {
+                insertF.run(
+                  f.id,
+                  f.nom || '',
+                  f.contact || null,
+                  f.email || null,
+                  f.telephone || null,
+                  f.adresse || null,
+                  f.code_postal || null,
+                  f.ville || null
+                );
+              }
+            } catch (e) {
+              console.warn('[sync] erreur import fournisseur:', f?.nom, e?.message || e);
+            }
+          }
+        });
+        txF();
+      } catch (e) {
+        console.warn('[sync] import fournisseurs échoué:', e?.message || e);
+      }
+    }
+
     // 🔥 Importer les produits depuis Neon dans la base locale
     let produitsImported = 0;
     if (produits && produits.length > 0) {
@@ -338,25 +391,19 @@ async function pullRefs({ since = null } = {}) {
         
           const existing = checkStmt.get(p.id);
           if (existing) {
-            // Vérifier si la version serveur est plus récente
-            const localProduct = db.prepare('SELECT updated_at FROM produits WHERE remote_uuid = ?').get(p.id);
-            const localUpdatedAt = localProduct?.updated_at ? new Date(localProduct.updated_at).getTime() : 0;
-            const remoteUpdatedAt = p.updated_at ? new Date(p.updated_at).getTime() : 0;
-          
-            // Ne mettre à jour que si la version serveur est plus récente
-            if (remoteUpdatedAt > localUpdatedAt) {
-              updateStmt.run(
-                p.nom,
-                p.reference,
-                Number(p.prix || 0),
-                Number(p.stock || 0),
-                p.code_barre || null,
-                uniteIdLocal,
-                fournisseurIdLocal,
-                categorieIdLocal,
-                p.id  // WHERE remote_uuid = ?
-              );
-            }
+            // Toujours mettre à jour depuis le serveur (source de vérité pour nom, prix, etc.)
+            // Le stock sera recalculé depuis stock_movements après le pull
+            updateStmt.run(
+              p.nom,
+              p.reference,
+              Number(p.prix || 0),
+              Number(p.stock || 0),
+              p.code_barre || null,
+              uniteIdLocal,
+              fournisseurIdLocal,
+              categorieIdLocal,
+              p.id  // WHERE remote_uuid = ?
+            );
           } else {
             // Insertion
             insertStmt.run(
@@ -422,23 +469,8 @@ async function pullRefs({ since = null } = {}) {
       }
       console.log(`[sync] pull: ${movementsImported} stock_movements importés`);
       
-      // Recalculer produits.stock après import des movements
-      if (movementsImported > 0) {
-        try {
-          db.prepare(`
-            UPDATE produits 
-            SET stock = COALESCE((
-              SELECT SUM(delta) 
-              FROM stock_movements 
-              WHERE produit_id = produits.id
-            ), 0),
-            updated_at = datetime('now','localtime')
-          `).run();
-          console.log('[sync] Stocks recalculés après import movements');
-        } catch (e) {
-          console.warn('[sync] erreur recalcul stocks:', e?.message || e);
-        }
-      }
+      // NE PAS recalculer depuis stock_movements car les stocks sont déjà synchronisés
+      // depuis le serveur lors du pull des produits (source de vérité = serveur)
     }
 
     // 🔥 Importer les sessions d'inventaire depuis Neon (open + détection close)
