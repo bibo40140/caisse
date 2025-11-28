@@ -49,7 +49,11 @@ function createStockMovement(produitId, delta, source, sourceId = null, meta = n
     VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
   `).run(id, d, source, sourceId, meta ? JSON.stringify(meta) : null);
   
-  console.log(`[stock] Mouvement créé: produit=${id}, delta=${d}, source=${source}`);
+  // Mettre à jour produits.stock pour compatibilité UI
+  const newStock = getStock(id);
+  db.prepare(`UPDATE produits SET stock = ?, updated_at = datetime('now','localtime') WHERE id = ?`).run(newStock, id);
+  
+  console.log(`[stock] Mouvement créé: produit=${id}, delta=${d}, source=${source}, nouveau stock=${newStock}`);
 }
 
 /**

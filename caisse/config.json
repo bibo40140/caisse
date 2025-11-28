@@ -3,7 +3,7 @@
     "cotisations": true,
     "emails": true,
     "prospects": false,
-    "inventaire": false,
+    "inventaire": true,
     "adherents": true,
     "email": true,
     "receptions": false,

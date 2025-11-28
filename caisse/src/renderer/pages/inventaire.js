@@ -1,6 +1,70 @@
-// src/renderer/pages/inventaire.js
+﻿// src/renderer/pages/inventaire.js
 (function () {
   const openProductEditor = (...args) => window.ProductEditor.openProductEditor(...args);
+
+  /* ================== Modal Dialog Helpers ================== */
+  function showModal(options) {
+    return new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'inv-modal-overlay';
+      modal.innerHTML = `
+        <div class="inv-modal">
+          <h3>${options.title || 'Confirmation'}</h3>
+          <div class="inv-modal-content">${options.content || ''}</div>
+          <div class="inv-modal-buttons">
+            ${options.buttons.map((btn, i) => 
+              `<button class="inv-modal-btn" data-index="${i}">${btn.label}</button>`
+            ).join('')}
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      
+      modal.querySelectorAll('.inv-modal-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.index);
+          modal.remove();
+          resolve(options.buttons[idx].value);
+        });
+      });
+    });
+  }
+
+  function showPrompt(title, defaultValue = '') {
+    return new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'inv-modal-overlay';
+      modal.innerHTML = `
+        <div class="inv-modal">
+          <h3>${title}</h3>
+          <input type="text" class="inv-modal-input" value="${defaultValue}" />
+          <div class="inv-modal-buttons">
+            <button class="inv-modal-btn" data-action="cancel">Annuler</button>
+            <button class="inv-modal-btn inv-modal-btn-primary" data-action="ok">OK</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      
+      const input = modal.querySelector('.inv-modal-input');
+      input.focus();
+      input.select();
+      
+      function handleResult(action) {
+        modal.remove();
+        resolve(action === 'ok' ? input.value : null);
+      }
+      
+      modal.querySelectorAll('.inv-modal-btn').forEach(btn => {
+        btn.addEventListener('click', () => handleResult(btn.dataset.action));
+      });
+      
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') handleResult('ok');
+        if (e.key === 'Escape') handleResult('cancel');
+      });
+    });
+  }
 
   /* ================== Utils UI (busy, row-busy) ================== */
   function ensureBusyOverlay() {
@@ -96,7 +160,16 @@
       deltaCell = `${delta > 0 ? "+" : ""}${delta}`;
       rowCls = delta === 0 ? "validated delta0" : (delta > 0 ? "validated pos" : "validated neg");
     } else {
-      if (Number(st.remoteCount) > 0) deltaCell = `<span class="live-badge" title="Total compté (tous postes)">∑ ${Number(st.remoteCount)}</span>`;
+      // Afficher le total agrégé si présent
+      if (Number(st.remoteCount) > 0) {
+        const localCounted = Number(st.counted || 0);
+        const othersCounted = Number(st.remoteCount) - localCounted;
+        let title = `Total: ${st.remoteCount}`;
+        if (othersCounted > 0) {
+          title += ` (Vous: ${localCounted}, Autres: ${othersCounted})`;
+        }
+        deltaCell = `<span class="live-badge" title="${title}">∑ ${Number(st.remoteCount)}</span>`;
+      }
     }
 
     const prixVal = (typeof p.prix === "number" ? p.prix : Number(p.prix || 0));
@@ -187,8 +260,8 @@
           <input id="inv-search" placeholder="Rechercher (nom / fournisseur / code-barres)..." />
           <div class="spacer"></div>
           <button id="btnStartSession">Commencer une session</button>
-          <button id="inv-apply" disabled>Clôturer l’inventaire</button>
-          <button id="btnForceClose">Forcer la fermeture des sessions</button>
+          <button id="inv-apply" disabled>Clôturer l'inventaire</button>
+          <button id="btnManageSessions">Gérer les sessions</button>
 
         </div>
 
@@ -243,19 +316,157 @@
       const $apply  = mount.querySelector("#inv-apply");
       const $btnStart = mount.querySelector("#btnStartSession");
 
-      const $btnForceClose = mount.querySelector('#btnForceClose');
-$btnForceClose.addEventListener('click', async () => {
-  if (!confirm('Fermer TOUTES les sessions d’inventaire distantes ouvertes ?')) return;
-  try {
-    await window.electronAPI.inventory.closeAllOpen();
-    localStorage.removeItem('inventory_session_id');
-    localStorage.removeItem('inventaire_draft_v1');
-    alert('Toutes les sessions ouvertes ont été fermées côté serveur.');
-    location.reload();
-  } catch (e) {
-    alert('Échec fermeture sessions: ' + (e?.message || e));
-  }
-});
+      const $btnManageSessions = mount.querySelector('#btnManageSessions');
+      $btnManageSessions.addEventListener('click', async () => {
+        await showSessionManager();
+      });
+
+      async function showSessionManager() {
+        try {
+          setBusy(true, 'Chargement des sessions...');
+          
+          // Récupérer toutes les sessions (locales et distantes)
+          const localSessions = await window.electronAPI.invoke('inventory:getLocalSessions', { status: 'all', limit: 50 });
+          
+          setBusy(false);
+          
+          if (!localSessions || localSessions.length === 0) {
+            alert('Aucune session trouvée.');
+            return;
+          }
+          
+          // Créer le modal de gestion
+          const modal = document.createElement('div');
+          modal.className = 'inv-modal-overlay session-manager';
+          
+          const sessionsHtml = localSessions.map(s => {
+            const statusClass = s.status === 'open' ? 'status-open' : 'status-closed';
+            const statusText = s.status === 'open' ? '🟢 Ouverte' : '🔴 Fermée';
+            const startDate = s.started_at ? new Date(s.started_at).toLocaleString('fr-FR') : 'N/A';
+            const endDate = s.ended_at ? new Date(s.ended_at).toLocaleString('fr-FR') : '-';
+            
+            return `
+              <div class="session-row" data-session-id="${s.remote_uuid || s.id}" data-local-id="${s.id}">
+                <div class="session-info">
+                  <div class="session-name"><strong>${s.name || 'Sans nom'}</strong></div>
+                  <div class="session-meta">
+                    <span class="session-status ${statusClass}">${statusText}</span>
+                    <span class="session-dates">Début: ${startDate}</span>
+                    ${s.status === 'closed' ? `<span class="session-dates">Fin: ${endDate}</span>` : ''}
+                  </div>
+                </div>
+                <div class="session-actions">
+                  ${s.status === 'open' ? `<button class="btn-close-session" data-id="${s.remote_uuid || s.id}">Clôturer</button>` : ''}
+                  <button class="btn-delete-session" data-local-id="${s.id}">Supprimer</button>
+                </div>
+              </div>
+            `;
+          }).join('');
+          
+          modal.innerHTML = `
+            <div class="inv-modal session-manager-modal">
+              <h3>Gestion des sessions d'inventaire</h3>
+              <div class="session-list">
+                ${sessionsHtml}
+              </div>
+              <div class="inv-modal-buttons">
+                <button class="inv-modal-btn" id="btn-close-all">Fermer toutes les sessions ouvertes</button>
+                <button class="inv-modal-btn inv-modal-btn-primary" id="btn-done-manager">Terminé</button>
+              </div>
+            </div>
+          `;
+          
+          document.body.appendChild(modal);
+          
+          // Gérer les clics sur les boutons
+          modal.querySelector('#btn-done-manager').addEventListener('click', () => {
+            modal.remove();
+            location.reload();
+          });
+          
+          modal.querySelector('#btn-close-all').addEventListener('click', async () => {
+            if (!confirm('Voulez-vous vraiment fermer TOUTES les sessions ouvertes ?')) return;
+            try {
+              setBusy(true, 'Fermeture des sessions...');
+              await window.electronAPI.inventory.closeAllOpen();
+              purgeLocalSessionAndDraft();
+              setSessionId(null);
+              modal.remove();
+              alert('Toutes les sessions ouvertes ont été fermées.');
+              location.reload();
+            } catch (e) {
+              setBusy(false);
+              alert('Erreur: ' + (e?.message || e));
+            }
+          });
+          
+          // Clôturer une session individuelle
+          modal.querySelectorAll('.btn-close-session').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              const sessionId = e.target.dataset.id;
+              if (!sessionId) return;
+              
+              if (!confirm('Clôturer cette session ?')) return;
+              
+              try {
+                btn.disabled = true;
+                btn.textContent = 'Clôture...';
+                await window.electronAPI.inventory.finalize({ sessionId, user: 'Admin' });
+                
+                // Retirer visuellement la ligne
+                const row = e.target.closest('.session-row');
+                if (row) {
+                  row.querySelector('.session-status').className = 'session-status status-closed';
+                  row.querySelector('.session-status').textContent = '🔴 Fermée';
+                  e.target.remove();
+                }
+                
+                alert('Session clôturée avec succès.');
+              } catch (err) {
+                btn.disabled = false;
+                btn.textContent = 'Clôturer';
+                alert('Erreur clôture: ' + (err?.message || err));
+              }
+            });
+          });
+          
+          // Supprimer une session locale
+          modal.querySelectorAll('.btn-delete-session').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              const localId = e.target.dataset.localId;
+              if (!localId) return;
+              
+              if (!confirm('Supprimer cette session de la base locale ?\n(Cela ne supprime pas la session côté serveur)')) return;
+              
+              try {
+                btn.disabled = true;
+                btn.textContent = 'Suppression...';
+                
+                // Supprimer via IPC
+                await window.electronAPI.invoke('inventory:deleteLocalSession', Number(localId));
+                
+                // Retirer visuellement
+                const row = e.target.closest('.session-row');
+                if (row) row.remove();
+                
+                // Vérifier s'il reste des sessions
+                const remaining = modal.querySelectorAll('.session-row');
+                if (remaining.length === 0) {
+                  modal.querySelector('.session-list').innerHTML = '<p style="text-align:center;padding:20px;color:#999;">Aucune session</p>';
+                }
+              } catch (err) {
+                btn.disabled = false;
+                btn.textContent = 'Supprimer';
+                alert('Erreur suppression: ' + (err?.message || err));
+              }
+            });
+          });
+          
+        } catch (e) {
+          setBusy(false);
+          alert('Erreur chargement sessions: ' + (e?.message || e));
+        }
+      }
 
 
       // ---- draft persistance
@@ -303,11 +514,63 @@ $btnForceClose.addEventListener('click', async () => {
         if (disabled) { mount.classList.add('disabled'); } else { mount.classList.remove('disabled'); }
       }
 
-      // ---- session explicite : pas d’auto-reprise ni d’auto-start
+      // ---- session explicite : pas d'auto-reprise ni d'auto-start
       async function resumeIfWanted() {
-        const sid = getSessionId();
+        let sid = getSessionId();
+        let sessionName = '';
+        
+        // Si pas de session locale, chercher sessions synchronisées depuis Neon
         if (!sid) {
-          status.show('Aucune session active. Cliquez sur “Commencer une session”.', 'warn');
+          try {
+            const sessions = await window.electronAPI.invoke('inventory:getLocalSessions', { status: 'open', limit: 10 });
+            
+            if (sessions && sessions.length > 0) {
+              // Proposer de choisir parmi les sessions disponibles
+              if (sessions.length === 1) {
+                // Une seule session : proposer de la rejoindre
+                const session = sessions[0];
+                const choice = await showModal({
+                  title: 'Session ouverte détectée',
+                  content: `<p>Une session ouverte a été détectée :</p><p><strong>${session.name}</strong></p><p>Voulez-vous la rejoindre ?</p>`,
+                  buttons: [
+                    { label: 'Non', value: false },
+                    { label: 'Rejoindre', value: true }
+                  ]
+                });
+                
+                if (choice) {
+                  sid = session.remote_uuid || session.id;
+                  sessionName = session.name;
+                  setSessionId(sid);
+                }
+              } else {
+                // Plusieurs sessions : permettre de choisir
+                const sessionButtons = sessions.map((s, i) => ({
+                  label: s.name,
+                  value: i
+                }));
+                sessionButtons.push({ label: 'Aucune', value: -1 });
+                
+                const idx = await showModal({
+                  title: 'Sessions ouvertes disponibles',
+                  content: '<p>Plusieurs sessions sont ouvertes. Sélectionnez celle que vous souhaitez rejoindre :</p>',
+                  buttons: sessionButtons
+                });
+                
+                if (idx >= 0 && idx < sessions.length) {
+                  sid = sessions[idx].remote_uuid || sessions[idx].id;
+                  sessionName = sessions[idx].name;
+                  setSessionId(sid);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[inventaire] Erreur recherche sessions distantes:', e);
+          }
+        }
+        
+        if (!sid) {
+          status.show('Aucune session active. Cliquez sur "Commencer une session".', 'warn');
           $apply.disabled = true;
           return;
         }
@@ -322,7 +585,13 @@ $btnForceClose.addEventListener('click', async () => {
             $apply.disabled = true;
             return;
           }
-          status.show('Session en cours détectée. Vous pouvez reprendre ou clôturer.', 'ok');
+          // Récupérer le nom de la session depuis le résumé si pas déjà défini
+          if (!sessionName && sum?.session?.name) {
+            sessionName = sum.session.name;
+          }
+          
+          const displayName = sessionName ? `Session "${sessionName}"` : 'Session';
+          status.show(`${displayName} en cours. Vous pouvez compter et clôturer.`, 'ok');
           $apply.disabled = false;
         } catch {
           purgeLocalSessionAndDraft();
@@ -333,13 +602,79 @@ $btnForceClose.addEventListener('click', async () => {
 
       async function startSession() {
         try {
+          // 1) Récupérer les sessions ouvertes existantes
+          const existingSessions = await window.electronAPI.invoke('inventory:getLocalSessions', { status: 'open', limit: 10 });
+          
+          let sessionName = '';
+          let chosenSessionId = null;
+          
+          // 2) Si des sessions existent, proposer de les rejoindre ou créer une nouvelle
+          if (existingSessions && existingSessions.length > 0) {
+            const sessionListHtml = existingSessions.map(s => `<li><strong>${s.name}</strong></li>`).join('');
+            
+            const choice = await showModal({
+              title: 'Sessions ouvertes détectées',
+              content: `
+                <p>${existingSessions.length} session(s) ouverte(s) :</p>
+                <ul style="text-align: left; margin: 10px 0;">${sessionListHtml}</ul>
+                <p>Voulez-vous rejoindre une session existante ou créer une nouvelle ?</p>
+              `,
+              buttons: [
+                { label: 'Créer nouvelle', value: 'new' },
+                { label: 'Rejoindre', value: 'join' }
+              ]
+            });
+            
+            if (choice === 'join') {
+              // Rejoindre une session existante
+              if (existingSessions.length === 1) {
+                chosenSessionId = existingSessions[0].remote_uuid || existingSessions[0].id;
+                sessionName = existingSessions[0].name;
+              } else {
+                // Plusieurs sessions : demander laquelle
+                const sessionButtons = existingSessions.map((s, i) => ({
+                  label: `${i + 1}. ${s.name}`,
+                  value: i
+                }));
+                sessionButtons.push({ label: 'Annuler', value: -1 });
+                
+                const idx = await showModal({
+                  title: 'Choisir une session',
+                  content: '<p>Sélectionnez la session à rejoindre :</p>',
+                  buttons: sessionButtons
+                });
+                
+                if (idx >= 0 && idx < existingSessions.length) {
+                  chosenSessionId = existingSessions[idx].remote_uuid || existingSessions[idx].id;
+                  sessionName = existingSessions[idx].name;
+                } else {
+                  return; // Annuler
+                }
+              }
+              
+              // Rejoindre la session choisie
+              setSessionId(chosenSessionId);
+              status.show(`Session "${sessionName}" rejointe. Vous pouvez compter et clôturer.`, 'ok');
+              $apply.disabled = false;
+              return;
+            }
+          }
+          
+          // 3) Créer une nouvelle session avec nom personnalisé
+          const defaultName = `Inventaire ${new Date().toISOString().slice(0,10)}`;
+          sessionName = await showPrompt('Nom de la nouvelle session d\'inventaire:', defaultName);
+          
+          if (!sessionName || sessionName.trim() === '') {
+            alert('Nom de session requis');
+            return;
+          }
+          
           setBusy(true, 'Création de la session…');
-          const name = `Inventaire ${new Date().toISOString().slice(0,10)}`;
-          const js = await window.electronAPI.inventory.start({ name, user: currentUser, notes: null });
+          const js = await window.electronAPI.inventory.start({ name: sessionName.trim(), user: currentUser, notes: null });
           const sid = String(js?.session?.id || js?.id || '').trim();
           if (!sid) throw new Error('id de session manquant');
           setSessionId(sid);
-          status.show('Session d’inventaire démarrée. Vous pouvez compter et clôturer.', 'ok');
+          status.show(`Session "${sessionName}" démarrée. Vous pouvez compter et clôturer.`, 'ok');
           $apply.disabled = false;
         } catch (e) {
           alert('Impossible de démarrer une session : ' + (e?.message || e));
@@ -356,6 +691,28 @@ $btnForceClose.addEventListener('click', async () => {
       });
 
       await resumeIfWanted();
+
+      // ---- Auto-refresh pour détecter sessions créées par autres postes
+      let refreshInterval = setInterval(() => {
+        const sid = getSessionId();
+        if (!sid) {
+          // Pas de session locale, vérifier si une session existe côté serveur
+          resumeIfWanted();
+        }
+      }, 15000); // Toutes les 15 secondes
+
+      // ---- Listener pour refresh des données (sync)
+      if (window.electronAPI?.on) {
+        window.electronAPI.on('data:refreshed', () => {
+          console.log('[inventaire] data:refreshed reçu, rechargement session...');
+          resumeIfWanted();
+        });
+      }
+
+      // Cleanup au déchargement
+      window.addEventListener('beforeunload', () => {
+        if (refreshInterval) clearInterval(refreshInterval);
+      });
 
       // ---- recherche
       $search.addEventListener("input", () => { renderRows(); saveDraftDebounced(); });
@@ -532,19 +889,50 @@ $btnForceClose.addEventListener('click', async () => {
         if (!sid) return;
         try {
           const sum = await window.electronAPI.inventory.summary({ sessionId: sid });
-          const byId = new Map();
-          for (const r of (sum?.lines || [])) byId.set(Number(r.product_id), r);
+          
+          // Mapper les produits distants vers les IDs locaux
+          const byRemoteUuid = new Map();
+          const byBarcode = new Map();
+          
+          for (const r of (sum?.lines || [])) {
+            const remoteId = r.product_id || r.remote_product_id;
+            const barcode = (r.barcode || r.code_barres || '').replace(/\s+/g, '').trim();
+            const counted = Number(r.counted_total || 0);
+            
+            if (remoteId) byRemoteUuid.set(String(remoteId), counted);
+            if (barcode) byBarcode.set(barcode, counted);
+          }
 
           let changed = false;
           for (const p of produits) {
-            const srow = byId.get(Number(p.id));
             const st = state.get(p.id);
+            if (!st) continue;
+            
+            let remoteCounted = 0;
+            
+            // Essayer de matcher par remote_uuid d'abord
+            const pUuid = p.remote_uuid || p.remote_id || p.neon_id;
+            if (pUuid && byRemoteUuid.has(String(pUuid))) {
+              remoteCounted = byRemoteUuid.get(String(pUuid));
+            } else {
+              // Fallback sur barcode
+              const pBarcode = (p.code_barre || p.code_barres || '').replace(/\s+/g, '').trim();
+              if (pBarcode && byBarcode.has(pBarcode)) {
+                remoteCounted = byBarcode.get(pBarcode);
+              }
+            }
+            
             const prev = st.remoteCount;
-            const next = Number(srow?.counted_total || 0);
-            if (prev !== next) { st.remoteCount = next; state.set(p.id, st); changed = true; }
+            if (prev !== remoteCounted) { 
+              st.remoteCount = remoteCounted; 
+              state.set(p.id, st); 
+              changed = true; 
+            }
           }
           if (changed) renderRows();
-        } catch {}
+        } catch (e) {
+          console.warn('[inventaire] refreshSummary error:', e?.message || e);
+        }
       }
       if (pollEverySec > 0) { refreshSummary(); setInterval(refreshSummary, pollEverySec * 1000); }
 
@@ -618,6 +1006,7 @@ $btnForceClose.addEventListener('click', async () => {
           try { await window.electronAPI.syncPullAll?.(); } catch {}
 
           purgeLocalSessionAndDraft();
+          setSessionId(null);
 
           const end = new Date();
           const dateStr = end.toLocaleString('fr-FR', { timeZone: 'Europe/Paris' });
@@ -627,6 +1016,9 @@ $btnForceClose.addEventListener('click', async () => {
             `Produits inventoriés : ${countedProducts}\n` +
             `Valeur du stock inventorié : ${Number(inventoryValue || 0).toFixed(2)} €`
           );
+          
+          // Recharger la page pour nettoyer l'UI
+          location.reload();
 
           try {
             const mods = await getModules();

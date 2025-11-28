@@ -3,6 +3,14 @@ const fs = require('fs');
 const path = require('path');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../../db');
+
+// Ensure DATA_DIR exists
+try {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch (e) {
+  console.error('[logger] Failed to create DATA_DIR:', e);
+}
+
 const LOG_FILE = path.join(DATA_DIR, 'sync.log');
 const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5 MB
 const MAX_LOGS_IN_MEMORY = 1000;

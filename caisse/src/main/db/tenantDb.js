@@ -19,8 +19,9 @@ function getTenantDb(tenantId) {
   const id = tenantId || getActiveTenantId() || 'default';
   if (DBS.has(id)) return DBS.get(id);
 
-  // store DB files in a local /db folder
-  const dir = path.join(process.cwd(), 'db');
+  // store DB files in DATA_DIR or fallback to local /db folder
+  const baseDir = process.env.DATA_DIR || path.join(process.cwd(), 'db');
+  const dir = path.isAbsolute(baseDir) ? baseDir : path.join(process.cwd(), baseDir);
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
 
   const file = path.join(dir, `tenant_${id}.db`);

@@ -43,7 +43,6 @@ import fournisseursRouter from './routes/fournisseurs.js';
 import produitsRouter from './routes/produits.js';
 import receptionsRouter from './routes/receptions.js';
 import ventesRouter from './routes/ventes.js';
-import inventoryExtraRouter from './routes/inventory_extra.js';
 import inventoryRoutes from './routes/inventory.js';
 
 // Middleware
@@ -117,7 +116,6 @@ app.use(fournisseursRouter);
 app.use(produitsRouter);
 app.use(receptionsRouter);
 app.use(ventesRouter);
-app.use(inventoryExtraRouter);
 app.use('/inventory', inventoryRoutes);
 
 /* =========================
@@ -843,7 +841,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const client = await pool.connect();
   try {
-    const [unites, familles, categories, adherents, fournisseurs, produits, modes_paiement, stock_movements] =
+    const [unites, familles, categories, adherents, fournisseurs, produits, modes_paiement, stock_movements, inventory_sessions] =
       await Promise.all([
         client.query(
           `
@@ -925,6 +923,15 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
           `,
           [tenantId]
         ),
+        client.query(
+          `
+          SELECT id, name, status, started_at, ended_at, "user", notes
+          FROM inventory_sessions
+          WHERE tenant_id = $1 AND status = 'open'
+          ORDER BY started_at DESC
+          `,
+          [tenantId]
+        ),
       ]);
 
     // Récupérer aussi les modules du tenant
@@ -945,6 +952,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
         produits: produits.rows,
         modes_paiement: modes_paiement.rows,
         stock_movements: stock_movements.rows,
+        inventory_sessions: inventory_sessions.rows,
         modules: modules,
       },
     });

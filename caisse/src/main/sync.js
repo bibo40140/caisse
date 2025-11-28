@@ -194,6 +194,7 @@ async function pullRefs({ since = null } = {}) {
       produits = [],
       modes_paiement = [],
       stock_movements = [],
+      inventory_sessions = [],
       modules = null,
     } = d;
 
@@ -420,6 +421,73 @@ async function pullRefs({ since = null } = {}) {
         }
       }
       console.log(`[sync] pull: ${movementsImported} stock_movements importés`);
+      
+      // Recalculer produits.stock après import des movements
+      if (movementsImported > 0) {
+        try {
+          db.prepare(`
+            UPDATE produits 
+            SET stock = COALESCE((
+              SELECT SUM(delta) 
+              FROM stock_movements 
+              WHERE produit_id = produits.id
+            ), 0),
+            updated_at = datetime('now','localtime')
+          `).run();
+          console.log('[sync] Stocks recalculés après import movements');
+        } catch (e) {
+          console.warn('[sync] erreur recalcul stocks:', e?.message || e);
+        }
+      }
+    }
+
+    // 🔥 Importer les sessions d'inventaire depuis Neon (open + détection close)
+    let sessionsImported = 0;
+    let sessionsClosed = [];
+    if (inventory_sessions && inventory_sessions.length > 0) {
+      console.log(`[sync] pull: ${inventory_sessions.length} inventory_sessions reçues depuis Neon`);
+      
+      const checkSession = db.prepare('SELECT id, status FROM inventory_sessions WHERE remote_uuid = ?');
+      const insertSession = db.prepare(`
+        INSERT OR REPLACE INTO inventory_sessions (name, status, started_at, ended_at, remote_uuid)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+
+      const tx = db.transaction(() => {
+        for (const s of inventory_sessions) {
+          try {
+            const exists = checkSession.get(s.id);
+            const remoteStatus = (s.status || 'open').toLowerCase();
+            
+            // Détecter les sessions qui passent de 'open' à 'closed'
+            if (exists && exists.status === 'open' && remoteStatus === 'closed') {
+              sessionsClosed.push(s.id);
+            }
+            
+            // Synchroniser toutes les sessions (open ou closed récents)
+            insertSession.run(
+              s.name || 'Inventaire',
+              remoteStatus,
+              s.started_at || new Date().toISOString(),
+              s.ended_at || null,
+              s.id  // UUID serveur
+            );
+            
+            sessionsImported++;
+          } catch (e) {
+            console.warn('[sync] erreur import inventory_session:', s.id, e?.message || e);
+          }
+        }
+      });
+      tx();
+      console.log(`[sync] pull: ${sessionsImported} inventory_sessions importées, ${sessionsClosed.length} fermées`);
+      
+      // Notifier les terminaux que des sessions ont été fermées
+      if (sessionsClosed.length > 0) {
+        for (const sessionId of sessionsClosed) {
+          notifyRenderer('inventory:session-closed', { sessionId, closed: true, at: Date.now() });
+        }
+      }
     }
 
       // Ne plus émettre data:refreshed automatiquement pour éviter de perturber l'utilisateur
@@ -456,6 +524,7 @@ async function pullRefs({ since = null } = {}) {
           fournisseurs: fournisseurs.length,
           produits: produits.length,
           modes_paiement: modes_paiement.length,
+          inventory_sessions: sessionsImported,
       },
     };
   }, 'pullRefs');

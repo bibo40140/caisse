@@ -110,6 +110,17 @@ async function apiInventorySummary(sessionId) {
     })),
   };
 }
+async function apiInventoryCounts(sessionId) {
+  const sid = String(sessionId || '').trim();
+  if (!sid || sid.toLowerCase() === 'nan') throw new Error('inventory:counts BAD_ARG sessionId');
+  const res = await fetch(`${API}/inventory/${encodeURIComponent(sid)}/counts`, {
+    method: 'GET',
+    headers: buildJsonHeaders(),
+  });
+  if (!res.ok) throw new Error(`inventory:counts HTTP ${res.status} ${await res.text().catch(()=> '')}`);
+  const js = await res.json();
+  return js?.counts || [];
+}
 async function apiInventoryFinalize(apiBase, token, sessionId, body = {}) {
   const r = await fetch(`${apiBase}/inventory/${encodeURIComponent(sessionId)}/finalize`, {
     method: 'POST',
@@ -140,21 +151,19 @@ async function apiInventoryListSessions() {
 /* -------------------- Apply summary to local DB -------------------- */
 function applySummaryToLocal(lines) {
   const db = getDb();
-  const cols = listColumns('produits');
-  const uuidCols = ['remote_uuid', 'remote_id', 'neon_id', 'product_uuid', 'uuid'].filter(c => hasCol(cols, c));
-  const barcodeCols = ['code_barre', 'code_barres', 'code', 'ean'].filter(c => hasCol(cols, c));
 
-  const selectUuid = uuidCols.length ? `COALESCE(${uuidCols.join(', ')}, '') AS remote_uuid` : `'' AS remote_uuid`;
-  const selectBarcodes = barcodeCols.length ? `, ${barcodeCols.map(c => `COALESCE(${c}, '') AS ${c}`).join(', ')}` : '';
-  const produitsQuery = `SELECT id, ${selectUuid}${selectBarcodes} FROM produits`;
+  // Standardiser sur remote_uuid uniquement
+  const produitsQuery = `SELECT id, COALESCE(remote_uuid, '') AS remote_uuid, COALESCE(code_barre, '') AS code_barre FROM produits`;
 
   let produits = [];
   try { produits = db.prepare(produitsQuery).all(); } catch { return { matched: 0, total: 0 }; }
 
-  const byUuid = new Map(); const byBarcode = new Map();
+  const byUuid = new Map(); 
+  const byBarcode = new Map();
   for (const p of produits) {
     if (p.remote_uuid && isUuidLike(String(p.remote_uuid))) byUuid.set(String(p.remote_uuid), Number(p.id));
-    for (const c of barcodeCols) { const v = normCode(p[c]); if (v && !byBarcode.has(v)) byBarcode.set(v, Number(p.id)); }
+    const bc = normCode(p.code_barre);
+    if (bc && !byBarcode.has(bc)) byBarcode.set(bc, Number(p.id));
   }
 
   const mapped = new Map();
@@ -162,23 +171,44 @@ function applySummaryToLocal(lines) {
     const qty = Number(l.counted_total || 0);
     if (!Number.isFinite(qty)) continue;
     let localId = null;
+    
+    // Priorité 1: remote_product_id (UUID)
     const rid = l.remote_product_id && String(l.remote_product_id);
-    if (rid && isUuidLike(rid) && byUuid.has(rid)) localId = byUuid.get(rid);
-    else { const bc = normCode(l.barcode); if (bc && byBarcode.has(bc)) localId = byBarcode.get(bc); }
+    if (rid && isUuidLike(rid) && byUuid.has(rid)) {
+      localId = byUuid.get(rid);
+    } 
+    // Priorité 2: fallback sur barcode si UUID non trouvé
+    else { 
+      const bc = normCode(l.barcode); 
+      if (bc && byBarcode.has(bc)) localId = byBarcode.get(bc); 
+    }
+    
     if (localId) mapped.set(localId, qty);
   }
 
-  // Créer des mouvements d'inventaire pour chaque produit
+  // Appliquer le stock inventorié de manière ABSOLUE (pas de delta)
   const tx = db.transaction(() => {
-    // Pour chaque produit mappé, calculer le delta et créer un mouvement
-    for (const [id, targetStock] of mapped.entries()) {
-      const currentStock = getStock(id);
-      const delta = targetStock - currentStock;
+    for (const [id, inventoriedStock] of mapped.entries()) {
+      // Récupérer le stock AVANT inventaire (colonne produits.stock)
+      const beforeRow = db.prepare(`SELECT stock FROM produits WHERE id = ?`).get(id);
+      const stockBeforeInventory = beforeRow ? Number(beforeRow.stock || 0) : 0;
+      
+      // Calculer le delta basé sur le stock AVANT inventaire
+      const delta = inventoriedStock - stockBeforeInventory;
+      
+      // Appliquer le nouveau stock de manière absolue
+      db.prepare(`UPDATE produits SET stock = ?, updated_at = datetime('now','localtime') WHERE id = ?`).run(inventoriedStock, id);
+      
+      // Créer un mouvement pour traçabilité
       if (delta !== 0) {
-        createStockMovement(id, delta, 'inventory', null, { 
-          target_stock: targetStock,
-          current_stock: currentStock 
-        });
+        db.prepare(`
+          INSERT INTO stock_movements (produit_id, delta, source, source_id, meta, created_at)
+          VALUES (?, ?, 'inventory', NULL, ?, datetime('now','localtime'))
+        `).run(id, delta, JSON.stringify({ 
+          stock_before: stockBeforeInventory,
+          stock_after: inventoriedStock,
+          delta: delta
+        }));
       }
     }
   }); tx();
@@ -300,9 +330,9 @@ module.exports = function registerInventoryHandlers(ipcMain) {
         console.warn('[inventory] applySummaryToLocal failed (non bloquant):', e?.message || e);
       }
 
-      // 3) Mark local session closed if we have a local mapping
+      // 3) Mark local session(s) closed - update by remote_uuid to catch all terminals
       try {
-        if (lookedUpRemote) db.prepare(`UPDATE inventory_sessions SET status='closed', ended_at=datetime('now','localtime') WHERE id = ?`).run(Number(sessionId));
+        db.prepare(`UPDATE inventory_sessions SET status='closed', ended_at=datetime('now','localtime') WHERE remote_uuid = ?`).run(String(effectiveRemoteId));
       } catch (_) {}
 
       // 4) Notifier TOUTES les fenêtres que la session est clôturée → purge UI
@@ -315,11 +345,60 @@ module.exports = function registerInventoryHandlers(ipcMain) {
       return out;
     }
 
-    // Otherwise (no remote id): operate offline — mark local session closed and enqueue finalize op
+    // Otherwise (no remote id): operate offline — calculate deltas locally, create stock movements, save summary
     try {
       const n = Number(sessionId);
-      if (Number.isFinite(n)) db.prepare(`UPDATE inventory_sessions SET status='closed', ended_at=datetime('now','localtime') WHERE id = ?`).run(n);
-    } catch (_) {}
+      if (!Number.isFinite(n)) throw new Error('Invalid session ID for offline finalization');
+
+      // 1) Récupérer les comptages locaux
+      const counts = db.prepare(`
+        SELECT produit_id, SUM(qty) AS counted_total
+        FROM inventory_counts
+        WHERE session_id = ?
+        GROUP BY produit_id
+      `).all(n);
+
+      const countsMap = new Map(counts.map(c => [c.produit_id, Number(c.counted_total || 0)]));
+
+      // 2) Pour chaque produit avec un comptage, calculer delta et créer stock_movement
+      const produits = db.prepare(`SELECT id, stock, prix FROM produits`).all();
+      const insertSummary = db.prepare(`
+        INSERT OR REPLACE INTO inventory_summary (session_id, produit_id, stock_start, counted_total, delta, unit_cost, delta_value)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const tx = db.transaction(() => {
+        for (const p of produits) {
+          const stockStart = Number(p.stock || 0);
+          const counted = countsMap.get(p.id) || 0;
+          const delta = counted - stockStart;
+          const unitCost = Number(p.prix || 0);
+          const deltaValue = delta * unitCost;
+
+          // Sauvegarder dans summary
+          insertSummary.run(n, p.id, stockStart, counted, delta, unitCost, deltaValue);
+
+          // Si delta non nul, créer mouvement + mettre à jour stock
+          if (delta !== 0) {
+            createStockMovement(p.id, delta, 'inventory', null, {
+              session_id: n,
+              stock_start: stockStart,
+              counted_total: counted,
+              delta: delta
+            });
+          }
+        }
+
+        // 3) Marquer session comme fermée
+        db.prepare(`UPDATE inventory_sessions SET status='closed', ended_at=datetime('now','localtime') WHERE id = ?`).run(n);
+      });
+      tx();
+
+      console.log('[inventory] Finalization offline complete - stocks updated locally');
+    } catch (e) {
+      console.error('[inventory] Offline finalization failed:', e?.message || e);
+      throw e;
+    }
 
     try {
       enqueueOp({ deviceId: DEFAULT_DEVICE_ID, opType: 'inventory.finalize', entityType: 'inventory_session', entityId: sessionId, payload: { session_id: sessionId, user } });
@@ -342,6 +421,69 @@ module.exports = function registerInventoryHandlers(ipcMain) {
   safeHandle(ipcMain, 'inventory:getSummary', async (_e, sessionId) => {
     const sum = await apiInventorySummary(sessionId);
     return sum.raw;
+  });
+
+  // Récupérer comptages détaillés par device (multiposte)
+  safeHandle(ipcMain, 'inventory:getCounts', async (_e, sessionId) => {
+    try {
+      const counts = await apiInventoryCounts(sessionId);
+      return counts;
+    } catch (e) {
+      console.warn('[inventory] getCounts failed', e?.message || e);
+      return [];
+    }
+  });
+
+  // Récupérer sessions locales synchronisées (pour détection sessions distantes)
+  safeHandle(ipcMain, 'inventory:getLocalSessions', async (_e, options = {}) => {
+    try {
+      const db = getDb();
+      const { status = 'open', limit = 10 } = options;
+      
+      let query = `SELECT id, remote_uuid, name, status, started_at, ended_at 
+                   FROM inventory_sessions`;
+      const params = [];
+      
+      if (status && status !== 'all') {
+        query += ` WHERE status = ?`;
+        params.push(status);
+      }
+      
+      query += ` ORDER BY started_at DESC LIMIT ?`;
+      params.push(limit);
+      
+      const sessions = db.prepare(query).all(...params);
+      return sessions || [];
+    } catch (e) {
+      console.warn('[inventory] getLocalSessions failed', e?.message || e);
+      return [];
+    }
+  });
+
+  // Supprimer une session locale (nettoyage base locale uniquement)
+  safeHandle(ipcMain, 'inventory:deleteLocalSession', async (_e, localId) => {
+    try {
+      const db = getDb();
+      const id = Number(localId);
+      if (!Number.isFinite(id)) throw new Error('Invalid local session ID');
+      
+      // Supprimer les comptages associés
+      db.prepare(`DELETE FROM inventory_counts WHERE session_id = ?`).run(id);
+      
+      // Supprimer le résumé si existe
+      try {
+        db.prepare(`DELETE FROM inventory_summary WHERE session_id = ?`).run(id);
+      } catch {}
+      
+      // Supprimer la session
+      db.prepare(`DELETE FROM inventory_sessions WHERE id = ?`).run(id);
+      
+      console.log('[inventory] Session locale supprimée:', id);
+      return { ok: true, deleted: id };
+    } catch (e) {
+      console.error('[inventory] deleteLocalSession failed', e?.message || e);
+      throw e;
+    }
   });
 
   // ⚠️ Option C: Fermer toutes les sessions "open"

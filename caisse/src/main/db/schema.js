@@ -203,6 +203,56 @@ function ensureLocalSchema(db) {
     console.warn('[schema] Migration 2 (carts) - erreur externe:', e?.message || e);
   }
 
+  // 🔥 MIGRATION 3: Supprimer la FK sur inventory_counts.produit_id si elle existe
+  try {
+    const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_counts'").get();
+    if (schema && schema.sql && schema.sql.includes('FOREIGN KEY (produit_id)')) {
+      console.log('[schema] Migration 3: suppression FK sur inventory_counts.produit_id...');
+      
+      db.exec('PRAGMA foreign_keys = OFF;');
+      
+      try {
+        db.exec(`
+          BEGIN TRANSACTION;
+          
+          -- Sauvegarder les données existantes
+          CREATE TEMP TABLE inventory_counts_backup AS SELECT * FROM inventory_counts;
+          
+          -- Supprimer l'ancienne table
+          DROP TABLE inventory_counts;
+          
+          -- Recréer sans FK sur produit_id
+          CREATE TABLE inventory_counts (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id   INTEGER NOT NULL,
+            produit_id   INTEGER NOT NULL,
+            qty          REAL NOT NULL,
+            user         TEXT,
+            device_id    TEXT,
+            created_at   TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (session_id) REFERENCES inventory_sessions(id) ON DELETE CASCADE
+          );
+          
+          -- Restaurer les données
+          INSERT INTO inventory_counts SELECT * FROM inventory_counts_backup;
+          
+          -- Nettoyer
+          DROP TABLE inventory_counts_backup;
+          
+          COMMIT;
+        `);
+        console.log('[schema] Migration 3 (inventory_counts) terminée avec succès');
+      } catch (innerErr) {
+        db.exec('ROLLBACK;');
+        console.error('[schema] ❌ Migration 3 (inventory_counts) échouée:', innerErr?.message);
+      }
+      
+      db.exec('PRAGMA foreign_keys = ON;');
+    }
+  } catch (e) {
+    console.warn('[schema] Migration 3 (inventory_counts) - erreur externe:', e?.message || e);
+  }
+
   // Toujours activer les FK en SQLite
   db.exec(`PRAGMA foreign_keys = ON;`);
 
@@ -566,6 +616,27 @@ function ensureLocalSchema(db) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_inv_counts_session ON inventory_counts(session_id);
     CREATE INDEX IF NOT EXISTS idx_inv_counts_prod    ON inventory_counts(produit_id);
+  `);
+
+  // --- INVENTORY SUMMARY (résumé local pour consultation offline)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS inventory_summary (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id     INTEGER NOT NULL,
+      produit_id     INTEGER NOT NULL,
+      stock_start    REAL NOT NULL DEFAULT 0,
+      counted_total  REAL NOT NULL DEFAULT 0,
+      delta          REAL NOT NULL DEFAULT 0,
+      unit_cost      REAL NOT NULL DEFAULT 0,
+      delta_value    REAL NOT NULL DEFAULT 0,
+      created_at     TEXT DEFAULT (datetime('now','localtime')),
+      FOREIGN KEY (session_id) REFERENCES inventory_sessions(id) ON DELETE CASCADE,
+      UNIQUE (session_id, produit_id)
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_inv_summary_session ON inventory_summary(session_id);
+    CREATE INDEX IF NOT EXISTS idx_inv_summary_prod    ON inventory_summary(produit_id);
   `);
 
   // --- STOCK MOVEMENTS (local, pour historiser les mouvements)
