@@ -7,11 +7,11 @@
     "adherents": true,
     "email": true,
     "receptions": false,
-    "ventes_exterieur": true,
+    "ventes_exterieur": false,
     "stocks": true,
     "exports": false,
     "multiusers": false,
-    "fournisseurs": true,
+    "fournisseurs": false,
     "modes_paiement": true,
     "emailAdmin": true
   },

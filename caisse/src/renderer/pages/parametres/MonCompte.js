@@ -126,7 +126,7 @@
         <div class="mc-tab active" data-tab="import">Import</div>
         <div class="mc-tab" data-tab="categories">Catégories</div>
         <div class="mc-tab" data-tab="unites">Unités</div>
-        <div class="mc-tab" data-tab="modes_paiement">Modes de paiement</div>
+        ${modules.modes_paiement ? '<div class="mc-tab" data-tab="modes_paiement">Modes de paiement</div>' : ''}
         <div class="mc-tab" data-tab="modules">Modules</div>
         <div class="mc-tab" data-tab="branding">Logo & Nom</div>
         ${modules.emailAdmin ? '<div class="mc-tab" data-tab="emailAdmin">E-mails</div>' : ''}
