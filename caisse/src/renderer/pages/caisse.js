@@ -2655,6 +2655,7 @@ const lignes = lignesProduits.map(p => {
       total: Number(total || 0),
       adherent_id: (sale_type === 'adherent' && Number.isFinite(Number(adherentId))) ? Number(adherentId) : null,
       cotisation: (sale_type === 'adherent' && cotisationsOn) ? Number(totalCotisation || 0) : 0,
+      acompte: Number(totalAcompte || 0),
       mode_paiement_id: (modesOn && Number.isFinite(Number(mode_paiement_id))) ? Number(mode_paiement_id) : null,
       mode_paiement_label,
       frais_paiement,

@@ -445,7 +445,7 @@ async function pullRefs({ since = null } = {}) {
           // Résoudre le produit_id local
           const produitLocal = getProduitIdByUuid.get(m.produit_id);
           if (!produitLocal) {
-            console.warn(`[sync] stock_movement ignoré: produit ${m.produit_id} non trouvé localement`);
+            // Produit non trouvé localement, ignoré silencieusement
             continue;
           }
         
@@ -467,7 +467,7 @@ async function pullRefs({ since = null } = {}) {
           console.warn('[sync] erreur import stock_movement:', m.id, e?.message || e);
         }
       }
-      console.log(`[sync] pull: ${movementsImported} stock_movements importés`);
+      // Log supprimé pour réduire le bruit dans la console
       
       // NE PAS recalculer depuis stock_movements car les stocks sont déjà synchronisés
       // depuis le serveur lors du pull des produits (source de vérité = serveur)
@@ -529,19 +529,15 @@ async function pullRefs({ since = null } = {}) {
       // 📦 Mettre à jour le cache après l'import
       if (produits.length > 0) {
         cache.invalidateByPrefix('produits:');
-        console.log('[cache] 🔄 Cache produits invalidé après pull');
       }
       if (categories.length > 0) {
         cache.invalidateByPrefix('categories:');
-        console.log('[cache] 🔄 Cache catégories invalidé après pull');
       }
       if (modes_paiement.length > 0) {
         cache.invalidateByPrefix('modes_paiement:');
-        console.log('[cache] 🔄 Cache modes_paiement invalidé après pull');
       }
       if (fournisseurs.length > 0) {
         cache.invalidateByPrefix('fournisseurs:');
-        console.log('[cache] 🔄 Cache fournisseurs invalidé après pull');
       }
       
       setState('online', { phase: 'pulled' });

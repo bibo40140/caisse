@@ -92,12 +92,12 @@
         return;
       }
 
-      if (key === 'email') {
-        await inject('src/renderer/pages/parametres/mon-compte/email.js');
-        if (window.PageParamsEmail?.render) {
-          await window.PageParamsEmail.render();
+      if (key === 'emailAdmin') {
+        await inject('src/renderer/pages/parametres/mon-compte/emailAdmin.js');
+        if (window.PageParamsEmailAdmin?.render) {
+          await window.PageParamsEmailAdmin.render();
         } else {
-          host.innerHTML = `<p>Module E-mail introuvable.</p>`;
+          host.innerHTML = `<p>Module E-mails admin introuvable.</p>`;
         }
         return;
       }
@@ -113,6 +113,13 @@
     const content = document.getElementById('page-content');
     if (!content) return;
 
+    // Récupérer les modules actifs
+    let modules = {};
+    try {
+      const r = await window.electronAPI?.getTenantModules?.();
+      if (r?.ok) modules = r.modules || {};
+    } catch {}
+
     content.innerHTML = `
       <h2>Mon compte</h2>
       <div class="mc-tabs">
@@ -122,7 +129,7 @@
         <div class="mc-tab" data-tab="modes_paiement">Modes de paiement</div>
         <div class="mc-tab" data-tab="modules">Modules</div>
         <div class="mc-tab" data-tab="branding">Logo & Nom</div>
-        <div class="mc-tab" data-tab="email">E-mails</div>
+        ${modules.emailAdmin ? '<div class="mc-tab" data-tab="emailAdmin">E-mails</div>' : ''}
       </div>
       <div id="parametres-souspage"></div>
     `;

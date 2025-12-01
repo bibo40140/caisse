@@ -6,7 +6,6 @@
   "scripts": {
     "start": "electron .",
     "seed-familles": "electron ./scripts/seed-families-categories.electron.js"
-
   },
   "keywords": [],
   "author": "",

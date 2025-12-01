@@ -36,8 +36,9 @@
     const defs = {
       adherents:   { label: "Adhérents", desc: "Gestion des membres adhérents.", children: ["cotisations", "emails", "prospects"] },
       cotisations: { label: "Cotisations", desc: "Gestion des cotisations adhérents (min 5€).", dependsOn: ["adherents"] },
-      emails:      { label: "E-mails", desc: "Envoi des factures par e-mail.", dependsOn: ["adherents"] },
-      modes_paiement: { label: "Modes de paiement", desc: "Activer le sélecteur, les frais et la page d’admin." },
+      emails:      { label: "Envoi factures adhérents", desc: "Activer l'envoi des factures par e-mail aux adhérents.", dependsOn: ["emailAdmin", "adherents"] },
+      emailAdmin:  { label: "E-mails admin", desc: "Configuration SMTP et destinataires des rapports (compta, technique, etc.)." },
+      modes_paiement: { label: "Modes de paiement", desc: "Activer le sélecteur, les frais et la page d'admin." },
       prospects:   { label: "Prospects", desc: "Gestion prospects (dépend des adhérents).", dependsOn: ["adherents"] },
       ventes_exterieur: { label: "Vente aux extérieurs", desc: "Majoration configurable." },
       stocks:      { label: "Gestion des stocks", desc: "Mise à jour de stock & réceptions.", children: ["inventaire"] },
@@ -108,7 +109,7 @@
         : `${headHtml}${childrenHtml}`;
     };
 
-    const topLevelOrder = ["adherents", "ventes_exterieur", "stocks", "modes_paiement", "fournisseurs", "exports", "multiusers"]
+    const topLevelOrder = ["adherents", "emailAdmin", "ventes_exterieur", "stocks", "modes_paiement", "fournisseurs", "exports", "multiusers"]
       .filter(k => defs[k]);
 
     const html = `

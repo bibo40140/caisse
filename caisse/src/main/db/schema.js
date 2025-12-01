@@ -748,6 +748,19 @@ function ensureLocalSchema(db) {
   } catch (e) {
     console.warn('[schema] Migration stock_movements remote_uuid:', e?.message || e);
   }
+
+  // 🔥 MIGRATION: Ajouter colonne acompte à ventes si elle n'existe pas
+  try {
+    const cols = db.prepare("PRAGMA table_info(ventes)").all();
+    const hasAcompte = cols.some(c => c.name === 'acompte');
+    if (!hasAcompte) {
+      console.log('[schema] Migration: ajout colonne acompte à ventes...');
+      db.exec('ALTER TABLE ventes ADD COLUMN acompte REAL DEFAULT 0');
+      console.log('[schema] Migration acompte terminée');
+    }
+  } catch (e) {
+    console.warn('[schema] Migration ventes acompte:', e?.message || e);
+  }
 }
 
 module.exports = { ensureLocalSchema };

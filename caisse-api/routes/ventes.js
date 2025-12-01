@@ -2,6 +2,9 @@
 import express from 'express';
 import { pool } from '../db/index.js';
 import { authRequired } from '../middleware/auth.js';
+import { getEmailSettings } from '../models/emailSettingsRepo.js';
+import { decryptSecret } from '../utils/crypto.js';
+import nodemailer from 'nodemailer';
 
 const router = express.Router();
 
@@ -64,6 +67,58 @@ router.post('/ventes', authRequired, async (req, res) => {
 
     await client.query(`UPDATE ventes SET total = $1 WHERE id = $2`, [total, venteId]);
     await client.query('COMMIT');
+
+    // Envoi email facture si module actif
+    try {
+      // Récupérer les modules du tenant
+      const modulesRes = await pool.query(
+        `SELECT modules_json FROM tenant_settings WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      const modules = modulesRes.rows[0]?.modules_json || {};
+      if (modules.email_facture) {
+        // Déterminer l'email destinataire
+        let emailDest = client_email;
+        if (!emailDest && adherent_id) {
+          // Récupérer l'email1 de l'adhérent
+          const adhRes = await pool.query(
+            `SELECT email1 FROM adherents WHERE tenant_id = $1 AND id = $2`,
+            [tenantId, adherent_id]
+          );
+          emailDest = adhRes.rows[0]?.email1 || null;
+        }
+
+        if (emailDest) {
+          // Récupérer la config email
+          const emailSettings = await getEmailSettings(tenantId);
+          if (emailSettings && emailSettings.enabled) {
+            const transporter = nodemailer.createTransport({
+              host: emailSettings.host,
+              port: emailSettings.port,
+              secure: !!emailSettings.secure,
+              auth: {
+                user: emailSettings.auth_user,
+                pass: decryptSecret(emailSettings.auth_pass_enc)
+              }
+            });
+            // Générer un contenu simple de facture (à améliorer)
+            const factureText = `Merci pour votre achat. Montant total : ${total} €.`;
+            transporter.sendMail({
+              from: `${emailSettings.from_name} <${emailSettings.from_email}>`,
+              to: emailDest,
+              subject: 'Votre facture',
+              text: factureText
+            }).catch(e => {
+              console.error('[VENTE] Erreur envoi email facture:', e);
+            });
+            console.log(`[VENTE] Email facture envoyé à ${emailDest} pour vente #${venteId}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[VENTE] Erreur logique email facture:', e);
+    }
+
     return res.json({ ok: true, vente_id: venteId, total });
   } catch (e) {
     await client.query('ROLLBACK');

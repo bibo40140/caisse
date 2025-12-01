@@ -1,6 +1,7 @@
 // src/main/db/email.js
 const nodemailer = require('nodemailer');
 const db = require('./db'); // proxy tenant-aware (DB locale du tenant actif)
+const { apiFetch, getTenantHeaders, safeJson } = require('../apiClient');
 
 // ─────────────────────────────────────────────────────────
 // Helpers: lecture des settings depuis tenant_settings
@@ -12,13 +13,23 @@ function getJsonSetting(key) {
 }
 
 function getTenantModules() {
-  // attendu: { emails: true/false, ... }
+  // attendu: { emails: true/false, emailAdmin: true/false, ... }
   return getJsonSetting('modules') || {};
 }
 
-function getEmailSettings() {
-  // attendu: { provider: "smtp"|"gmail"|"disabled", host?, port?, secure?, user?, pass?, from? }
-  return getJsonSetting('email');
+async function getEmailSettings() {
+  // Récupère la config email depuis l'API (email_admin_json dans PostgreSQL)
+  try {
+    const response = await apiFetch('/tenant_settings/email_admin', {
+      method: 'GET',
+      headers: getTenantHeaders(),
+    });
+    const data = await safeJson(response);
+    return data.email_admin || null;
+  } catch (err) {
+    console.error('[email.js] Erreur lors de la récupération de la config email:', err);
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -29,6 +40,12 @@ function assertEmailsEnabled() {
   if (!modules || modules.emails !== true) {
     const e = new Error('Module Emails désactivé pour ce tenant.');
     e.code = 'EMAILS_DISABLED';
+    throw e;
+  }
+  // Vérifier aussi que emailAdmin est activé (dépendance)
+  if (!modules.emailAdmin) {
+    const e = new Error('Module EmailAdmin doit être activé pour envoyer des emails.');
+    e.code = 'EMAILADMIN_DISABLED';
     throw e;
   }
 }
@@ -88,13 +105,13 @@ function buildTransportFromSettings(s) {
   throw e;
 }
 
-function getMailTransport() {
-  const s = getEmailSettings();
+async function getMailTransport() {
+  const s = await getEmailSettings();
   return buildTransportFromSettings(s);
 }
 
-function getDefaultFrom() {
-  const s = getEmailSettings();
+async function getDefaultFrom() {
+  const s = await getEmailSettings();
   // Priorité: from explicit → sinon user (gmail/smtp)
   if (s?.from) return String(s.from).trim();
   if (s?.user) return String(s.user).trim();
@@ -110,9 +127,9 @@ async function envoyerEmailGenerique({ to, subject, text, html }) {
   assertEmailsEnabled();
   if (!to) throw new Error('Destinataire manquant');
 
-  const transporter = getMailTransport();
+  const transporter = await getMailTransport();
   await transporter.sendMail({
-    from: getDefaultFrom(),
+    from: await getDefaultFrom(),
     to: String(to).trim(),
     subject: subject || '(Sans sujet)',
     text: text || undefined,
@@ -127,9 +144,9 @@ async function envoyerFactureParEmail({
   email, lignes, cotisation, acompte = 0, frais_paiement = 0, mode_paiement = '', total
 }) {
   assertEmailsEnabled();
-  if (!email) throw new Error('Adresse email manquante pour l’envoi de la facture');
+  if (!email) throw new Error("Adresse email manquante pour l'envoi de la facture");
 
-  const transporter = getMailTransport();
+  const transporter = await getMailTransport();
 
   const lignesHTML = (lignes || []).map((p) => {
     const prix = Number(p.prix || 0);
@@ -210,7 +227,7 @@ async function envoyerFactureParEmail({
   `;
 
   await transporter.sendMail({
-    from: getDefaultFrom(),
+    from: await getDefaultFrom(),
     to: String(email).trim(),
     subject: 'Votre facture',
     html,
@@ -222,24 +239,6 @@ module.exports = {
   envoyerEmailGenerique,
   envoyerFactureParEmail,
   getEmailSettings,
-  setEmailSettings: (s) => {
-    // On conserve ta fonction, mais on force le provider par défaut à "disabled"
-    const cleaned = { ...(s || {}) };
-    if (!cleaned.provider) cleaned.provider = 'disabled';
-    if (cleaned.port != null) cleaned.port = Number(cleaned.port);
-    if (cleaned.secure != null) cleaned.secure = !!cleaned.secure;
-
-    const value_json = JSON.stringify(cleaned);
-    db.prepare(`
-      INSERT INTO tenant_settings (key, value_json, updated_at)
-      VALUES ('email', ?, datetime('now','localtime'))
-      ON CONFLICT(key) DO UPDATE SET
-        value_json = excluded.value_json,
-        updated_at = excluded.updated_at
-    `).run(value_json);
-
-    return cleaned;
-  },
   // exposé modules si besoin ailleurs
   getTenantModules,
 };

@@ -112,7 +112,7 @@ function invalidateByPrefix(prefix) {
       count++;
     }
   }
-  console.log(`[cache] 🗑️ Invalidé ${count} entrées avec préfixe: ${prefix}`);
+  // Log supprimé pour réduire le bruit
   return count;
 }
 

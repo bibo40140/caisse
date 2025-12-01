@@ -26,6 +26,7 @@ import express from 'express';
 import compression from 'compression';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
@@ -1449,6 +1450,8 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
   const receptionMappings = [];
   // mappings fournisseurs local_id -> remote_uuid
   const fournisseurMappings = [];
+  // Collecte des ventes créées pour envoi email
+  const ventesCreees = [];
 
   try {
     await client.query('BEGIN');
@@ -1572,9 +1575,9 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             `
             INSERT INTO ventes (
                id, tenant_id, total, adherent_id, mode_paiement_id,
-               sale_type, client_email, frais_paiement, cotisation
+               sale_type, client_email, frais_paiement, cotisation, acompte
              )
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
              ON CONFLICT (id) DO NOTHING
              RETURNING id
             `,
@@ -1588,6 +1591,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
               p.clientEmail || null,
               p.fraisPaiement ?? null,
               p.cotisation ?? null,
+              p.acompte ?? null,
             ]
           );
           
@@ -1597,6 +1601,17 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             if (localVenteId != null) {
               venteMappings.push({ local_id: localVenteId, remote_uuid: venteUuid });
             }
+            // Collecter pour envoi email
+            ventesCreees.push({
+              venteUuid,
+              adherentUuid,
+              clientEmail: p.clientEmail || null,
+              total: p.total ?? 0,
+              fraisPaiement: p.fraisPaiement ?? 0,
+              cotisation: p.cotisation ?? 0,
+              acompte: p.acompte ?? 0,
+              modePaiementUuid
+            });
           }
           break;
         }
@@ -2149,6 +2164,262 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
 
     await client.query('COMMIT');
     console.log('[API] /sync/push_ops done.');
+
+    // Envoi des emails de facture si module actif
+    console.log(`[EMAIL-FACTURE] Ventes créées: ${ventesCreees.length}`);
+    if (ventesCreees.length > 0) {
+      try {
+        const modulesRes = await pool.query(
+          `SELECT modules_json FROM tenant_settings WHERE tenant_id = $1`,
+          [tenantId]
+        );
+        const modules = modulesRes.rows[0]?.modules_json || {};
+        console.log('[EMAIL-FACTURE] Modules du tenant:', modules);
+        const moduleEmailActif = modules.email || modules.emails || modules.email_facture;
+        console.log('[EMAIL-FACTURE] Module email actif?', moduleEmailActif);
+        
+        if (moduleEmailActif) {
+          console.log('[EMAIL-FACTURE] Module actif, chargement des dépendances...');
+          const { getEmailSettings } = await import('./models/emailSettingsRepo.js');
+          const nodemailer = await import('nodemailer');
+          let emailSettings = await getEmailSettings(tenantId);
+          
+          console.log('[EMAIL-FACTURE] Config email_settings récupérée:', emailSettings ? 'OUI' : 'NON');
+          
+          // Fallback: si email_settings n'existe pas, utiliser email_admin_json
+          if (!emailSettings || !emailSettings.enabled) {
+            console.log('[EMAIL-FACTURE] Tentative fallback sur email_admin_json...');
+            const adminEmailRes = await pool.query(
+              `SELECT email_admin_json FROM tenant_settings WHERE tenant_id = $1`,
+              [tenantId]
+            );
+            const adminEmailConfig = adminEmailRes.rows[0]?.email_admin_json || {};
+            console.log('[EMAIL-FACTURE] Config email_admin_json récupérée:', Object.keys(adminEmailConfig).length > 0 ? 'OUI' : 'NON');
+            
+            if (adminEmailConfig && adminEmailConfig.provider && adminEmailConfig.provider !== 'disabled') {
+              console.log('[EMAIL-FACTURE] Utilisation de email_admin_json, provider:', adminEmailConfig.provider);
+              // Convertir le format email_admin_json vers le format email_settings
+              emailSettings = {
+                enabled: true,
+                host: adminEmailConfig.host || 'smtp.gmail.com',
+                port: adminEmailConfig.port || 587,
+                secure: !!adminEmailConfig.secure,
+                auth_user: adminEmailConfig.user,
+                from_name: adminEmailConfig.from || adminEmailConfig.user,
+                from_email: adminEmailConfig.from || adminEmailConfig.user,
+                // Le mot de passe dans email_admin_json n'est pas chiffré
+                auth_pass: adminEmailConfig.pass
+              };
+            }
+          }
+          
+          console.log('[EMAIL-FACTURE] Email enabled?', emailSettings?.enabled);
+          
+          if (emailSettings && emailSettings.enabled) {
+            console.log('[EMAIL-FACTURE] Configuration SMTP valide, création transporter...');
+            
+            // Gérer le mot de passe chiffré ou non chiffré
+            let password = emailSettings.auth_pass;
+            if (emailSettings.auth_pass_enc) {
+              const { decryptSecret } = await import('./utils/crypto.js');
+              password = decryptSecret(emailSettings.auth_pass_enc);
+            }
+            
+            const transporter = nodemailer.default.createTransport({
+              host: emailSettings.host,
+              port: emailSettings.port,
+              secure: !!emailSettings.secure,
+              auth: {
+                user: emailSettings.auth_user,
+                pass: password
+              }
+            });
+
+            // Import du template de facture
+            const { generateFactureHTML } = await import('./utils/factureTemplate.js');
+
+            for (const vente of ventesCreees) {
+              console.log('[EMAIL-FACTURE] Traitement vente:', vente);
+              
+              // Récupérer les informations de l'adhérent
+              let adherent = null;
+              let emailDest = vente.clientEmail;
+              if (vente.adherentUuid) {
+                const adhRes = await pool.query(
+                  `SELECT * FROM adherents WHERE tenant_id = $1 AND id = $2`,
+                  [tenantId, vente.adherentUuid]
+                );
+                adherent = adhRes.rows[0] || null;
+                if (!emailDest && adherent) {
+                  emailDest = adherent.email1 || null;
+                }
+              }
+
+              if (!emailDest) {
+                console.log('[EMAIL-FACTURE] Aucun email destinataire trouvé pour cette vente');
+                continue;
+              }
+
+              // Récupérer les détails de la vente (lignes)
+              const lignesRes = await pool.query(
+                `SELECT lv.*, p.nom as nom_produit, p.reference
+                 FROM lignes_vente lv
+                 LEFT JOIN produits p ON p.id = lv.produit_id AND p.tenant_id = $1
+                 WHERE lv.vente_id = $2 AND lv.tenant_id = $1`,
+                [tenantId, vente.venteUuid]
+              );
+
+              // Récupérer les infos du tenant et logo
+              // Récupérer branding (logo binaire) + infos tenant
+              let tenantInfo = {};
+              try {
+                const infoRes = await pool.query(
+                  `SELECT company_name, logo_url FROM tenant_settings WHERE tenant_id = $1`,
+                  [tenantId]
+                );
+                tenantInfo = infoRes.rows[0] || {};
+                console.log('[EMAIL-FACTURE] tenant_settings loaded:', { company_name: tenantInfo.company_name, logo_url: tenantInfo.logo_url });
+              } catch (e) {
+                console.warn('[EMAIL-FACTURE] tenant_settings fetch failed:', e.message);
+              }
+              let brandingLogoBuf = null;
+              let brandingLogoMime = null;
+              try {
+                const brandRes = await pool.query(
+                  `SELECT logo_mime, logo_data FROM tenant_branding WHERE tenant_id = $1`,
+                  [tenantId]
+                );
+                if (brandRes.rowCount > 0 && brandRes.rows[0].logo_data) {
+                  brandingLogoBuf = brandRes.rows[0].logo_data;
+                  brandingLogoMime = brandRes.rows[0].logo_mime || 'image/png';
+                }
+              } catch (e) {
+                console.warn('[EMAIL-FACTURE] tenant_branding fetch failed:', e.message);
+              }
+
+              // Récupérer le mode de paiement
+              let modePaiement = null;
+              if (vente.modePaiementUuid) {
+                const mpRes = await pool.query(
+                  `SELECT nom FROM modes_paiement WHERE tenant_id = $1 AND id = $2`,
+                  [tenantId, vente.modePaiementUuid]
+                );
+                modePaiement = mpRes.rows[0]?.nom || null;
+              }
+
+              // Générer le numéro de facture (format: YYYY-MM-XXXXXX)
+              const now = new Date();
+              const venteIdShort = vente.venteUuid.split('-')[0].toUpperCase();
+              const numeroFacture = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}-${venteIdShort}`;
+
+              // Construire le logo URL complet si nécessaire
+              let logoCid = null;
+              let attachments = [];
+              let logoUrl = null; // HTML utilisera cid si dispo, sinon URL absolue
+              if (brandingLogoBuf) {
+                logoCid = 'tenantlogo';
+                logoUrl = 'cid:tenantlogo';
+                attachments.push({
+                  filename: 'logo.png',
+                  content: brandingLogoBuf,
+                  contentType: brandingLogoMime,
+                  cid: logoCid
+                });
+                console.log('[EMAIL-FACTURE] Logo CID attach prepared');
+              } else {
+                // Fallback: utiliser le logo_url si défini dans tenant_settings
+                const raw = tenantInfo?.logo_url;
+                if (raw) {
+                  if (String(raw).startsWith('http')) {
+                    // URL absolue externe: certains clients afficheront l'image distante
+                    logoUrl = raw;
+                    console.log('[EMAIL-FACTURE] Fallback logo_url (http) utilisé:', logoUrl);
+                  } else {
+                    // Logo local (ex: /public/logos/<tenant>.png) → embarquer inline (cid)
+                    try {
+                      const rel = String(raw).replace(/^[\\\/]+/, '');
+                      const fullPath = path.join(__dirname, rel);
+                      const ext = path.extname(fullPath).toLowerCase();
+                      const ctype = ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'application/octet-stream';
+                      const buf = fs.readFileSync(fullPath);
+                      logoCid = 'tenantlogo';
+                      logoUrl = 'cid:tenantlogo';
+                      attachments.push({ filename: path.basename(fullPath), content: buf, contentType: ctype, cid: logoCid });
+                      console.log('[EMAIL-FACTURE] Logo local ajouté en CID depuis logo_url:', fullPath);
+                    } catch (e) {
+                      // En dernier recours, tenter l'URL complète côté API (peut ne pas être accessible publiquement)
+                      const apiUrl = process.env.API_URL || 'http://localhost:3001';
+                      logoUrl = `${apiUrl}${raw}`;
+                      console.warn('[EMAIL-FACTURE] Lecture logo local échouée, utilisation URL:', logoUrl, e?.message || e);
+                    }
+                  }
+                } else {
+                  console.log('[EMAIL-FACTURE] Aucun logo trouvé (branding ni logo_url), fallback nom entreprise');
+                }
+              }
+              
+              // Générer le HTML de la facture
+              console.log('[EMAIL-FACTURE] Données facture:', {
+                total: vente.total,
+                fraisPaiement: vente.fraisPaiement,
+                cotisation: vente.cotisation,
+                acompte: vente.acompte,
+                modePaiement,
+                logoUrl
+              });
+              
+              const factureHTML = generateFactureHTML({
+                numeroFacture,
+                dateFacture: now.toISOString(),
+                tenant: tenantInfo,
+                adherent,
+                lignes: lignesRes.rows.map(l => {
+                  const q = Number(l.quantite || 0) || 0;
+                  const lineTotal = Number(l.prix || 0); // prix stocké = TOTAL de ligne
+                  const unit = (q > 0)
+                    ? (l.prix_unitaire != null && Number(l.prix_unitaire) > 0
+                        ? Number(l.prix_unitaire)
+                        : lineTotal / q)
+                    : (l.prix_unitaire != null && Number(l.prix_unitaire) > 0 ? Number(l.prix_unitaire) : lineTotal);
+                  return {
+                    nom_produit: l.nom_produit || l.reference || 'Produit',
+                    quantite: q,
+                    prix_unitaire: unit,
+                    total: lineTotal
+                  };
+                }),
+                total: vente.total,
+                fraisPaiement: vente.fraisPaiement || 0,
+                cotisation: vente.cotisation || 0,
+                acompte: vente.acompte || 0,
+                modePaiement,
+                logoUrl
+              });
+
+              console.log(`[EMAIL-FACTURE] Envoi email à ${emailDest}...`);
+              transporter.sendMail({
+                from: `${emailSettings.from_name} <${emailSettings.from_email}>`,
+                to: emailDest,
+                subject: `Votre facture #${numeroFacture}`,
+                html: factureHTML,
+                text: `Facture #${numeroFacture}\n\nMerci pour votre achat.\nMontant total : ${vente.total} €.\n\nLogo: ${logoCid ? 'inclus inline' : 'non fourni'}\n`,
+                attachments
+              }).then(() => {
+                console.log(`✅ [EMAIL-FACTURE] Email envoyé avec succès à ${emailDest} pour vente #${vente.venteUuid}`);
+              }).catch(e => {
+                console.error('❌ [EMAIL-FACTURE] Erreur envoi email facture:', e);
+              });
+            }
+          } else {
+            console.log('[EMAIL-FACTURE] Config email manquante ou désactivée');
+          }
+        } else {
+          console.log('[EMAIL-FACTURE] Module email_facture non actif');
+        }
+      } catch (e) {
+        console.error('❌ [EMAIL-FACTURE] Erreur logique email facture:', e);
+      }
+    }
 
     // 🔁 On renvoie les mappings pour que le client mette à jour remote_uuid
     return res.json({

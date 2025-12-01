@@ -28,12 +28,13 @@ async function render() {
     const modesPaiement = await window.electronAPI.getModesPaiement() || [];
     
     // Enrichir les données
-    const ventesEnrichies = await Promise.all(
+      const ventesEnrichies = await Promise.all(
       ventes.map(async (v) => {
         const details = await window.electronAPI.getDetailsVente(v.id);
         const header = details.header || details;
         const frais = Number(header.frais_paiement ?? 0) || 0;
         const cotis = Number(header.cotisation ?? 0) || 0;
+        const acompte = Number(header.acompte ?? 0) || 0;
 
         let totalProduits = 0;
         if (Array.isArray(details.lignes)) {
@@ -47,7 +48,7 @@ async function render() {
           totalProduits = Number(v.total ?? header.total ?? 0) || 0;
         }
 
-        const totalAffiche = totalProduits + cotis + frais;
+        const totalAffiche = totalProduits + cotis + frais - acompte;
         const adherentNom = `${header.adherent_nom || ''} ${header.adherent_prenom || ''}`.trim() || '—';
 
         return {
@@ -319,6 +320,7 @@ async function viewVente(venteId) {
 
     const montantCotisation = Number(header.cotisation || 0);
     const fraisPaiement = Number(header.frais_paiement || 0);
+    const acompte = Number(header.acompte || 0);
 
     const lignesCalc = lignes.map(l => {
       const q = Number(l.quantite || 0);
@@ -340,7 +342,7 @@ async function viewVente(venteId) {
         : Number(q) * Number(l.prix_unitaire || 0);
       return s + (Number.isFinite(tot) ? tot : 0);
     }, 0);
-    const totalGlobal = totalProduits + montantCotisation + fraisPaiement;
+    const totalGlobal = totalProduits + montantCotisation + fraisPaiement - acompte;
 
     const html = `
       <h3>Détail de la vente #${venteId}</h3>
@@ -389,6 +391,12 @@ async function viewVente(venteId) {
             <tr style="background: #f0f8ff;">
               <td colspan="5"><em>Frais de paiement</em></td>
               <td>${eur(fraisPaiement)}</td>
+            </tr>
+          ` : ''}
+          ${acompte > 0 ? `
+            <tr style="background: #fff8e1;">
+              <td colspan="5"><em>Acompte déduit</em></td>
+              <td style="color: #f57c00;">- ${eur(acompte)}</td>
             </tr>
           ` : ''}
           <tr style="background: #e8f5e9; font-weight: bold;">

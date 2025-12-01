@@ -165,6 +165,44 @@ function registerBrandingIpc() {
       try { mtime = fs.statSync(savedFile).mtimeMs; } catch {}
     }
 
+    // 🔥 NOUVEAU: Sync vers l'API Neon (/tenant_settings/onboarding)
+    try {
+      const apiClient = require('./apiClient');
+      const body = {};
+      if (typeof meta.name === 'string' && meta.name.trim()) {
+        body.company_name = meta.name.trim();
+      }
+      if (logoDataUrl && /^data:/i.test(logoDataUrl)) {
+        body.logo_base64 = logoDataUrl;
+      } else if (deleteLogo === true) {
+        body.logo_base64 = '';
+      }
+      
+      if (Object.keys(body).length > 0) {
+        console.log('[branding:set] API base:', apiClient.getApiBase());
+        console.log('[branding:set] Auth token present:', !!apiClient.getAuthToken());
+        console.log('[branding:set] Calling API with body keys:', Object.keys(body));
+        console.log('[branding:set] Body company_name:', body.company_name);
+        console.log('[branding:set] Body logo_base64 length:', body.logo_base64?.length || 0);
+        
+        const response = await apiClient.post('/tenant_settings/onboarding', body);
+        console.log('[branding:set] API response status:', response.status);
+        console.log('[branding:set] API response URL:', response.url);
+        
+        if (!response.ok) {
+          const text = await response.text();
+          console.warn('[branding:set] API error:', response.status, text);
+        } else {
+          const result = await response.json();
+          console.log('[branding:set] Synced to API successfully:', result);
+        }
+      }
+    } catch (e) {
+      console.error('[branding:set] Failed to sync to API:', e?.message || e);
+      console.error('[branding:set] Full error:', e);
+      // Non bloquant: on continue même si l'API échoue
+    }
+
     return {
       ok: true,
       tenantId,

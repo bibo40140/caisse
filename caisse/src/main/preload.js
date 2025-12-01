@@ -167,10 +167,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   analyserImportProduits: (filepath) => ipcRenderer.invoke('analyser-import-produits', filepath),
   validerImportProduits: (produits) => ipcRenderer.invoke('valider-import-produits', produits),
 
-  /* -------------- Email (par tenant) ------------- */
-  emailGetSettings: () => ipcRenderer.invoke('email:getSettings'),
-  emailSetSettings: (s) => ipcRenderer.invoke('email:setSettings', s),
-  emailTestSend:   (p) => ipcRenderer.invoke('email:testSend', p),
+  /* -------------- Email (par tenant) - Redirigé vers emailAdmin ------------- */
+  emailGetSettings: () => ipcRenderer.invoke('emailAdmin:getSettings'),
+  emailSetSettings: (s) => ipcRenderer.invoke('emailAdmin:setSettings', s),
+  emailTestSend:   (p) => ipcRenderer.invoke('emailAdmin:testSend', p),
+
+  /* -------------- Email Admin (par tenant) ------------- */
+  getEmailAdminSettings: () => ipcRenderer.invoke('emailAdmin:getSettings'),
+  setEmailAdminSettings: (s) => ipcRenderer.invoke('emailAdmin:setSettings', s),
+  emailAdminTestSend: (p) => ipcRenderer.invoke('emailAdmin:testSend', p),
 
   // --- Super admin: gestion ciblée d’un tenant ---
   adminGetTenantModules:   (tenantId)                 => ipcRenderer.invoke('admin:tenant:modules:get', tenantId),

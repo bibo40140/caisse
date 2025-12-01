@@ -62,16 +62,34 @@ function enregistrerVente(vente, lignes) {
       ? Number(vente.cotisation || 0)
       : 0;
 
+  const acompte = Number(vente.acompte || 0);
+
   // total (produits) envoyé par le handler
   const total = Number(vente.total || 0);
   const clientEmail = (vente.client_email || null);
 
+  // 🔧 Si mode_paiement_id est NULL et que le module est désactivé,
+  // on doit gérer la contrainte FK proprement
+  let finalModePaiementId = modePaiementId;
+  
+  if (modePaiementId === null && !modesOn) {
+    // Module désactivé : on laisse NULL et on accepte que ça puisse échouer si FK stricte
+    // La vraie solution serait de rendre la FK nullable dans le schéma
+    finalModePaiementId = null;
+  } else if (modePaiementId === null && modesOn) {
+    // Module activé mais pas de mode sélectionné : prendre le premier disponible
+    const firstMode = db.prepare(`SELECT id FROM modes_paiement WHERE id > 0 ORDER BY id LIMIT 1`).get();
+    finalModePaiementId = firstMode?.id || null;
+  }
+  
+  console.log('[ventes] Mode paiement final:', finalModePaiementId, 'modesOn:', modesOn);
+
   // Stmts
   const insertVente = db.prepare(`
     INSERT INTO ventes
-      (total, adherent_id, date_vente, mode_paiement_id, frais_paiement, cotisation, sale_type, client_email, updated_at)
+      (total, adherent_id, date_vente, mode_paiement_id, frais_paiement, cotisation, acompte, sale_type, client_email, updated_at)
     VALUES
-      (?,     ?,           datetime('now','localtime'), ?,               ?,              ?,          ?,         ?,            datetime('now','localtime'))
+      (?,     ?,           datetime('now','localtime'), ?,               ?,              ?,          ?,       ?,         ?,            datetime('now','localtime'))
   `);
 
   const insertLigne = db.prepare(`
@@ -83,16 +101,53 @@ function enregistrerVente(vente, lignes) {
 
   const tx = db.transaction(() => {
     // HEADER
+    console.log('[ventes] Inserting vente with:', {
+      total,
+      adherentId,
+      finalModePaiementId,
+      saleType,
+      clientEmail
+    });
+    
+    // Vérifier que l'adherent existe si on en fournit un
+    if (adherentId !== null) {
+      const adhExists = db.prepare(`SELECT id FROM adherents WHERE id = ?`).get(adherentId);
+      if (!adhExists) {
+        throw new Error(`Adhérent ID ${adherentId} n'existe pas en local - synchronisation requise`);
+      }
+    }
+    
+    // Vérifier que le mode de paiement existe si on en fournit un
+    if (finalModePaiementId !== null && finalModePaiementId !== undefined) {
+      const modeExists = db.prepare(`SELECT id FROM modes_paiement WHERE id = ?`).get(finalModePaiementId);
+      if (!modeExists) {
+        console.warn(`[ventes] Mode paiement ID ${finalModePaiementId} n'existe pas, utilisation de NULL`);
+        finalModePaiementId = null;
+      }
+    }
+    
+    // Si module modes_paiement désactivé et finalModePaiementId=null, désactiver temporairement les FK
+    const needDisableFK = !modesOn && finalModePaiementId === null;
+    if (needDisableFK) {
+      db.prepare('PRAGMA foreign_keys = OFF').run();
+    }
+    
     const rV = insertVente.run(
       total,
       adherentId,
-      modePaiementId,
+      finalModePaiementId,
       fraisPaiement,
       cotisation,
+      acompte,
       saleType,
       clientEmail
     );
     const venteId = rV.lastInsertRowid;
+    console.log('[ventes] Vente inserted with ID:', venteId);
+    
+    if (needDisableFK) {
+      db.prepare('PRAGMA foreign_keys = ON').run();
+    }
 
     // 🔥 Récupérer les remote_uuid pour adherent et mode_paiement
     let adherentUuid = null;
@@ -103,8 +158,8 @@ function enregistrerVente(vente, lignes) {
       adherentUuid = adhRow?.remote_uuid || null;
     }
 
-    if (modePaiementId) {
-      const mpRow = db.prepare(`SELECT remote_uuid FROM modes_paiement WHERE id = ?`).get(modePaiementId);
+    if (finalModePaiementId) {
+      const mpRow = db.prepare(`SELECT remote_uuid FROM modes_paiement WHERE id = ?`).get(finalModePaiementId);
       modePaiementUuid = mpRow?.remote_uuid || null;
     }
 
@@ -125,6 +180,7 @@ function enregistrerVente(vente, lignes) {
         clientEmail,
         fraisPaiement,
         cotisation,
+        acompte,
       },
     });
 
@@ -138,6 +194,12 @@ function enregistrerVente(vente, lignes) {
 
       if (!Number.isFinite(produitId) || !Number.isFinite(qte) || qte <= 0) {
         throw new Error('ligne de vente invalide');
+      }
+
+      // 🔍 Vérifier si le produit existe
+      const produitExists = db.prepare(`SELECT id FROM produits WHERE id = ?`).get(produitId);
+      if (!produitExists) {
+        throw new Error(`Produit ID ${produitId} n'existe pas en local - synchronisation requise`);
       }
 
       insertLigne.run(venteId, produitId, qte, prixTotal, pu, remise);
@@ -230,13 +292,21 @@ return db.prepare(`
         -- Nouvelles lignes (prix = total, prix_unitaire = PU appliqué)
         ELSE lv.prix
       END
-    ), 0) AS total,
+    ), 0) AS total_produits,
     v.adherent_id,
     v.mode_paiement_id,
     v.sale_type,
     v.client_email,
     v.frais_paiement,
     v.cotisation,
+    COALESCE(v.acompte, 0) AS acompte,
+    -- Total final = produits + frais + cotisation - acompte
+    (COALESCE(SUM(
+      CASE
+        WHEN (lv.prix_unitaire IS NULL OR lv.prix_unitaire = 0) THEN (lv.prix * lv.quantite)
+        ELSE lv.prix
+      END
+    ), 0) + COALESCE(v.frais_paiement, 0) + COALESCE(v.cotisation, 0) - COALESCE(v.acompte, 0)) AS total,
     a.nom AS adherent_nom, a.prenom AS adherent_prenom,
     mp.nom AS mode_paiement_nom
   FROM ventes v

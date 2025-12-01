@@ -1129,3 +1129,68 @@ safeHandle('diagnostic:export', async () => {
     return { ok: false, error: e?.message || String(e) };
   }
 });
+
+// ═══════════════════════════════════════════════════════════
+//  EMAIL ADMIN HANDLERS (par tenant)
+// ═══════════════════════════════════════════════════════════
+
+safeHandle('emailAdmin:getSettings', async () => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+
+    const r = await apiFetch('/tenant_settings/email_admin', {
+      headers: { accept: 'application/json', ...getTenantHeaders() }
+    });
+    const js = await safeJson(r);
+    if (!r.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, settings: js.settings || {} };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('emailAdmin:setSettings', async (_evt, settings) => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+
+    const r = await apiFetch('/tenant_settings/email_admin', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getTenantHeaders()
+      },
+      body: JSON.stringify(settings || {})
+    });
+    const js = await safeJson(r);
+    if (!r.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true, settings: js.settings || {} };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+safeHandle('emailAdmin:testSend', async (_evt, payload) => {
+  try {
+    const a = await ensureAuth();
+    if (!a.ok) return { ok: false, error: 'Non connecté (token manquant)' };
+
+    const { to, subject = '[Test] Coopaz', text = 'Email de test' } = payload || {};
+    if (!to) return { ok: false, error: 'Destinataire requis' };
+
+    const r = await apiFetch('/tenant_settings/email/test', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getTenantHeaders()
+      },
+      body: JSON.stringify({ to, subject, text })
+    });
+    const js = await safeJson(r);
+    if (!r.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});

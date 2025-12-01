@@ -82,6 +82,33 @@ function logout() {
   // mais on ne touche pas ici pour garder ce module générique.
 }
 
+/* =========================
+ * Convenience methods
+ * =======================*/
+async function get(path, options = {}) {
+  return apiFetch(path, { ...options, method: 'GET' });
+}
+
+async function post(path, body, options = {}) {
+  return apiFetch(path, {
+    ...options,
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+async function put(path, body, options = {}) {
+  return apiFetch(path, {
+    ...options,
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+async function del(path, options = {}) {
+  return apiFetch(path, { ...options, method: 'DELETE' });
+}
+
 module.exports = {
   setApiBase,
   getApiBase,
@@ -90,4 +117,8 @@ module.exports = {
   getAuthHeader,
   apiFetch,
   logout,
+  get,
+  post,
+  put,
+  delete: del,
 };

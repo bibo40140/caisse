@@ -45,28 +45,43 @@ function normalizeLignes(lignesRaw) {
   return arr
     .map((l) => {
       const produitId = Number(l.produit_id ?? l.produitId ?? l.id);
-      const quantite  = Number(l.quantite   ?? l.qty        ?? l.qte ?? 0);
-
-      // PU "référence" (avant remise/marge) si fourni, sinon fallback DB, sinon fallback l.pu
-      const prixUnitaireRef =
-        (l.prix_unitaire != null && l.prix_unitaire !== '' && Number.isFinite(Number(l.prix_unitaire)))
-          ? Number(l.prix_unitaire)
-          : (Number.isFinite(Number(l.pu)) ? Number(l.pu) : getPrixProduit(produitId));
-
-      // PU appliqué à la ligne (si l.prix fourni on le prend comme PU, sinon on prend la ref)
-      const puApplique =
-        (l.prix != null && l.prix !== '' && Number.isFinite(Number(l.prix)))
-          ? Number(l.prix)
-          : prixUnitaireRef;
-
+      const quantite = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
       const remise = Number(l.remise_percent ?? l.remise ?? 0) || 0;
 
-      // Normalisation pour la DB : prix = TOTAL DE LIGNE, prix_unitaire = PU APPLIQUÉ
+      const unitRaw = Number(l.prix_unitaire);
+      const lineRaw = Number(l.prix);
+      const puFallbackRef = Number.isFinite(Number(l.pu)) ? Number(l.pu) : getPrixProduit(produitId);
+
+      let puApplique;
+      let prixTotal;
+
+      if (Number.isFinite(unitRaw) && unitRaw > 0 && Number.isFinite(lineRaw) && lineRaw > 0 && quantite > 0) {
+        // Nouveau format: prix = total de ligne, prix_unitaire = PU appliqué
+        puApplique = unitRaw;
+        prixTotal = lineRaw; // déjà le total
+      } else if (Number.isFinite(unitRaw) && unitRaw > 0 && quantite > 0) {
+        // Unité seulement fournie
+        puApplique = unitRaw;
+        prixTotal = +(puApplique * quantite).toFixed(4);
+      } else if (Number.isFinite(lineRaw) && lineRaw > 0 && quantite > 0) {
+        // Ancien format: prix stocke le PU → reconstituer total
+        puApplique = lineRaw;
+        prixTotal = +(puApplique * quantite).toFixed(4);
+      } else if (Number.isFinite(lineRaw) && quantite === 0) {
+        // ligneRaw mais quantite incohérente → ignorer
+        puApplique = lineRaw;
+        prixTotal = 0;
+      } else {
+        // Fallback DB
+        puApplique = puFallbackRef;
+        prixTotal = +(puApplique * Math.max(quantite, 0)).toFixed(4);
+      }
+
       return {
         produit_id: produitId,
         quantite,
-        prix: +(puApplique * quantite).toFixed(4), // TOTAL de ligne
-        prix_unitaire: +puApplique.toFixed(4),      // PU appliqué
+        prix: prixTotal,
+        prix_unitaire: +puApplique.toFixed(4),
         remise_percent: +remise.toFixed(4),
       };
     })
@@ -94,6 +109,7 @@ module.exports = function registerVentesHandlers(ipcMain) {
       total: payload?.total,
       adherent_id: payload?.adherent_id,
       cotisation: payload?.cotisation,
+      acompte: payload?.acompte,
       mode_paiement_id: payload?.mode_paiement_id,
       sale_type: payload?.sale_type,
       client_email: payload?.client_email
@@ -124,6 +140,7 @@ module.exports = function registerVentesHandlers(ipcMain) {
 
       const frais_paiement = Number(venteIn.frais_paiement || 0);
       const cotisation = Number(venteIn.cotisation || 0);
+      const acompte = Number(venteIn.acompte || 0);
       const sale_type = venteIn.sale_type || (adherent_id ? 'adherent' : 'exterieur');
       const client_email = venteIn.client_email ?? null;
 
@@ -136,6 +153,7 @@ module.exports = function registerVentesHandlers(ipcMain) {
         mode_paiement_id,
         frais_paiement,
         cotisation,
+        acompte,
         sale_type,
         client_email,
       };
