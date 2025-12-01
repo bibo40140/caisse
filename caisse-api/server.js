@@ -1837,15 +1837,50 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             console.log('    [=] ligne_reception déjà présente');
           }
 
-          // Stock movement
-          const sourceKey = `lr:${localReceptionId || receptionUuid}:${localProduitId || produitUuid}:${quantite}`;
+          // 🆕 Mettre à jour le prix du produit si prix_unitaire fourni
+          if (prixAchat !== null) {
+            await client.query(
+              `UPDATE produits SET prix = $1, updated_at = now() WHERE tenant_id = $2 AND id = $3`,
+              [prixAchat, tenantId, produitUuid]
+            );
+            console.log('    [~] prix produit mis à jour:', { produitUuid, prix: prixAchat });
+          }
+
+          // Stock movement - calculer le delta correct si stock_corrige fourni
+          let delta = quantite;
+          const stockCorrige = p.stockCorrige !== undefined && p.stockCorrige !== null ? Number(p.stockCorrige) : null;
+          
+          console.log('    [DEBUG] reception stock calc:', { 
+            stockCorrige_raw: p.stockCorrige, 
+            stockCorrige_parsed: stockCorrige, 
+            quantite,
+            isStockCorrigeMode: stockCorrige !== null && Number.isFinite(stockCorrige)
+          });
+          
+          if (stockCorrige !== null && Number.isFinite(stockCorrige)) {
+            // Mode correction: stock_final = stock_corrige + quantite
+            // delta = (stock_corrige + quantite) - stock_actuel
+            // Calculer stock actuel depuis stock_movements
+            const stockQuery = await client.query(
+              `SELECT COALESCE(SUM(delta), 0) as total FROM stock_movements WHERE tenant_id=$1 AND produit_id=$2`,
+              [tenantId, produitUuid]
+            );
+            const currentStock = Number(stockQuery.rows[0]?.total || 0);
+            const stockFinal = stockCorrige + quantite;
+            delta = stockFinal - currentStock;
+            console.log('    [~] stock_corrige mode:', { stockCorrige, currentStock, quantite, stockFinal, delta });
+          } else {
+            console.log('    [~] stock mode normal (ajout simple):', { quantite, delta });
+          }
+          
+          const sourceKey = `lr:${localReceptionId || receptionUuid}:${localProduitId || produitUuid}:${quantite}:${Date.now()}`;
           await client.query(
             `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id) 
              VALUES ($1,$2,$3,'reception_line',$4) 
              ON CONFLICT DO NOTHING`,
-            [tenantId, produitUuid, quantite, sourceKey]
+            [tenantId, produitUuid, delta, sourceKey]
           );
-          console.log('    [+] stock_movements reception_line', { produit_id: produitUuid, delta: quantite });
+          console.log('    [+] stock_movements reception_line', { produit_id: produitUuid, delta });
           break;
         }
 
@@ -1869,12 +1904,25 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           const mapping = productMappings.find(m => m.local_id === produitIdLocal);
           if (mapping) {
             produitUuid = mapping.remote_uuid;
+            console.log('    [~] produitUuid résolu via mapping:', { produitIdLocal, produitUuid });
+          }
+
+          // Si toujours pas trouvé, chercher par reference dans la DB (référence attendue dans le payload)
+          if (!produitUuid && p.reference) {
+            const prodQuery = await client.query(
+              `SELECT id FROM produits WHERE tenant_id=$1 AND reference=$2 LIMIT 1`,
+              [tenantId, p.reference]
+            );
+            if (prodQuery.rowCount > 0) {
+              produitUuid = prodQuery.rows[0].id;
+              console.log('    [~] produitUuid résolu via reference:', { reference: p.reference, produitUuid });
+            }
           }
 
           if (!produitUuid) {
             console.warn(
               '    [!] inventory.adjust ignorée — produit non résolu',
-              { produitIdLocal, delta }
+              { produitIdLocal, delta, reference: p.reference, productMappings: productMappings.length }
             );
             break;
           }
@@ -2117,7 +2165,29 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             break;
           }
 
-          await client.query(sql, values);
+          const result = await client.query(sql, values);
+          
+          // 🆕 Récupérer le produit mis à jour pour ajouter au mapping
+          if (result.rowCount > 0 && localId) {
+            let produitUuid = null;
+            if (remoteId) {
+              produitUuid = remoteId;
+            } else if (reference) {
+              const prodRow = await client.query(
+                `SELECT id FROM produits WHERE tenant_id = $1 AND reference = $2`,
+                [tenantId, reference]
+              );
+              if (prodRow.rowCount > 0) {
+                produitUuid = prodRow.rows[0].id;
+              }
+            }
+            
+            if (produitUuid && !productMappings.find(m => m.local_id === localId)) {
+              productMappings.push({ local_id: localId, remote_uuid: produitUuid });
+              console.log('    [+] mapping produit ajouté', { localId, produitUuid });
+            }
+          }
+          
           console.log('    [~] produit mis à jour sur Neon', {
             localId,
             remoteId,

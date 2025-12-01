@@ -31,20 +31,24 @@ function normalizeLignes(input) {
         : (Number.isFinite(Number(puRaw)) ? Number(puRaw) : null);
 
       let stockCorrige = null;
-      if (l.stockCorrige != null && l.stockCorrige !== '') {
+      if (l.stockCorrige !== undefined && l.stockCorrige !== null && l.stockCorrige !== '') {
         const v = Number(l.stockCorrige);
         if (Number.isFinite(v)) stockCorrige = v;
-      } else if (l.stock_corrige != null && l.stock_corrige !== '') {
+      } else if (l.stock_corrige !== undefined && l.stock_corrige !== null && l.stock_corrige !== '') {
         const v = Number(l.stock_corrige);
         if (Number.isFinite(v)) stockCorrige = v;
       }
 
       return { produit_id: produitId, quantite, prix_unitaire: prixUnitaire, stock_corrige: stockCorrige };
     })
-    .filter((l) =>
-      Number.isFinite(l.produit_id) && l.produit_id > 0 &&
-      Number.isFinite(l.quantite)   && l.quantite > 0
-    );
+    .filter((l) => {
+      // Produit obligatoire
+      if (!Number.isFinite(l.produit_id) || l.produit_id <= 0) return false;
+      // Si stock_corrige fourni, quantite peut être 0 (correction pure)
+      if (l.stock_corrige !== null && Number.isFinite(l.stock_corrige)) return true;
+      // Sinon, quantite obligatoire > 0
+      return Number.isFinite(l.quantite) && l.quantite > 0;
+    });
 }
 
 /** Normalise l'entête */
@@ -72,11 +76,15 @@ function registerReceptionHandlers(ipcMain) {
 
   const handleCreate = (_event, payload = {}) => {
     try {
+      console.log('[receptions:create] Payload reçu:', JSON.stringify(payload, null, 2));
+      
       const headerRaw = payload.reception ? payload.reception : payload;
       const reception = normalizeReceptionHeader(headerRaw);
 
       const lignesRaw = payload.lignes ?? payload.items ?? payload.produits ?? payload.lines ?? [];
+      console.log('[receptions:create] lignesRaw:', lignesRaw);
       const lignes = normalizeLignes(lignesRaw);
+      console.log('[receptions:create] lignes après normalisation:', lignes);
 
       // ✅ Accepter fournisseur_id = null (pas de fournisseur) si module désactivé
       // Validation : soit null, soit un nombre > 0
@@ -84,7 +92,9 @@ function registerReceptionHandlers(ipcMain) {
       if (fid !== null && (!Number.isFinite(fid) || fid <= 0)) {
         throw new Error('fournisseur_id invalide (doit être null ou > 0)');
       }
-      if (lignes.length === 0) throw new Error('aucune ligne de réception');
+      if (lignes.length === 0) {
+        throw new Error('Aucun produit valide dans la réception. Vérifiez que la quantité ou le stock corrigé est renseigné.');
+      }
 
       const id = receptionsDb.enregistrerReception(reception, lignes);
 

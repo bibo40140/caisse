@@ -333,12 +333,16 @@ function modifierProduit(p = {}) {
     // pour pouvoir convertir les IDs locaux en UUID avant l'envoi au serveur
 
     if (stockProvided && delta !== 0) {
+      // Inclure la référence DANS le payload pour qu'elle soit disponible côté serveur
+      const payload = { produitId: id, delta, reason: 'manual.edit' };
+      if (reference) payload.reference = reference;
+
       enqueueOp({
         deviceId: DEVICE_ID,
         opType: 'inventory.adjust',
         entityType: 'produit',
         entityId: String(id),
-        payload: { produitId: id, delta, reason: 'manual.edit' },
+        payload,
       });
     }
 

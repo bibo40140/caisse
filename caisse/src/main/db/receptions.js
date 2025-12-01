@@ -91,6 +91,16 @@ function enregistrerReception(reception, lignes) {
       const rL = insLigne.run(receptionId, produit_id, quantite, prix_unitaire);
       const ligneRecId = rL.lastInsertRowid;
 
+      // 🆕 Mettre à jour le prix du produit si prix_unitaire fourni
+      if (prix_unitaire !== null && prix_unitaire !== undefined) {
+        db.prepare(`
+          UPDATE produits
+          SET prix = ?, updated_at = datetime('now','localtime')
+          WHERE id = ?
+        `).run(prix_unitaire, produit_id);
+        console.log(`[receptions] Prix produit ${produit_id} mis à jour: ${prix_unitaire}`);
+      }
+
       // Stock local via mouvements
       // ⚠️ NE PAS créer de mouvement local - il sera créé par le serveur et importé via pull
       // Cela évite les doublons (mouvement local + mouvement serveur)

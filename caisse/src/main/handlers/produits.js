@@ -148,11 +148,14 @@ function registerProduitHandlers(ipcMain) {
   // ✏️ Modification produit (local + op + sync)
   ipcMain.handle('modifier-produit', async (_evt, produit = {}) => {
     try {
+      console.log('[modifier-produit] Payload reçu:', produit);
+      
       // 1) update local
       const res = produitsDb.modifierProduit(produit);
 
       const id = Number(produit.id);
       const updated = Number.isFinite(id) ? loadProduitById(id) : null;
+      console.log('[modifier-produit] Produit après modif:', updated);
 
       // 2) enqueue op product.updated (payload = état complet)
       if (updated) {
@@ -193,6 +196,7 @@ function registerProduitHandlers(ipcMain) {
               fournisseur_id: fournisseurUuid,
               categorie_id: categorieUuid,
             },
+            reference: updated.reference,
           });
         } catch (e) {
           console.error('[modifier-produit] enqueueOp error:', e);
