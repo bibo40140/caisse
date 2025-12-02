@@ -218,7 +218,8 @@
           provider: els.provider.value,
           from: els.from.value.trim() || undefined,
           user: els.user.value.trim() || undefined,
-          pass: els.pass.value || undefined,
+          // Ne pas envoyer pass s'il est vide (pour garder l'ancien mot de passe)
+          pass: els.pass.value ? els.pass.value : undefined,
           host: els.host.value.trim() || undefined,
           port: els.port.value ? Number(els.port.value) : undefined,
           secure: !!els.secure.checked,

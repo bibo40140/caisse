@@ -306,13 +306,27 @@ router.put(
     const tenantId = req.tenantId;
     let settings = req.body || {};
     try {
+      await ensureSettingsRow(tenantId);
+      
+      // Récupérer les anciens settings pour fusionner (garder l'ancien pass si nouveau pas fourni)
+      const existing = await pool.query(
+        `SELECT email_admin_json FROM tenant_settings WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      const oldSettings = existing.rows[0]?.email_admin_json || {};
+      
       // Nettoyage : on supprime les undefined, on normalise quelques champs
       const cleaned = {};
       for (const [k, v] of Object.entries(settings)) {
         if (v === undefined) continue;
         cleaned[k] = v;
       }
-      await ensureSettingsRow(tenantId);
+      
+      // Si pass n'est pas fourni, garder l'ancien
+      if (!cleaned.pass && oldSettings.pass) {
+        cleaned.pass = oldSettings.pass;
+      }
+      
       const r = await pool.query(
         `UPDATE tenant_settings
            SET email_admin_json = $2::jsonb, updated_at = now()

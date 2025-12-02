@@ -10,8 +10,8 @@
       st.id = 'stats-styles';
       st.textContent = `
         .stats-container { max-width: 1200px; }
-        .stats-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .stats-period { display: flex; gap: 10px; align-items: center; }
+        .stats-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+        .stats-period { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .stats-period select { padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; }
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
         .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.1); }
@@ -42,14 +42,34 @@
         <div class="stats-header">
           <h2>📊 Statistiques</h2>
           <div class="stats-period">
-            <label>Période :</label>
-            <select id="stats-period">
-              <option value="7">7 derniers jours</option>
-              <option value="30" selected>30 derniers jours</option>
-              <option value="90">90 derniers jours</option>
-              <option value="365">Année</option>
-              <option value="all">Tout</option>
+            <label>Mode :</label>
+            <select id="stats-mode">
+              <option value="quick" selected>Rapide</option>
+              <option value="month">Mois</option>
+              <option value="year">Année</option>
             </select>
+            
+            <div id="filter-quick" style="display:flex;gap:10px;align-items:center;">
+              <label>Période :</label>
+              <select id="stats-period">
+                <option value="7">7 derniers jours</option>
+                <option value="30" selected>30 derniers jours</option>
+                <option value="90">90 derniers jours</option>
+                <option value="365">Année</option>
+                <option value="all">Tout</option>
+              </select>
+            </div>
+            
+            <div id="filter-month" style="display:none;gap:10px;align-items:center;">
+              <label>Mois :</label>
+              <select id="stats-month"></select>
+              <select id="stats-month-year"></select>
+            </div>
+            
+            <div id="filter-year" style="display:none;gap:10px;align-items:center;">
+              <label>Année :</label>
+              <select id="stats-year"></select>
+            </div>
           </div>
         </div>
 
@@ -83,20 +103,208 @@
             <tbody></tbody>
           </table>
         </div>
+
+        <div class="chart-section" style="margin-top: 30px;">
+          <h3>📧 Rapports automatiques par email</h3>
+          <p style="color: #6b7280; font-size: 14px; margin-bottom: 15px;">
+            Les rapports sont envoyés automatiquement :<br>
+            • <strong>Hebdomadaire</strong> : Chaque dimanche à 12h00<br>
+            • <strong>Mensuel</strong> : Le 1er dimanche de chaque mois à 12h00
+          </p>
+          <div style="display: flex; gap: 10px; margin-top: 15px;">
+            <button id="test-weekly-report" style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+              📨 Tester rapport hebdomadaire
+            </button>
+            <button id="test-monthly-report" style="padding: 10px 20px; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+              📨 Tester rapport mensuel
+            </button>
+          </div>
+          <div id="report-status" style="margin-top: 10px; padding: 10px; border-radius: 6px; display: none;"></div>
+        </div>
       </div>
     `;
 
     // Charger Chart.js si pas déjà chargé
     await loadChartJS();
 
-    // Charger les données et afficher
-    await loadStats(30);
+    // Initialiser les sélecteurs de mois/année
+    initializeDateSelectors();
 
-    // Bind période
-    document.getElementById('stats-period')?.addEventListener('change', (e) => {
-      const days = e.target.value === 'all' ? 9999 : parseInt(e.target.value);
-      loadStats(days);
+    // Charger les données et afficher
+    await loadStatsByMode();
+
+    // Bind mode
+    document.getElementById('stats-mode')?.addEventListener('change', (e) => {
+      const mode = e.target.value;
+      document.getElementById('filter-quick').style.display = mode === 'quick' ? 'flex' : 'none';
+      document.getElementById('filter-month').style.display = mode === 'month' ? 'flex' : 'none';
+      document.getElementById('filter-year').style.display = mode === 'year' ? 'flex' : 'none';
+      loadStatsByMode();
     });
+
+    // Bind période rapide
+    document.getElementById('stats-period')?.addEventListener('change', () => loadStatsByMode());
+
+    // Bind mois
+    document.getElementById('stats-month')?.addEventListener('change', () => loadStatsByMode());
+    document.getElementById('stats-month-year')?.addEventListener('change', () => loadStatsByMode());
+
+    // Bind année
+    document.getElementById('stats-year')?.addEventListener('change', () => loadStatsByMode());
+
+    // Bind boutons de test des rapports
+    document.getElementById('test-weekly-report')?.addEventListener('click', async () => {
+      const btn = document.getElementById('test-weekly-report');
+      const status = document.getElementById('report-status');
+      
+      console.log('[Statistiques] 📧 Clic sur bouton test rapport hebdomadaire');
+      
+      btn.disabled = true;
+      btn.textContent = '⏳ Envoi en cours...';
+      status.style.display = 'none';
+      
+      try {
+        console.log('[Statistiques] Appel window.electronAPI.sendWeeklyReport...');
+        console.log('[Statistiques] electronAPI existe?', !!window.electronAPI);
+        console.log('[Statistiques] sendWeeklyReport existe?', !!window.electronAPI?.sendWeeklyReport);
+        
+        const success = await window.electronAPI?.sendWeeklyReport?.();
+        
+        console.log('[Statistiques] Résultat sendWeeklyReport:', success);
+        console.log('[Statistiques] Type:', typeof success);
+        
+        status.style.display = 'block';
+        if (success) {
+          console.log('[Statistiques] ✅ Succès!');
+          status.style.background = '#d1fae5';
+          status.style.color = '#065f46';
+          status.textContent = '✅ Rapport hebdomadaire envoyé avec succès !';
+        } else {
+          console.log('[Statistiques] ❌ Échec (success = false)');
+          status.style.background = '#fee2e2';
+          status.style.color = '#991b1b';
+          status.textContent = '❌ Erreur lors de l\'envoi. Vérifiez la configuration email dans les paramètres.';
+        }
+      } catch (e) {
+        console.error('[Statistiques] ❌ Exception:', e);
+        console.error('[Statistiques] Stack:', e.stack);
+        status.style.display = 'block';
+        status.style.background = '#fee2e2';
+        status.style.color = '#991b1b';
+        status.textContent = '❌ Erreur : ' + (e.message || e);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '📨 Tester rapport hebdomadaire';
+      }
+    });
+
+    document.getElementById('test-monthly-report')?.addEventListener('click', async () => {
+      const btn = document.getElementById('test-monthly-report');
+      const status = document.getElementById('report-status');
+      
+      console.log('[Statistiques] 📧 Clic sur bouton test rapport mensuel');
+      
+      btn.disabled = true;
+      btn.textContent = '⏳ Envoi en cours...';
+      status.style.display = 'none';
+      
+      try {
+        console.log('[Statistiques] Appel window.electronAPI.sendMonthlyReport...');
+        const success = await window.electronAPI?.sendMonthlyReport?.();
+        console.log('[Statistiques] Résultat sendMonthlyReport:', success);
+        
+        status.style.display = 'block';
+        if (success) {
+          console.log('[Statistiques] ✅ Succès!');
+          status.style.background = '#d1fae5';
+          status.style.color = '#065f46';
+          status.textContent = '✅ Rapport mensuel envoyé avec succès !';
+        } else {
+          console.log('[Statistiques] ❌ Échec (success = false)');
+          status.style.background = '#fee2e2';
+          status.style.color = '#991b1b';
+          status.textContent = '❌ Erreur lors de l\'envoi. Vérifiez la configuration email dans les paramètres.';
+        }
+      } catch (e) {
+        console.error('[Statistiques] ❌ Exception:', e);
+        status.style.display = 'block';
+        status.style.background = '#fee2e2';
+        status.style.color = '#991b1b';
+        status.textContent = '❌ Erreur : ' + (e.message || e);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '📨 Tester rapport mensuel';
+      }
+    });
+  }
+
+  function initializeDateSelectors() {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    // Remplir le sélecteur de mois
+    const monthSelect = document.getElementById('stats-month');
+    const months = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+    months.forEach((m, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = m;
+      if (i === currentMonth) opt.selected = true;
+      monthSelect.appendChild(opt);
+    });
+
+    // Remplir le sélecteur d'année pour les mois (5 dernières années)
+    const monthYearSelect = document.getElementById('stats-month-year');
+    for (let y = currentYear; y >= currentYear - 4; y--) {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = y;
+      if (y === currentYear) opt.selected = true;
+      monthYearSelect.appendChild(opt);
+    }
+
+    // Remplir le sélecteur d'année (5 dernières années)
+    const yearSelect = document.getElementById('stats-year');
+    for (let y = currentYear; y >= currentYear - 4; y--) {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = y;
+      if (y === currentYear) opt.selected = true;
+      yearSelect.appendChild(opt);
+    }
+  }
+
+  async function loadStatsByMode() {
+    const mode = document.getElementById('stats-mode')?.value || 'quick';
+    
+    let dateFrom, dateTo;
+    
+    if (mode === 'quick') {
+      const days = document.getElementById('stats-period')?.value || '30';
+      const daysNum = days === 'all' ? 9999 : parseInt(days);
+      await loadStats(daysNum);
+      return;
+    } else if (mode === 'month') {
+      const month = parseInt(document.getElementById('stats-month')?.value || '0');
+      const year = parseInt(document.getElementById('stats-month-year')?.value || new Date().getFullYear());
+      
+      // Premier jour du mois
+      dateFrom = new Date(year, month, 1);
+      // Dernier jour du mois
+      dateTo = new Date(year, month + 1, 0);
+    } else if (mode === 'year') {
+      const year = parseInt(document.getElementById('stats-year')?.value || new Date().getFullYear());
+      
+      // 1er janvier
+      dateFrom = new Date(year, 0, 1);
+      // 31 décembre
+      dateTo = new Date(year, 11, 31);
+    }
+
+    if (dateFrom && dateTo) {
+      await loadStatsByDateRange(dateFrom, dateTo);
+    }
   }
 
   async function loadChartJS() {
@@ -131,7 +339,37 @@
 
     } catch (e) {
       console.error('[Stats] Erreur chargement:', e);
-      content.innerHTML = `<p style="color:red;">Erreur: ${e?.message || e}</p>`;
+      const content = document.getElementById('parametres-souspage');
+      if (content) content.innerHTML = `<p style="color:red;">Erreur: ${e?.message || e}</p>`;
+    }
+  }
+
+  async function loadStatsByDateRange(dateFrom, dateTo) {
+    try {
+      const from = dateFrom.toISOString().split('T')[0];
+      const to = dateTo.toISOString().split('T')[0];
+
+      // Récupérer les données avec plage de dates
+      const [ventes, receptions, produits] = await Promise.all([
+        window.electronAPI?.getVentesStatsByRange?.(from, to) || { total: 0, count: 0, byDay: [], byProduct: [] },
+        window.electronAPI?.getReceptionsStatsByRange?.(from, to) || { total: 0, count: 0, byDay: [] },
+        window.electronAPI?.getProduitsCount?.() || 0
+      ]);
+
+      // Afficher les cartes de résumé
+      displaySummary(ventes, receptions, produits);
+
+      // Afficher les graphiques
+      displayRevenueChart(ventes.byDay || []);
+      displayQuantitiesChart(ventes.byDay || [], receptions.byDay || []);
+
+      // Afficher le top produits
+      displayTopProducts(ventes.byProduct || []);
+
+    } catch (e) {
+      console.error('[Stats] Erreur chargement par plage:', e);
+      const content = document.getElementById('parametres-souspage');
+      if (content) content.innerHTML = `<p style="color:red;">Erreur: ${e?.message || e}</p>`;
     }
   }
 
@@ -168,15 +406,12 @@
     const canvas = document.getElementById('chart-revenue');
     if (!canvas) return;
 
-    // Détruire l'ancien graphique
     if (revenueChart) {
       revenueChart.destroy();
       revenueChart = null;
     }
 
     const ctx = canvas.getContext('2d');
-    
-    // Préparer les données
     const labels = byDay.map(d => d.date);
     const data = byDay.map(d => d.total);
 
@@ -223,7 +458,6 @@
 
     const ctx = canvas.getContext('2d');
 
-    // Fusionner les dates
     const allDates = [...new Set([
       ...ventesByDay.map(d => d.date),
       ...receptionsByDay.map(d => d.date)
@@ -274,7 +508,6 @@
     const tbody = document.querySelector('#top-products-table tbody');
     if (!tbody) return;
 
-    // Trier par CA décroissant
     const sorted = (byProduct || [])
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);

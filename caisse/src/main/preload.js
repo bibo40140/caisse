@@ -325,6 +325,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getVentesStats: (days) => ipcRenderer.invoke('stats:ventes', days),
   getReceptionsStats: (days) => ipcRenderer.invoke('stats:receptions', days),
   getProduitsCount: () => ipcRenderer.invoke('stats:produits-count'),
+  getVentesStatsByRange: (from, to) => ipcRenderer.invoke('stats:ventes-range', from, to),
+  getReceptionsStatsByRange: (from, to) => ipcRenderer.invoke('stats:receptions-range', from, to),
+  
+  // --- Rapports par email
+  sendWeeklyReport: () => ipcRenderer.invoke('reports:send-weekly'),
+  sendMonthlyReport: () => ipcRenderer.invoke('reports:send-monthly'),
 });
 
 /* -------------- Paniers / Carts ------------------ */

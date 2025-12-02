@@ -968,6 +968,60 @@ registerInventoryHandlers(ipcMain);
 const { registerStatistiquesHandlers } = require('./src/main/handlers/statistiques');
 registerStatistiquesHandlers(ipcMain);
 
+// Démarrer le planificateur d'emails de rapports
+const { startEmailReportsScheduler, sendWeeklyReport, sendMonthlyReport, setApiGetEmailSettings } = require('./src/main/emailReports');
+
+// Fonction pour récupérer les settings email via l'API
+async function getEmailSettingsFromAPI() {
+  try {
+    console.log('[main] getEmailSettingsFromAPI - Début');
+    
+    const a = await ensureAuth();
+    console.log('[main] ensureAuth résultat:', a.ok ? 'OK' : 'ÉCHEC');
+    if (!a.ok) {
+      console.log('[main] ❌ Non connecté');
+      return { ok: false, error: 'Non connecté' };
+    }
+
+    console.log('[main] Appel API /tenant_settings/email_admin...');
+    const r = await apiFetch('/tenant_settings/email_admin', {
+      headers: { accept: 'application/json', ...getTenantHeaders() }
+    });
+    
+    console.log('[main] Status HTTP:', r.status);
+    const js = await safeJson(r);
+    console.log('[main] Réponse JSON:', JSON.stringify(js, (k, v) => k === 'pass' ? '***' : v, 2));
+    
+    if (!r.ok) {
+      console.log('[main] ❌ Erreur HTTP:', r.status);
+      throw new Error(js?.error || `HTTP ${r.status}`);
+    }
+    
+    console.log('[main] ✅ Settings récupérés avec succès');
+    return { ok: true, settings: js.settings || {} };
+  } catch (e) {
+    console.error('[main] ❌ Exception dans getEmailSettingsFromAPI:', e.message);
+    console.error('[main] Stack:', e.stack);
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+// Initialiser la fonction API pour emailReports
+setApiGetEmailSettings(getEmailSettingsFromAPI);
+
+// Démarrer le planificateur
+startEmailReportsScheduler();
+
+// Handlers pour tester manuellement l'envoi des rapports
+try { ipcMain.removeHandler('reports:send-weekly'); } catch {}
+try { ipcMain.removeHandler('reports:send-monthly'); } catch {}
+ipcMain.handle('reports:send-weekly', async () => {
+  return await sendWeeklyReport();
+});
+ipcMain.handle('reports:send-monthly', async () => {
+  return await sendMonthlyReport();
+});
+
 // Fallbacks modes de paiement (inchangés)
 function boolToInt(b) { return b ? 1 : 0; }
 
