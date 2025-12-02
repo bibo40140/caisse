@@ -1,19 +1,28 @@
 {
-  "name": "coopaz-caisse",
+  "name": "coopcaisse",
   "version": "1.0.0",
-  "description": "",
+  "description": "Logiciel de caisse pour coopératives",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "seed-familles": "electron ./scripts/seed-families-categories.electron.js"
+    "seed-familles": "electron ./scripts/seed-families-categories.electron.js",
+    "build": "electron-builder --win --x64",
+    "build:dir": "electron-builder --win --x64 --dir",
+    "release": "node scripts/release.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "caisse",
+    "pos",
+    "cooperative"
+  ],
+  "author": "Coopaz",
   "license": "ISC",
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",
     "electron": "^37.2.5",
-    "electron-rebuild": "^3.2.9"
+    "electron-builder": "^26.0.12",
+    "electron-rebuild": "^3.2.9",
+    "fs-extra": "^11.3.2"
   },
   "dependencies": {
     "better-sqlite3": "^12.2.0",
@@ -22,5 +31,68 @@
     "node-fetch": "^2.7.0",
     "nodemailer": "^7.0.5",
     "xlsx": "^0.18.5"
+  },
+  "build": {
+    "appId": "com.coopaz.coopcaisse",
+    "productName": "CoopCaisse",
+    "afterPack": "./scripts/afterPack.js",
+    "directories": {
+      "output": "dist-release"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}",
+      "!dist",
+      "!scripts"
+    ],
+    "extraFiles": [
+      {
+        "from": "../caisse-api",
+        "to": "resources/api",
+        "filter": [
+          "**/*",
+          "!.env*",
+          "!__tests__",
+          "!*.md"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CoopCaisse",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "bibo40140",
+      "repo": "caisse"
+    }
   }
 }

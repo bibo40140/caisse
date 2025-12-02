@@ -729,9 +729,72 @@ function purgeLocalAuth() {
   delete process.env.TENANT_ID;
 }
 
+// === Démarrage automatique de l'API embarquée ===
+let apiProcess = null;
+
+function startEmbeddedApi() {
+  const fs = require('fs');
+  const { spawn } = require('child_process');
+  
+  // Essayer de trouver l'API embarquée
+  const apiPath = path.join(process.resourcesPath, 'api');
+  const serverScript = path.join(apiPath, 'server.js');
+  
+  console.log('[API] Vérification de l\'API embarquée...');
+  console.log('[API] Chemin recherché:', apiPath);
+  console.log('[API] app.isPackaged:', app.isPackaged);
+  console.log('[API] process.resourcesPath:', process.resourcesPath);
+  
+  // Si l'API n'existe pas dans resources, c'est le mode dev
+  if (!fs.existsSync(serverScript)) {
+    console.log('[API] ❌ API non trouvée - Mode développement');
+    console.log('[API] API externe attendue sur localhost:3001');
+    return;
+  }
+
+  console.log('[API] ✅ API trouvée - Démarrage...');
+  
+  // Lancer l'API avec Node.js
+  apiProcess = spawn('node', [serverScript], {
+    cwd: apiPath,
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      PORT: '3001'
+    },
+    stdio: 'inherit' // Logs de l'API visibles dans la console Electron
+  });
+
+  apiProcess.on('error', (err) => {
+    console.error('[API] ❌ Erreur de démarrage:', err);
+  });
+
+  apiProcess.on('exit', (code) => {
+    console.log(`[API] ⚠️ Processus terminé avec le code ${code}`);
+  });
+
+  console.log('[API] ✅ Démarrée avec succès (PID:', apiProcess.pid, ')');
+}
+
+function stopEmbeddedApi() {
+  if (apiProcess) {
+    console.log('[API] Arrêt du processus...');
+    apiProcess.kill();
+    apiProcess = null;
+  }
+}
 
 app.whenReady().then(async () => {
   console.log('[main] app ready — DEVICE_ID =', DEVICE_ID);
+
+  // 0) Démarrer l'API embarquée si en mode production
+  startEmbeddedApi();
+
+  // Attendre 2 secondes que l'API démarre
+  if (app.isPackaged) {
+    console.log('[API] Attente du démarrage de l\'API...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
 
   // 1) Config → API base (avec fallback ENV/localhost)
   try {
@@ -753,6 +816,11 @@ app.whenReady().then(async () => {
   try { purgeLocalAuth(); } catch {}
 
   createLoginWindow();
+});
+
+// Arrêter l'API quand l'app se ferme
+app.on('will-quit', () => {
+  stopEmbeddedApi();
 });
 
 

@@ -10,9 +10,20 @@ yarn-debug.log*
 yarn-error.log*
 
 # Environnements & secrets
-.env.local
-.env.*.local
+
+# Environnements & secrets
+.env
+.env.*
+!*.example
 *.secret.json
+caisse-api/.env
+caisse-api/.env.*
+!caisse-api/.env.example
+!caisse-api/.env.test.example
+tests/.env
+!tests/.env.example
+caisse/caisse/config.json
+!caisse/caisse/config.example.json
 
 # OS
 .DS_Store

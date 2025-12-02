@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "buildDate": "2025-12-02",
+  "appName": "CoopCaisse",
+  "changelog": [
+    "✅ Version initiale",
+    "✅ Gestion complète des stocks",
+    "✅ Synchronisation multi-postes en temps réel",
+    "✅ Gestion des adhérents et fournisseurs",
+    "✅ Réceptions et inventaires",
+    "✅ Statistiques avancées avec graphiques",
+    "✅ Rapports automatiques par email (hebdomadaire/mensuel)",
+    "✅ Export des données (Excel, PDF)",
+    "✅ Mode hors-ligne avec sync automatique"
+  ]
+}
