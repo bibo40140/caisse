@@ -101,32 +101,40 @@ function enregistrerReception(reception, lignes) {
         console.log(`[receptions] Prix produit ${produit_id} mis à jour: ${prix_unitaire}`);
       }
 
-      // Stock local via mouvements
-      // ⚠️ NE PAS créer de mouvement local - il sera créé par le serveur et importé via pull
-      // Cela évite les doublons (mouvement local + mouvement serveur)
-      // if (stocksOn) {
-      //   try {
-      //     if (stock_corrige != null) {
-      //       // Mode correction : calculer le delta nécessaire
-      //       const currentStock = getStock(produit_id);
-      //       const desiredStock = stock_corrige + quantite;
-      //       const delta = desiredStock - currentStock;
-      //       
-      //       createStockMovement(produit_id, delta, 'reception', receptionId, {
-      //         stock_corrige,
-      //         quantite,
-      //         prix_unitaire
-      //       });
-      //     } else {
-      //       // Mode incrémental simple
-      //       createStockMovement(produit_id, quantite, 'reception', receptionId, {
-      //         prix_unitaire
-      //       });
-      //     }
-      //   } catch (err) {
-      //     console.error('[reception] Erreur mouvement stock:', err);
-      //   }
-      // }
+      // 🆕 Stock local via mouvements (logique corrigée)
+      // ⚠️ NE PAS créer de mouvement local - le serveur le fera via reception.line_added
+      if (stocksOn) {
+        try {
+          const currentStock = getStock(produit_id);
+          let stockFinal;
+          let delta;
+          
+          if (stock_corrige != null && Number.isFinite(stock_corrige)) {
+            // Mode correction : le stock_corrige représente le stock AVANT la réception
+            // On veut : stock_final = stock_corrige + quantite
+            stockFinal = stock_corrige + quantite;
+            delta = stockFinal - currentStock;
+            
+            console.log(`[receptions] Mode correction stock - produit ${produit_id}:`, {
+              stock_corrige,
+              quantite,
+              currentStock,
+              stockFinal,
+              delta
+            });
+          } else {
+            // Mode incrémental simple : on ajoute juste la quantité reçue
+            delta = quantite;
+            stockFinal = currentStock + delta;
+            console.log(`[receptions] Mode incrémental - produit ${produit_id}: +${quantite}`);
+          }
+          
+          // Mettre à jour le cache stock pour affichage immédiat
+          db.prepare('UPDATE produits SET stock = ? WHERE id = ?').run(stockFinal, produit_id);
+        } catch (err) {
+          console.error('[reception] Erreur calcul stock:', err);
+        }
+      }
 
 
       // 🔁 Mise à jour du PRIX produit si un PU a été fourni

@@ -196,66 +196,8 @@
     produitId = created?.id || created?.produit?.id || (Number.isFinite(created) ? created : null);
   }
 
-  // ✅ Créer automatiquement une réception pour ce produit avec le stock initial
-  if (produitId && stock > 0) {
-    try {
-      // 🔄 Déclencher une sync pour que le produit obtienne un remote_uuid avant de créer la réception
-      console.log('[receptions] Déclenchement sync avant création réception auto...');
-      try {
-        await window.electronAPI.pushNow();
-        console.log('[receptions] Sync terminée, attente remote_uuid du produit...');
-        
-        // ⏱️ Attendre que le produit ait son remote_uuid (max 5 secondes)
-        let hasUuid = false;
-        for (let i = 0; i < 10; i++) {
-          hasUuid = await window.electronAPI.produitHasRemoteUuid(produitId);
-          if (hasUuid) {
-            console.log(`[receptions] Produit ${produitId} a maintenant un remote_uuid après ${i * 500}ms`);
-            break;
-          }
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-        
-        if (!hasUuid) {
-          console.warn('[receptions] Timeout: le produit n\'a toujours pas de remote_uuid après 5s');
-          // On continue quand même, la réception sera créée et synchro plus tard
-        }
-        
-        console.log('[receptions] Création réception auto');
-      } catch (syncErr) {
-        console.warn('[receptions] Sync échouée avant réception auto:', syncErr);
-        // On continue quand même, la réception sera créée et synchro plus tard
-      }
-
-      const reception = {
-        fournisseur_id: fournisseurId || null,
-        reference: `Création produit ${nom}`,
-        lignes: [{
-          produit_id: produitId,
-          quantite: stock,
-          prix_unitaire: prix,
-          stock_corrige: null
-        }]
-      };
-      await window.electronAPI.enregistrerReception(reception);
-      
-      // 🔄 Forcer un second push pour synchroniser la réception maintenant que le produit a son remote_uuid
-      console.log('[receptions] Déclenchement second push pour réception...');
-      try {
-        await window.electronAPI.pushNow();
-        console.log('[receptions] Réception synchronisée');
-      } catch (syncErr2) {
-        console.warn('[receptions] Erreur push réception, sera retenté plus tard:', syncErr2);
-      }
-      
-      await showAlertModal(`✅ Produit créé et réception enregistrée (${stock} unité(s) à ${prix}€) !`);
-    } catch (err) {
-      console.error('Erreur création réception auto:', err);
-      await showAlertModal(`✅ Produit créé, mais erreur lors de l'enregistrement de la réception : ${err?.message || err}`);
-    }
-  } else {
-    await showAlertModal('✅ Produit créé !');
-  }
+  // ✅ Stock initial géré automatiquement via inventory.adjust (pas besoin de créer une réception)
+  await showAlertModal(`✅ Produit créé${stock > 0 ? ` avec ${stock} unité(s) en stock` : ''} !`);
 
   produits = await window.electronAPI.getProduits();
   // Recharger la liste selon le contexte (avec ou sans fournisseur)

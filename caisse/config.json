@@ -11,7 +11,7 @@
     "stocks": true,
     "exports": false,
     "multiusers": false,
-    "fournisseurs": false,
+    "fournisseurs": true,
     "modes_paiement": true,
     "emailAdmin": true
   },

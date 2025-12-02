@@ -272,6 +272,80 @@ async function pullRefs({ since = null } = {}) {
       }
     }
 
+    // 🔥 Importer les adhérents depuis Neon dans la base locale
+    if (adherents && adherents.length > 0) {
+      try {
+        console.log(`[sync] pull: ${adherents.length} adhérents reçus depuis Neon`);
+        const checkA = db.prepare('SELECT id FROM adherents WHERE remote_uuid = ?');
+        const insertA = db.prepare(`
+          INSERT INTO adherents (remote_uuid, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville, 
+            nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const updateA = db.prepare(`
+          UPDATE adherents SET
+            nom = ?, prenom = ?, email1 = ?, email2 = ?, telephone1 = ?, telephone2 = ?, 
+            adresse = ?, code_postal = ?, ville = ?, nb_personnes_foyer = ?, tranche_age = ?, 
+            droit_entree = ?, date_inscription = ?, archive = ?, date_archivage = ?, date_reactivation = ?
+          WHERE remote_uuid = ?
+        `);
+
+        const txA = db.transaction(() => {
+          for (const a of adherents) {
+            try {
+              const exists = checkA.get(a.id);
+              if (exists) {
+                updateA.run(
+                  a.nom || null,
+                  a.prenom || null,
+                  a.email1 || null,
+                  a.email2 || null,
+                  a.telephone1 || null,
+                  a.telephone2 || null,
+                  a.adresse || null,
+                  a.code_postal || null,
+                  a.ville || null,
+                  a.nb_personnes_foyer || null,
+                  a.tranche_age || null,
+                  a.droit_entree || null,
+                  a.date_inscription || null,
+                  b2i(a.archive),
+                  a.date_archivage || null,
+                  a.date_reactivation || null,
+                  a.id
+                );
+              } else {
+                insertA.run(
+                  a.id,
+                  a.nom || null,
+                  a.prenom || null,
+                  a.email1 || null,
+                  a.email2 || null,
+                  a.telephone1 || null,
+                  a.telephone2 || null,
+                  a.adresse || null,
+                  a.code_postal || null,
+                  a.ville || null,
+                  a.nb_personnes_foyer || null,
+                  a.tranche_age || null,
+                  a.droit_entree || null,
+                  a.date_inscription || null,
+                  b2i(a.archive),
+                  a.date_archivage || null,
+                  a.date_reactivation || null
+                );
+              }
+            } catch (e) {
+              console.warn('[sync] erreur import adhérent:', a?.email1, e?.message || e);
+            }
+          }
+        });
+        txA();
+      } catch (e) {
+        console.warn('[sync] import adhérents échoué:', e?.message || e);
+      }
+    }
+
     // 🔥 Importer les produits depuis Neon dans la base locale
     let produitsImported = 0;
     if (produits && produits.length > 0) {
@@ -389,13 +463,16 @@ async function pullRefs({ since = null } = {}) {
             fournisseurIdLocal = fournisseur?.id || null;
           }
         
+          // 🆕 Générer une référence par défaut si manquante (required NOT NULL)
+          const reference = p.reference || `P-${p.id.substring(0, 8).toUpperCase()}`;
+          
           const existing = checkStmt.get(p.id);
           if (existing) {
             // Toujours mettre à jour depuis le serveur (source de vérité pour nom, prix, etc.)
             // Le stock sera recalculé depuis stock_movements après le pull
             updateStmt.run(
               p.nom,
-              p.reference,
+              reference,
               Number(p.prix || 0),
               Number(p.stock || 0),
               p.code_barre || null,
@@ -409,7 +486,7 @@ async function pullRefs({ since = null } = {}) {
             insertStmt.run(
               p.id,           // remote_uuid
               p.nom,
-              p.reference,
+              reference,
               Number(p.prix || 0),
               Number(p.stock || 0),
               p.code_barre || null,
@@ -467,10 +544,29 @@ async function pullRefs({ since = null } = {}) {
           console.warn('[sync] erreur import stock_movement:', m.id, e?.message || e);
         }
       }
-      // Log supprimé pour réduire le bruit dans la console
+      console.log(`[sync] pull: ${movementsImported} mouvements importés`);
       
-      // NE PAS recalculer depuis stock_movements car les stocks sont déjà synchronisés
-      // depuis le serveur lors du pull des produits (source de vérité = serveur)
+      // 🔥 Recalculer les stocks de TOUS les produits depuis stock_movements (source de vérité)
+      try {
+        const produits = db.prepare('SELECT id FROM produits').all();
+        const getStockFromMovements = db.prepare(`
+          SELECT COALESCE(SUM(delta), 0) AS total 
+          FROM stock_movements 
+          WHERE produit_id = ?
+        `);
+        const updateStock = db.prepare('UPDATE produits SET stock = ? WHERE id = ?');
+        
+        let recalculated = 0;
+        for (const p of produits) {
+          const result = getStockFromMovements.get(p.id);
+          const calculatedStock = Number(result?.total || 0);
+          updateStock.run(calculatedStock, p.id);
+          recalculated++;
+        }
+        console.log(`[sync] ${recalculated} stocks recalculés depuis stock_movements`);
+      } catch (e) {
+        console.warn('[sync] Erreur recalcul stocks:', e?.message || e);
+      }
     }
 
     // 🔥 Importer les sessions d'inventaire depuis Neon (open + détection close)
@@ -591,7 +687,10 @@ async function pullVentes({ since = null } = {}) {
       
       let res;
       try {
-        res = await apiFetch(`/sync/pull_ventes?${qs.toString()}`, { method: 'GET' });
+        res = await apiFetch(`/sync/pull_ventes?${qs.toString()}`, { 
+          method: 'GET',
+          headers: { 'accept': 'application/json' }
+        });
       } catch (e) {
         const errorInfo = classifyNetworkError(e);
         logger.error('sync', 'pullVentes: erreur réseau', { error: String(e), type: errorInfo.type });
@@ -736,7 +835,10 @@ async function pullReceptions({ since = null } = {}) {
       
       let res;
       try {
-        res = await apiFetch(`/sync/pull_receptions?${qs.toString()}`, { method: 'GET' });
+        res = await apiFetch(`/sync/pull_receptions?${qs.toString()}`, { 
+          method: 'GET',
+          headers: { 'accept': 'application/json' }
+        });
       } catch (e) {
         const errorInfo = classifyNetworkError(e);
         logger.error('sync', 'pullReceptions: erreur réseau', { error: String(e), type: errorInfo.type });

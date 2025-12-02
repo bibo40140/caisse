@@ -1282,15 +1282,8 @@ async function handleProductCreated(client, tenantId, p) {
       stock,
     });
 
-    // Créer un mouvement de stock initial si stock > 0
-    if (remoteId && stock > 0) {
-      await client.query(
-        `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id, created_at)
-         VALUES ($1, $2, $3, 'initial', $4, now())`,
-        [tenantId, remoteId, stock, `product_${remoteId}`]
-      );
-      console.log(`    [+] stock_movement initial créé: +${stock}`);
-    }
+    // ⚠️ NE PAS créer de mouvement de stock ici - géré exclusivement par inventory.adjust
+    // Le client envoie toujours un inventory.adjust après product.created si stock > 0
 
     // Si pas de remoteId ou pas de localId (op ancienne / corrompue) → pas de mapping
     if (!remoteId || !localId) return null;
@@ -1420,21 +1413,23 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
     'adherent.updated': 2,
 
     // Fournisseurs
-    'fournisseur.created': 2,
-    'fournisseur.updated': 3,
+    'fournisseur.created': 3,
+    'fournisseur.updated': 4,
 
-    // Produits
-    'product.created': 4,
-    'product.updated': 5,
+    // Produits (créer le produit AVANT les mouvements de stock)
+    'product.created': 5,
+    'product.updated': 6,
+    
+    // Stock initial et ajustements (APRÈS la création du produit)
+    'inventory.adjust': 7,
 
     // Ventes
     'sale.created': 10,
     'sale.updated': 11,
     'sale.line_added': 12,
 
-    // Stock & réceptions
+    // Réceptions (APRÈS les ajustements manuels)
     'reception.line_added': 20,
-    'inventory.adjust': 30,
   };
 
   ops.sort((a, b) => (order[a.op_type] || 100) - (order[b.op_type] || 100));
@@ -2133,9 +2128,20 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             fields.push(`prix = $${++idx}`);
             values.push(Number(p.prix));
           }
-          if (p.stock != null) {
-            fields.push(`stock = $${++idx}`);
-            values.push(Number(p.stock));
+          // ⚠️ NE JAMAIS mettre à jour le stock ici - géré uniquement via stock_movements
+          // if (p.stock != null) { ... }
+          // 🔥 Ajouter les foreign keys
+          if (p.unite_id !== undefined) {
+            fields.push(`unite_id = $${++idx}`);
+            values.push(p.unite_id);
+          }
+          if (p.categorie_id !== undefined) {
+            fields.push(`categorie_id = $${++idx}`);
+            values.push(p.categorie_id);
+          }
+          if (p.fournisseur_id !== undefined) {
+            fields.push(`fournisseur_id = $${++idx}`);
+            values.push(p.fournisseur_id);
           }
           if (!fields.length) {
             console.log('    [i] product.updated sans champs modifiés, rien à faire.');

@@ -124,7 +124,7 @@ function registerProduitHandlers(ipcMain) {
             nom: created.nom,
             reference: created.reference,
             prix: created.prix,
-            stock: created.stock,
+            // ⚠️ NE PAS envoyer stock ici - géré par inventory.adjust
             code_barre: created.code_barre,
             unite_id: uniteUuid,
             fournisseur_id: fournisseurUuid,
@@ -187,10 +187,11 @@ function registerProduitHandlers(ipcMain) {
             entityId: String(updated.id),
             payload: {
               id: updated.id,
+              remote_id: updated.remote_uuid || null,  // 🔥 Ajouter le remote_uuid
               nom: updated.nom,
               reference: updated.reference,
               prix: updated.prix,
-              stock: updated.stock,
+              // ⚠️ NE PAS envoyer stock ici - géré par inventory.adjust
               code_barre: updated.code_barre,
               unite_id: uniteUuid,
               fournisseur_id: fournisseurUuid,

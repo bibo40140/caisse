@@ -243,13 +243,13 @@ function ajouterProduit(p = {}) {
     // Note: l'enqueueOp product.created est maintenant géré par le handler
     // pour pouvoir convertir les IDs locaux en UUID avant l'envoi au serveur
 
-    // 🟢 Stock initial → stock_movement + inventory.adjust op (seulement si module stocks actif)
+    // 🟢 Stock initial → enqueue pour serveur (le serveur créera le mouvement)
     if (stockInit !== 0 && isModuleActive('stocks')) {
       try {
-        // Créer le mouvement local immédiatement
-        createStockMovement(id, stockInit, 'initial', null, { reason: 'create' });
-
-        // Enqueue l'opération pour synchronisation
+        // ⚠️ NE PAS créer de mouvement local - le serveur le fera
+        // Le cache produits.stock est déjà à jour (insert ci-dessus)
+        
+        // Enqueue l'opération pour synchronisation serveur
         enqueueOp({
           deviceId: DEVICE_ID,
           opType: 'inventory.adjust',
@@ -259,6 +259,7 @@ function ajouterProduit(p = {}) {
             produitId: id,
             delta: stockInit,
             reason: 'create.initial_stock',
+            reference: reference,  // Ajouter la référence pour résolution serveur
           },
         });
       } catch (e) {
@@ -266,17 +267,7 @@ function ajouterProduit(p = {}) {
       }
     }
 
-    // 🛰️ 3) Push en arrière-plan (best effort)
-    try {
-      const { pushOpsNow } = require('../sync');
-      if (typeof pushOpsNow === 'function') {
-        // on ne bloque pas l’UI sur la sync
-        pushOpsNow(DEVICE_ID).catch(() => {});
-      }
-    } catch {
-      // pas bloquant
-    }
-
+    // 🛰️ Push sera fait par le handler après avoir enqueued product.created
     return id;
   });
 
@@ -310,7 +301,15 @@ function modifierProduit(p = {}) {
 
   const stockProvided = (p.stock !== undefined);
   const newStock = stockProvided ? toNumber(p.stock, cur.stock) : cur.stock;
-  const delta = stockProvided ? (newStock - toNumber(cur.stock, 0)) : 0;
+  
+  // 🔥 Calculer le delta par rapport au stock RÉEL (depuis stock_movements)
+  let delta = 0;
+  if (stockProvided) {
+    const { getStock } = require('./stock');
+    const realStock = getStock(id); // Stock réel calculé depuis movements
+    delta = newStock - realStock;
+    console.log(`[modifierProduit] Stock change: real=${realStock}, new=${newStock}, delta=${delta}`);
+  }
 
   const tx = db.transaction(() => {
     setField('nom', nom);
@@ -320,7 +319,11 @@ function modifierProduit(p = {}) {
     setField('unite_id', unite_id);
     setField('fournisseur_id', fournisseur_id);
     setField('categorie_id', categorie_id);
-    if (stockProvided) setField('stock', newStock);
+    
+    // 🔥 Mettre à jour le cache stock pour affichage immédiat
+    if (stockProvided) {
+      setField('stock', newStock);
+    }
 
     const sql = `
       UPDATE produits
@@ -333,7 +336,10 @@ function modifierProduit(p = {}) {
     // pour pouvoir convertir les IDs locaux en UUID avant l'envoi au serveur
 
     if (stockProvided && delta !== 0) {
-      // Inclure la référence DANS le payload pour qu'elle soit disponible côté serveur
+      // ⚠️ NE PAS créer de mouvement local - le serveur le fera
+      // Le cache produits.stock est déjà à jour (update ci-dessus)
+      
+      // Enqueue l'op pour synchronisation serveur
       const payload = { produitId: id, delta, reason: 'manual.edit' };
       if (reference) payload.reference = reference;
 
@@ -346,10 +352,7 @@ function modifierProduit(p = {}) {
       });
     }
 
-    try {
-      const { pushOpsNow } = require('../sync');
-      if (typeof pushOpsNow === 'function') pushOpsNow(DEVICE_ID).catch(()=>{});
-    } catch {}
+    // 🛰️ Push sera fait par le handler après avoir enqueued product.updated
   });
 
   tx();

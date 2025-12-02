@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Rapport E2E MAX — 2025-12-01</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f8fafc; color: #222; margin: 0; padding: 0; }
+    .container { max-width: 700px; margin: 32px auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px #0001; padding: 32px; }
+    h1 { font-size: 1.7em; margin-bottom: 0.2em; }
+    table { border-collapse: collapse; width: 100%; margin: 24px 0; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+    th { background: #f1f5f9; }
+    tr:last-child td { border-bottom: none; }
+    .ok { color: #16a34a; font-weight: bold; }
+    .skip { color: #f59e42; font-weight: bold; }
+    .ko { color: #dc2626; font-weight: bold; }
+    .note { background: #fef9c3; color: #b45309; border-radius: 6px; padding: 10px; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Rapport E2E MAX</h1>
+    <div>Date du test : <b>1er décembre 2025</b></div>
+    <div>API utilisée : <b>http://localhost:3001</b></div>
+    <table>
+      <thead>
+        <tr><th>Étape</th><th>Statut</th><th>Détails</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>health</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>register-tenant</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>login-tenant-admin</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>modules-on-base</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>adherent-ok</td><td class="skip">SKIP</td><td>endpoint non trouvé (HTTP 404)</td></tr>
+        <tr><td>adherent-invalid-400</td><td class="skip">SKIP</td><td>endpoint non trouvé (HTTP 404)</td></tr>
+        <tr><td>fournisseur</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>produit-1</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>produit-2</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>reception-multi</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>vente-adherent-remise</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>vente-exterieur</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>inventory-start</td><td class="ok">OK</td><td></td></tr>
+        <tr><td>inventory-counts</td><td class="skip">SKIP</td><td>endpoint non trouvé (HTTP 404)</td></tr>
+        <tr><td>inventory-finalize</td><td class="skip">SKIP</td><td>endpoint non trouvé (HTTP 404)</td></tr>
+        <tr><td>verify-produit-1</td><td class="skip">SKIP</td><td>endpoint non trouvé (HTTP 404)</td></tr>
+        <tr><td>verify-produit-2</td><td class="skip">SKIP</td><td>endpoint non trouvé (HTTP 404)</td></tr>
+        <tr><td>vente-sans-mode-paiement-requis</td><td class="ko">KO</td><td>attendu HTTP 400, reçu 200</td></tr>
+        <tr><td>email-configure</td><td class="skip">SKIP</td><td>endpoint non trouvé (HTTP 404)</td></tr>
+        <tr><td>email-send-test</td><td class="skip">SKIP</td><td>endpoint non trouvé (HTTP 404)</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <b>Notes & Observations :</b><br>
+      - Plusieurs endpoints (adherents, inventaire, email) sont absents côté API, d'où les SKIP.<br>
+      - Le test “vente-sans-mode-paiement-requis” est encore KO (la correction côté API n'est pas prise en compte ou le test ne cible pas le bon cas).<br>
+      - Toutes les autres étapes principales sont validées.
+    </div>
+  </div>
+</body>
+</html>
