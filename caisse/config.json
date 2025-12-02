@@ -13,7 +13,8 @@
     "multiusers": false,
     "fournisseurs": true,
     "modes_paiement": true,
-    "emailAdmin": true
+    "emailAdmin": true,
+    "statistiques": true
   },
   "ventes_exterieur_margin_percent": 30,
   "last_email": "azeqsd",

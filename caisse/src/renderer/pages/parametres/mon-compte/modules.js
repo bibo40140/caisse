@@ -44,7 +44,7 @@
       stocks:      { label: "Gestion des stocks", desc: "Mise à jour de stock & réceptions.", children: ["inventaire"] },
       inventaire:  { label: "Inventaire", desc: "Comptage physique.", dependsOn: ["stocks"] },
       fournisseurs:{ label: "Fournisseurs", desc: "Suivi des fournisseurs." },
-      exports:     { label: "Exports / statistiques" },
+      statistiques:{ label: "Statistiques", desc: "Tableau de bord avec graphiques et métriques de ventes/réceptions." },
       multiusers:  { label: "Multi-utilisateurs" }
     };
 
@@ -109,7 +109,7 @@
         : `${headHtml}${childrenHtml}`;
     };
 
-    const topLevelOrder = ["adherents", "emailAdmin", "ventes_exterieur", "stocks", "modes_paiement", "fournisseurs", "exports", "multiusers"]
+    const topLevelOrder = ["adherents", "emailAdmin", "ventes_exterieur", "stocks", "modes_paiement", "fournisseurs", "statistiques", "multiusers"]
       .filter(k => defs[k]);
 
     const html = `

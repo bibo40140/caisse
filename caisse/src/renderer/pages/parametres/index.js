@@ -66,6 +66,13 @@
             <p>Ventes, réceptions, inventaires.</p>
           </div>
         </div>
+        <div class="params-card" id="card-stats" style="display:none;">
+          <div class="params-ico">📊</div>
+          <div>
+            <h3>Statistiques</h3>
+            <p>Tableau de bord ventes & réceptions.</p>
+          </div>
+        </div>
         <div class="params-card" id="card-super">
           <div class="params-ico">🛡️</div>
           <div>
@@ -77,7 +84,7 @@
       <div id="parametres-souspage" style="margin-top:14px;"></div>
     `;
 
-    // ✅ Détection super-admin correcte (préserve le bouton si l’info n’est pas dispo)
+    // ✅ Détection super-admin & modules actifs
     (async () => {
       const card = document.getElementById('card-super');
       if (!card) return;
@@ -99,6 +106,16 @@
         // en cas d'erreur, ne pas masquer par défaut
         card.style.display = '';
       }
+    })();
+
+    // Afficher la carte Statistiques si module actif
+    (async () => {
+      try {
+        const r = await window.electronAPI?.getTenantModules?.();
+        const modules = r?.ok ? (r.modules || {}) : {};
+        const card = document.getElementById('card-stats');
+        if (card) card.style.display = modules.statistiques ? '' : 'none';
+      } catch {}
     })();
 
     // Bind: Mon compte
@@ -128,6 +145,16 @@
         await window.PageParamsHistorique.render();
       } else {
         document.getElementById('parametres-souspage').innerHTML = `<p>Module "Historique" introuvable.</p>`;
+      }
+    });
+
+    // Bind: Statistiques
+    document.getElementById('card-stats')?.addEventListener('click', async () => {
+      await inject('src/renderer/pages/parametres/Statistiques.js');
+      if (window.PageParamsStatistiques?.render) {
+        await window.PageParamsStatistiques.render();
+      } else {
+        document.getElementById('parametres-souspage').innerHTML = `<p>Module "Statistiques" introuvable.</p>`;
       }
     });
 

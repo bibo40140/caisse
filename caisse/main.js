@@ -965,6 +965,9 @@ if (cfgModules.stocks) {
 const registerInventoryHandlers = require('./src/main/handlers/inventory');
 registerInventoryHandlers(ipcMain);
 
+const { registerStatistiquesHandlers } = require('./src/main/handlers/statistiques');
+registerStatistiquesHandlers(ipcMain);
+
 // Fallbacks modes de paiement (inchangés)
 function boolToInt(b) { return b ? 1 : 0; }
 

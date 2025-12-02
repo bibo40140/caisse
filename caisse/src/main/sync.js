@@ -1394,16 +1394,17 @@ function collectLocalRefs() {
   }));
 
   const produits = all(`
-    SELECT id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at
+    SELECT remote_uuid, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at
     FROM produits ORDER BY id
   `).map((p) => ({
     ...p,
+    id: p.remote_uuid || null, // Utiliser remote_uuid comme ID pour le bootstrap
     unite_id: exists('unites', p.unite_id) ? p.unite_id : null,
     fournisseur_id: exists('fournisseurs', p.fournisseur_id)
       ? p.fournisseur_id
       : null,
     categorie_id: exists('categories', p.categorie_id) ? p.categorie_id : null,
-  }));
+  })).filter(p => p.id); // Ignorer les produits sans remote_uuid (pas encore sync)
 
   const modes_paiement = all(
     `SELECT id, nom, taux_percent, frais_fixe, actif FROM modes_paiement ORDER BY id`

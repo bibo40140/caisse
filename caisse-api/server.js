@@ -2673,9 +2673,10 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
 
     // Produits
     for (const p of produits) {
-      const prodId = asIntOrNull(p.id);
+      // Si p.id est un UUID valide, l'utiliser, sinon générer un nouveau UUID
+      const prodId = asUuidOrNull(p.id);
       if (!prodId) {
-        console.warn('[bootstrap] Produit ignoré car id invalide :', p);
+        console.warn('[bootstrap] Produit ignoré car id invalide (pas un UUID) :', p);
         continue;
       }
 
@@ -2685,9 +2686,8 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
           (id, tenant_id, nom, reference, prix, stock, code_barre, unite_id, fournisseur_id, categorie_id, updated_at)
         VALUES
           ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
-        ON CONFLICT (tenant_id, id) DO UPDATE SET
+        ON CONFLICT (tenant_id, reference) DO UPDATE SET
           nom          = EXCLUDED.nom,
-          reference    = EXCLUDED.reference,
           prix         = EXCLUDED.prix,
           stock        = EXCLUDED.stock,
           code_barre   = EXCLUDED.code_barre,
@@ -2700,7 +2700,7 @@ app.post('/sync/bootstrap', authRequired, async (req, res) => {
           prodId,
           tenantId,
           p.nom,
-          p.reference || `P-${String(prodId).padStart(6, '0')}`,
+          p.reference || `P-${prodId.substring(0, 8)}`,
           Number(p.prix || 0),
           Number(p.stock ?? 0),
           p.code_barre || null,

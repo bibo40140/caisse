@@ -320,6 +320,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // --- Modules par tenant (API)
   getTenantModules: () => ipcRenderer.invoke('tenant:modules:get'),
   setTenantModules: (modules) => ipcRenderer.invoke('tenant:modules:set', modules),
+
+  // --- Statistiques
+  getVentesStats: (days) => ipcRenderer.invoke('stats:ventes', days),
+  getReceptionsStats: (days) => ipcRenderer.invoke('stats:receptions', days),
+  getProduitsCount: () => ipcRenderer.invoke('stats:produits-count'),
 });
 
 /* -------------- Paniers / Carts ------------------ */

@@ -211,11 +211,12 @@
       
       // Récupérer les logs récents pour détecter des erreurs
       const recentLogs = await window.electronAPI?.getRecentLogs?.(100) || [];
-      const recentErrors = recentLogs.filter(log => log.level === 'ERROR');
-      const recentWarnings = recentLogs.filter(log => log.level === 'WARN');
+      const logsArray = Array.isArray(recentLogs) ? recentLogs : [];
+      const recentErrors = logsArray.filter(log => log.level === 'ERROR');
+      const recentWarnings = logsArray.filter(log => log.level === 'WARN');
       
       // Déterminer l'état de connexion
-      const lastSyncLog = recentLogs.find(log => log.context === 'sync');
+      const lastSyncLog = logsArray.find(log => log.context === 'sync');
       const lastErrorLog = recentErrors[0];
       
       let connectionStatus = 'online';
