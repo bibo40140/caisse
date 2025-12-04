@@ -18,8 +18,9 @@
  *   0 2 * * * cd /path/to/caisse-api && node consolidate-stock.js >> /var/log/stock-consolidation.log 2>&1
  */
 
-require('dotenv').config();
-const { Pool } = require('pg');
+import 'dotenv/config';
+import pkg from 'pg';
+const { Pool } = pkg;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
