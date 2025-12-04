@@ -31,6 +31,7 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
 import { pool } from './db/index.js';
+import { consolidateStock } from './consolidate-stock.js';
 
 // Routers
 import tenantsRouter from './routes/tenants.js';
@@ -2920,7 +2921,6 @@ app.get('/cron/consolidate', async (req, res) => {
   console.log('[cron/consolidate] Démarrage de la consolidation...');
   
   try {
-    const { consolidateStock } = require('./consolidate-stock');
     const result = await consolidateStock();
     
     console.log('[cron/consolidate] Succès:', result);
