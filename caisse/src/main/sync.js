@@ -161,6 +161,22 @@ function isUuid(v) {
      plus tard un vrai pull "fine-grain" quand tout sera figé.
 --------------------------------------------------*/
 async function pullRefs({ since = null } = {}) {
+  // Si 'since' non fourni, récupérer le dernier timestamp de sync réussie
+  if (!since) {
+    try {
+      const row = db.prepare('SELECT last_sync_at FROM sync_state WHERE entity_type = ?').get('pull_refs');
+      since = row?.last_sync_at || null;
+      if (since) {
+        console.log('[sync] Pull incrémental depuis:', since);
+      } else {
+        console.log('[sync] Pull complet (premier sync ou pas de lastSync)');
+      }
+    } catch (e) {
+      console.warn('[sync] Erreur lecture sync_state pour pull_refs:', e);
+      since = null;
+    }
+  }
+
   const qs = since ? `?since=${encodeURIComponent(since)}` : '';
 
   setState('pulling');
@@ -646,8 +662,21 @@ async function pullRefs({ since = null } = {}) {
       
       setState('online', { phase: 'pulled' });
 
+      // 🔥 Mettre à jour le timestamp de la dernière sync réussie
+      try {
+        const serverTime = json.server_time || new Date().toISOString();
+        db.prepare(`
+          INSERT OR REPLACE INTO sync_state (entity_type, last_sync_at, last_sync_ok, updated_at)
+          VALUES ('pull_refs', ?, 1, datetime('now'))
+        `).run(serverTime);
+        console.log('[sync] Timestamp de sync mis à jour:', serverTime);
+      } catch (e) {
+        console.warn('[sync] Erreur mise à jour sync_state pull_refs:', e?.message);
+      }
+
       return {
         ok: true,
+        sync_type: json.sync_type || 'full',
         counts: {
           unites: unites.length,
           familles: familles.length,

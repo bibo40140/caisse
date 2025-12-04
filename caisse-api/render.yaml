@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: caisse-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: EMAIL_SECRET_KEY
+        sync: false
+      - key: CRON_SECRET_TOKEN
+        sync: false
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: STORAGE_DRIVER
+        value: local
