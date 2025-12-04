@@ -132,4 +132,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { consolidateStock };
+export { consolidateStock };
