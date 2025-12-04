@@ -876,110 +876,166 @@ app.get('/sync/bootstrap_needed', authRequired, async (req, res) => {
 
 app.get('/sync/pull_refs', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
+  const since = req.query.since; // ISO timestamp pour sync incrémentale
   const client = await pool.connect();
+  
   try {
-    const [unites, familles, categories, adherents, fournisseurs, produits, modes_paiement, stock_movements, inventory_sessions] =
-      await Promise.all([
+    const isIncrementalSync = since && new Date(since).getTime() > 0;
+    console.log(`[sync/pull_refs] ${isIncrementalSync ? 'Incrémental' : 'Complet'} sync pour tenant ${tenantId}`, { since });
+
+    let queries;
+    
+    if (isIncrementalSync) {
+      // 🚀 SYNC INCRÉMENTALE - Seulement les changements depuis 'since'
+      queries = [
+        // Unités - toujours toutes (rarement modifiées)
         client.query(
-          `
-          SELECT id, nom
-          FROM unites
-          WHERE tenant_id = $1
-          ORDER BY nom
-          `,
+          `SELECT id, nom FROM unites WHERE tenant_id = $1 ORDER BY nom`,
           [tenantId]
         ),
+        // Familles - toujours toutes (rarement modifiées)
         client.query(
-          `
-          SELECT id, nom
-          FROM familles
-          WHERE tenant_id = $1
-          ORDER BY nom
-          `,
+          `SELECT id, nom FROM familles WHERE tenant_id = $1 ORDER BY nom`,
           [tenantId]
         ),
+        // Catégories - toujours toutes (rarement modifiées)
         client.query(
-          `
-          SELECT id, nom, famille_id
-          FROM categories
-          WHERE tenant_id = $1
-          ORDER BY nom
-          `,
+          `SELECT id, nom, famille_id FROM categories WHERE tenant_id = $1 ORDER BY nom`,
           [tenantId]
         ),
+        // Adhérents - seulement modifiés depuis 'since'
         client.query(
-          `
-          SELECT *
-          FROM adherents
-          WHERE tenant_id = $1
-          ORDER BY nom NULLS LAST
-          `,
-          [tenantId]
+          `SELECT * FROM adherents 
+           WHERE tenant_id = $1 AND updated_at > $2
+           ORDER BY nom NULLS LAST`,
+          [tenantId, since]
         ),
+        // Fournisseurs - seulement modifiés depuis 'since'
         client.query(
-          `
-          SELECT *
-          FROM fournisseurs
-          WHERE tenant_id = $1
-          ORDER BY nom
-          `,
-          [tenantId]
+          `SELECT * FROM fournisseurs 
+           WHERE tenant_id = $1 AND updated_at > $2
+           ORDER BY nom`,
+          [tenantId, since]
         ),
+        // Produits - seulement modifiés depuis 'since'
         client.query(
-          `
-          SELECT
+          `SELECT
             p.id, p.nom, p.reference, p.prix, p.code_barre,
             p.unite_id, p.fournisseur_id, p.categorie_id, p.updated_at,
-            COALESCE((
-              SELECT SUM(delta)::numeric
-              FROM stock_movements sm
-              WHERE sm.tenant_id = p.tenant_id AND sm.produit_id = p.id
-            ), p.stock, 0) AS stock
+            COALESCE(cs.quantity, 0) AS stock
           FROM produits p
+          LEFT JOIN current_stock cs ON cs.product_id = p.id
           WHERE p.tenant_id = $1
             AND (p.deleted IS NULL OR p.deleted = false)
-          ORDER BY p.nom
-          `,
+            AND p.updated_at > $2
+          ORDER BY p.nom`,
+          [tenantId, since]
+        ),
+        // Modes paiement - toujours tous (rarement modifiés)
+        client.query(
+          `SELECT id, nom, taux_percent, frais_fixe, actif
+           FROM modes_paiement WHERE tenant_id = $1 ORDER BY nom`,
+          [tenantId]
+        ),
+        // Stock movements - seulement depuis 'since'
+        client.query(
+          `SELECT id, produit_id, delta, source, source_id, created_at
+           FROM stock_movements
+           WHERE tenant_id = $1 AND created_at > $2
+           ORDER BY created_at`,
+          [tenantId, since]
+        ),
+        // Inventory sessions - seulement sessions open
+        client.query(
+          `SELECT id, name, status, started_at, ended_at, "user", notes
+           FROM inventory_sessions
+           WHERE tenant_id = $1 AND status = 'open'
+           ORDER BY started_at DESC`,
+          [tenantId]
+        ),
+      ];
+    } else {
+      // 📦 SYNC COMPLÈTE - Toutes les données (optimisée avec snapshot)
+      queries = [
+        client.query(
+          `SELECT id, nom FROM unites WHERE tenant_id = $1 ORDER BY nom`,
           [tenantId]
         ),
         client.query(
-          `
-          SELECT id, nom, taux_percent, frais_fixe, actif
-          FROM modes_paiement
-          WHERE tenant_id = $1
-          ORDER BY nom
-          `,
+          `SELECT id, nom FROM familles WHERE tenant_id = $1 ORDER BY nom`,
           [tenantId]
         ),
         client.query(
-          `
-          SELECT id, produit_id, delta, source, source_id, created_at
-          FROM stock_movements
-          WHERE tenant_id = $1
-          ORDER BY created_at
-          `,
+          `SELECT id, nom, famille_id FROM categories WHERE tenant_id = $1 ORDER BY nom`,
           [tenantId]
         ),
         client.query(
-          `
-          SELECT id, name, status, started_at, ended_at, "user", notes
-          FROM inventory_sessions
-          WHERE tenant_id = $1 AND status = 'open'
-          ORDER BY started_at DESC
-          `,
+          `SELECT * FROM adherents WHERE tenant_id = $1 ORDER BY nom NULLS LAST`,
           [tenantId]
         ),
-      ]);
+        client.query(
+          `SELECT * FROM fournisseurs WHERE tenant_id = $1 ORDER BY nom`,
+          [tenantId]
+        ),
+        // Produits avec stock depuis current_stock (plus rapide)
+        client.query(
+          `SELECT
+            p.id, p.nom, p.reference, p.prix, p.code_barre,
+            p.unite_id, p.fournisseur_id, p.categorie_id, p.updated_at,
+            COALESCE(cs.quantity, 0) AS stock
+          FROM produits p
+          LEFT JOIN current_stock cs ON cs.product_id = p.id
+          WHERE p.tenant_id = $1
+            AND (p.deleted IS NULL OR p.deleted = false)
+          ORDER BY p.nom`,
+          [tenantId]
+        ),
+        client.query(
+          `SELECT id, nom, taux_percent, frais_fixe, actif
+           FROM modes_paiement WHERE tenant_id = $1 ORDER BY nom`,
+          [tenantId]
+        ),
+        // Stock movements - seulement les 30 derniers jours (optimisation)
+        client.query(
+          `SELECT id, produit_id, delta, source, source_id, created_at
+           FROM stock_movements
+           WHERE tenant_id = $1 
+             AND created_at > NOW() - INTERVAL '30 days'
+           ORDER BY created_at`,
+          [tenantId]
+        ),
+        client.query(
+          `SELECT id, name, status, started_at, ended_at, "user", notes
+           FROM inventory_sessions
+           WHERE tenant_id = $1 AND status = 'open'
+           ORDER BY started_at DESC`,
+          [tenantId]
+        ),
+      ];
+    }
 
-    // Récupérer aussi les modules du tenant
+    const [unites, familles, categories, adherents, fournisseurs, produits, modes_paiement, stock_movements, inventory_sessions] =
+      await Promise.all(queries);
+
+    // Récupérer les modules du tenant
     const modulesRes = await client.query(
       `SELECT modules_json FROM tenant_settings WHERE tenant_id = $1`,
       [tenantId]
     );
     const modules = modulesRes.rows[0]?.modules_json || {};
 
+    console.log(`[sync/pull_refs] Résultats:`, {
+      unites: unites.rows.length,
+      adherents: adherents.rows.length,
+      fournisseurs: fournisseurs.rows.length,
+      produits: produits.rows.length,
+      stock_movements: stock_movements.rows.length,
+    });
+
     res.json({
       ok: true,
+      sync_type: isIncrementalSync ? 'incremental' : 'full',
+      server_time: new Date().toISOString(),
       data: {
         unites: unites.rows,
         familles: familles.rows,
@@ -2848,5 +2904,40 @@ startPeriodicReport(10 * 60 * 1000);
 /* =========================
  * Start server
  * =======================*/
+// ============================================================================
+// Route pour le job de consolidation quotidien (appelé par cron-job.org)
+// ============================================================================
+app.get('/cron/consolidate', async (req, res) => {
+  // Sécurité: vérifier un token
+  const token = req.query.token || req.headers['x-cron-token'];
+  const expectedToken = process.env.CRON_SECRET_TOKEN || 'change-me-in-production';
+  
+  if (token !== expectedToken) {
+    console.warn('[cron/consolidate] Tentative non autorisée');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  console.log('[cron/consolidate] Démarrage de la consolidation...');
+  
+  try {
+    const { consolidateStock } = require('./consolidate-stock');
+    const result = await consolidateStock();
+    
+    console.log('[cron/consolidate] Succès:', result);
+    res.json({ 
+      ok: true, 
+      timestamp: new Date().toISOString(),
+      result 
+    });
+  } catch (e) {
+    console.error('[cron/consolidate] Erreur:', e);
+    res.status(500).json({ 
+      ok: false, 
+      error: e.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 const port = process.env.PORT || 3001;
 app.listen(port, () => console.log('caisse-api listening on', port));
