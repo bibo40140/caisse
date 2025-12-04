@@ -117,8 +117,8 @@ async function consolidateStock() {
   }
 }
 
-// Exécution
-if (require.main === module) {
+// Exécution en CLI
+if (import.meta.url === `file://${process.argv[1]}`) {
   consolidateStock()
     .then(result => {
       console.log('\n📊 Résultat:', JSON.stringify(result, null, 2));
