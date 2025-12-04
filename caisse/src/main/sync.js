@@ -276,7 +276,13 @@ async function pullRefs({ since = null } = {}) {
     if (adherents && adherents.length > 0) {
       try {
         console.log(`[sync] pull: ${adherents.length} adhérents reçus depuis Neon`);
-        const checkA = db.prepare('SELECT id FROM adherents WHERE remote_uuid = ?');
+        // 🔥 Chercher par remote_uuid (priorité) OU par (nom + email1) pour éviter les doublons en cas de race condition
+        const checkA = db.prepare(`
+          SELECT id FROM adherents 
+          WHERE remote_uuid = ? 
+             OR (nom = ? AND email1 = ?)
+          LIMIT 1
+        `);
         const insertA = db.prepare(`
           INSERT INTO adherents (remote_uuid, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville, 
             nb_personnes_foyer, tranche_age, droit_entree, date_inscription, archive, date_archivage, date_reactivation)
@@ -286,15 +292,16 @@ async function pullRefs({ since = null } = {}) {
           UPDATE adherents SET
             nom = ?, prenom = ?, email1 = ?, email2 = ?, telephone1 = ?, telephone2 = ?, 
             adresse = ?, code_postal = ?, ville = ?, nb_personnes_foyer = ?, tranche_age = ?, 
-            droit_entree = ?, date_inscription = ?, archive = ?, date_archivage = ?, date_reactivation = ?
-          WHERE remote_uuid = ?
+            droit_entree = ?, date_inscription = ?, archive = ?, date_archivage = ?, date_reactivation = ?, remote_uuid = ?
+          WHERE id = ?
         `);
 
         const txA = db.transaction(() => {
           for (const a of adherents) {
             try {
-              const exists = checkA.get(a.id);
+              const exists = checkA.get(a.id, a.nom || null, a.email1 || null);
               if (exists) {
+                // Mets à jour ET assure que remote_uuid est bien défini (pour éviter les race conditions)
                 updateA.run(
                   a.nom || null,
                   a.prenom || null,
@@ -312,7 +319,8 @@ async function pullRefs({ since = null } = {}) {
                   b2i(a.archive),
                   a.date_archivage || null,
                   a.date_reactivation || null,
-                  a.id
+                  a.id,
+                  exists.id
                 );
               } else {
                 insertA.run(
@@ -1138,6 +1146,50 @@ async function pushOpsNow(deviceId = DEVICE_ID, options = {}) {
           console.log('[sync] ventes.remote_uuid mis à jour en local', { localId, remoteUuid });
         } catch (e) {
           console.warn('[sync] erreur UPDATE ventes.remote_uuid:', e?.message || e);
+        }
+      }
+    }
+
+    // 🔥 Si le serveur renvoie des mappings pour adherents, on met à jour adherents.remote_uuid
+    if (body && body.mappings && Array.isArray(body.mappings.adherents)) {
+      const stmtAdherent = db.prepare(
+        `UPDATE adherents
+            SET remote_uuid = ?
+          WHERE id = ?
+            AND (remote_uuid IS NULL OR remote_uuid = '')`
+      );
+      for (const m of body.mappings.adherents) {
+        if (!m) continue;
+        const localId = Number(m.local_id);
+        const remoteUuid = m.remote_uuid;
+        if (!localId || !remoteUuid) continue;
+        try {
+          stmtAdherent.run(remoteUuid, localId);
+          console.log('[sync] adherents.remote_uuid mis à jour en local', { localId, remoteUuid });
+        } catch (e) {
+          console.warn('[sync] erreur UPDATE adherents.remote_uuid:', e?.message || e);
+        }
+      }
+    }
+
+    // 🔥 Si le serveur renvoie des mappings pour fournisseurs, on met à jour fournisseurs.remote_uuid
+    if (body && body.mappings && Array.isArray(body.mappings.fournisseurs)) {
+      const stmtFournisseur = db.prepare(
+        `UPDATE fournisseurs
+            SET remote_uuid = ?
+          WHERE id = ?
+            AND (remote_uuid IS NULL OR remote_uuid = '')`
+      );
+      for (const m of body.mappings.fournisseurs) {
+        if (!m) continue;
+        const localId = Number(m.local_id);
+        const remoteUuid = m.remote_uuid;
+        if (!localId || !remoteUuid) continue;
+        try {
+          stmtFournisseur.run(remoteUuid, localId);
+          console.log('[sync] fournisseurs.remote_uuid mis à jour en local', { localId, remoteUuid });
+        } catch (e) {
+          console.warn('[sync] erreur UPDATE fournisseurs.remote_uuid:', e?.message || e);
         }
       }
     }

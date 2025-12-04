@@ -156,8 +156,9 @@ async function getCurrentStock(client, tenantId, productId) {
  * - client: client PG transactionnel
  * - tenantId: UUID du tenant
  * - payload: objet envoyé depuis l'app Electron (voir logs push_ops)
+ * - mappingsArray: tableau optionnel pour collecter les mappings local_id -> remote_uuid
  */
-async function applyAdherentCreated(client, tenantId, payload) {
+async function applyAdherentCreated(client, tenantId, payload, mappingsArray = null) {
   const p = payload || {};
 
   const nom    = (p.nom || '').trim() || null;
@@ -183,6 +184,8 @@ async function applyAdherentCreated(client, tenantId, payload) {
   const dateArchivage   = p.date_archivage || null;
   const dateReactivation = p.date_reactivation || null;
 
+  const localId = p.local_id || p.id || null; // ID local (INTEGER)
+
   // 🔁 Idempotence / anti-doublon : si un adhérent avec le même email1 existe déjà → on ne recrée pas.
   if (email1) {
     const ex = await client.query(
@@ -196,8 +199,13 @@ async function applyAdherentCreated(client, tenantId, payload) {
       [tenantId, email1]
     );
     if (ex.rowCount > 0) {
+      const remoteUuid = ex.rows[0].id;
       console.log('    [=] adherent déjà présent pour email1 =', email1);
-      return ex.rows[0].id;
+      // 🔥 Collecter le mapping si localId et mappingsArray fournis
+      if (remoteUuid && localId && mappingsArray) {
+        mappingsArray.push({ local_id: localId, remote_uuid: remoteUuid });
+      }
+      return remoteUuid;
     }
   }
 
@@ -1445,6 +1453,8 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
   const receptionMappings = [];
   // mappings fournisseurs local_id -> remote_uuid
   const fournisseurMappings = [];
+  // mappings adherents local_id -> remote_uuid
+  const adherentMappings = [];
   // Collecte des ventes créées pour envoi email
   const ventesCreees = [];
 
@@ -1522,7 +1532,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
          * ADHERENTS
          * ────────────────────────────*/
         case 'adherent.created': {
-          await applyAdherentCreated(client, tenantId, p);
+          await applyAdherentCreated(client, tenantId, p, adherentMappings);
           break;
         }
         case 'adherent.updated': {
@@ -2506,7 +2516,9 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
         ventes: venteMappings,
         receptions: receptionMappings,
         fournisseurs: fournisseurMappings,
+        adherents: adherentMappings,
       },
+      ventesCreees,
     });
   } catch (e) {
     await client.query('ROLLBACK');
