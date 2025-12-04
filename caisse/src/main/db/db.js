@@ -8,6 +8,7 @@ function initSchemaIfNeeded(db, tenantKey) {
   if (INIT_DONE.has(tenantKey)) return;
   try { db.pragma('foreign_keys = ON'); } catch {}
   try { db.pragma('journal_mode = WAL'); } catch {}
+  try { db.pragma('busy_timeout = 5000'); } catch {} // 🔥 Attendre jusqu'à 5s si base locked
   INIT_DONE.add(tenantKey);
 }
 

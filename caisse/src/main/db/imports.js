@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
 const db = require('./db');
+const { enqueueOp } = require('./ops');
+const { getDeviceId } = require('../device');
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
@@ -156,6 +158,49 @@ function validerImportProduits(produitsCorriges) {
       if (catId) {
         db.prepare('UPDATE produits SET categorie_id = ? WHERE id = ?').run(catId, info.lastInsertRowid);
       }
+      
+      // 🔥 Enqueue op pour synchronisation vers Neon
+      try {
+        const DEVICE_ID = getDeviceId();
+        let uniteUuid = null;
+        let categorieUuid = null;
+        let fournisseurUuid = null;
+        
+        if (unite_id) {
+          const uniteRow = db.prepare('SELECT remote_uuid FROM unites WHERE id = ?').get(unite_id);
+          uniteUuid = uniteRow?.remote_uuid || null;
+        }
+        
+        if (catId) {
+          const categorieRow = db.prepare('SELECT remote_uuid FROM categories WHERE id = ?').get(catId);
+          categorieUuid = categorieRow?.remote_uuid || null;
+        }
+        
+        if (fournisseur_id) {
+          const fournisseurRow = db.prepare('SELECT remote_uuid FROM fournisseurs WHERE id = ?').get(fournisseur_id);
+          fournisseurUuid = fournisseurRow?.remote_uuid || null;
+        }
+        
+        enqueueOp({
+          deviceId: DEVICE_ID,
+          opType: 'product.created',
+          entityType: 'produit',
+          entityId: String(info.lastInsertRowid),
+          payload: {
+            local_id: info.lastInsertRowid,
+            nom: p.nom,
+            reference: reference,
+            prix: toFloatSafe(p.prix, 0),
+            code_barre: p.code_barre || null,
+            unite_id: uniteUuid,
+            fournisseur_id: fournisseurUuid,
+            categorie_id: categorieUuid,
+          },
+        });
+      } catch (e) {
+        console.error('[validerImportProduits] enqueueOp error:', e);
+      }
+      
       ajoutees++;
     }
   }
@@ -181,6 +226,8 @@ function resoudreConflitProduit(action, nouveau, existantId = null) {
   const reference = genererReferenceProduit();
   // Catégorie (optionnelle) — pas de création
   const catId = getCategoryIdByName(normalizeCategoryName(nouveau.categorie_nom)) || nouveau.categorie_id || null;
+  const DEVICE_ID = getDeviceId();
+  
   if (action === 'remplacer' && existantId) {
     // Mise à jour de la fiche existante
     db.prepare(`
@@ -214,9 +261,52 @@ function resoudreConflitProduit(action, nouveau, existantId = null) {
       nouveau.fournisseur_id || null,
       reference
     );
+    const newId = info.lastInsertRowid;
     if (catId) {
-      db.prepare('UPDATE produits SET categorie_id = ? WHERE id = ?').run(catId, info.lastInsertRowid);
+      db.prepare('UPDATE produits SET categorie_id = ? WHERE id = ?').run(catId, newId);
     }
+    
+    // 🔥 Enqueue op pour synchronisation vers Neon
+    try {
+      let uniteUuid = null;
+      let categorieUuid = null;
+      let fournisseurUuid = null;
+      
+      if (nouveau.unite_id) {
+        const uniteRow = db.prepare('SELECT remote_uuid FROM unites WHERE id = ?').get(nouveau.unite_id);
+        uniteUuid = uniteRow?.remote_uuid || null;
+      }
+      
+      if (catId) {
+        const categorieRow = db.prepare('SELECT remote_uuid FROM categories WHERE id = ?').get(catId);
+        categorieUuid = categorieRow?.remote_uuid || null;
+      }
+      
+      if (nouveau.fournisseur_id) {
+        const fournisseurRow = db.prepare('SELECT remote_uuid FROM fournisseurs WHERE id = ?').get(nouveau.fournisseur_id);
+        fournisseurUuid = fournisseurRow?.remote_uuid || null;
+      }
+      
+      enqueueOp({
+        deviceId: DEVICE_ID,
+        opType: 'product.created',
+        entityType: 'produit',
+        entityId: String(newId),
+        payload: {
+          local_id: newId,
+          nom: String(nouveau.nom || '').trim(),
+          reference: reference,
+          prix: toFloatSafe(nouveau.prix, 0),
+          code_barre: nouveau.code_barre || null,
+          unite_id: uniteUuid,
+          fournisseur_id: fournisseurUuid,
+          categorie_id: categorieUuid,
+        },
+      });
+    } catch (e) {
+      console.error('[resoudreConflitProduit] enqueueOp error:', e);
+    }
+    
     return { status: 'added' };
   }
   return { status: 'ignored' };
@@ -285,9 +375,11 @@ function validerImportFournisseurs(fournisseurs) {
     (nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const DEVICE_ID = getDeviceId();
+  
   const insertMany = db.transaction((liste) => {
     for (const f of liste) {
-      insert.run(
+      const info = insert.run(
         String(f.nom || '').trim(),
         String(f.contact || '').trim(),
         String(f.email || '').trim(),
@@ -299,6 +391,31 @@ function validerImportFournisseurs(fournisseurs) {
         f.referent_id || null,
         String(f.label || '').trim()
       );
+      
+      // 🔥 Enqueue op pour synchronisation vers Neon
+      try {
+        enqueueOp({
+          deviceId: DEVICE_ID,
+          opType: 'fournisseur.created',
+          entityType: 'fournisseur',
+          entityId: String(info.lastInsertRowid),
+          payload: {
+            id: info.lastInsertRowid,
+            nom: String(f.nom || '').trim(),
+            contact: String(f.contact || '').trim(),
+            email: String(f.email || '').trim(),
+            telephone: String(f.telephone || '').trim(),
+            adresse: String(f.adresse || '').trim(),
+            code_postal: String(f.code_postal || '').trim(),
+            ville: String(f.ville || '').trim(),
+            label: String(f.label || '').trim(),
+            categorie_id: f.categorie_id ?? null,
+            referent_id: f.referent_id ?? null,
+          },
+        });
+      } catch (e) {
+        console.error('[validerImportFournisseurs] enqueueOp error:', e);
+      }
     }
   });
   insertMany(fournisseurs);
@@ -392,9 +509,11 @@ function validerImportAdherents(liste) {
       adresse, code_postal, ville, nb_personnes_foyer, tranche_age
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const DEVICE_ID = getDeviceId();
+  
   const insertMany = db.transaction((data) => {
     for (const a of data) {
-      insert.run(
+      const info = insert.run(
         String(a.nom || '').trim(),
         String(a.prenom || '').trim(),
         String(a.email1 || '').trim(),
@@ -407,6 +526,34 @@ function validerImportAdherents(liste) {
         toIntSafe(a.nb_personnes_foyer, 0),
         String(a.tranche_age || '').trim()
       );
+      
+      // 🔥 Enqueue op pour synchronisation vers Neon
+      try {
+        enqueueOp({
+          deviceId: DEVICE_ID,
+          opType: 'adherent.created',
+          entityType: 'adherent',
+          entityId: String(info.lastInsertRowid),
+          payload: {
+            local_id: info.lastInsertRowid,
+            nom: String(a.nom || '').trim(),
+            prenom: String(a.prenom || '').trim(),
+            email1: String(a.email1 || '').trim(),
+            email2: String(a.email2 || '').trim(),
+            telephone1: String(a.telephone1 || '').trim(),
+            telephone2: String(a.telephone2 || '').trim(),
+            adresse: String(a.adresse || '').trim(),
+            code_postal: String(a.code_postal || '').trim(),
+            ville: String(a.ville || '').trim(),
+            nb_personnes_foyer: toIntSafe(a.nb_personnes_foyer, 0),
+            tranche_age: String(a.tranche_age || '').trim(),
+            statut: 'actif',
+            archive: 0,
+          },
+        });
+      } catch (e) {
+        console.error('[validerImportAdherents] enqueueOp error:', e);
+      }
     }
   });
   insertMany(liste);
