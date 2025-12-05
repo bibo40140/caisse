@@ -7,7 +7,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-const API_BASE = process.env.API_BASE || "http://localhost:3001";
+const API_BASE = process.env.API_BASE_URL || "http://localhost:3001";
 
 // --- helpers logs
 const pad = (s, n) => String(s).padEnd(n);

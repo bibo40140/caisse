@@ -1063,7 +1063,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 app.get('/sync/pull_ventes', authRequired, async (req, res) => {
   const startTime = Date.now(); // 📊 Performance monitoring
-  const tenantId = req.user?.tenantId;
+  const tenantId = req.tenantId;
   if (!tenantId) return res.status(401).json({ ok: false, error: 'Tenant requis' });
 
   const since = req.query.since || null; // timestamp ISO pour pull incrémental
@@ -2491,7 +2491,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
                       console.log('[EMAIL-FACTURE] Logo local ajouté en CID depuis logo_url:', fullPath);
                     } catch (e) {
                       // En dernier recours, tenter l'URL complète côté API (peut ne pas être accessible publiquement)
-                      const apiUrl = process.env.API_URL || 'http://localhost:3001';
+                       const apiUrl = process.env.API_BASE_URL || 'http://localhost:3001';
                       logoUrl = `${apiUrl}${raw}`;
                       console.warn('[EMAIL-FACTURE] Lecture logo local échouée, utilisation URL:', logoUrl, e?.message || e);
                     }

@@ -8,7 +8,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-const API_BASE = process.env.API_BASE || "http://localhost:3001";
+const API_BASE = process.env.API_BASE_URL || "http://localhost:3001";
 const outDir = path.join(__dirname, "reports");
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outFile = path.join(outDir, `e2e-report-${stamp}.md`);
