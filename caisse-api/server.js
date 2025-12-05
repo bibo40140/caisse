@@ -1094,7 +1094,7 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
     
     // Récupérer les ventes avec pagination
     let ventesQuery = `
-      SELECT id, adherent_id, date, montant, mode_paiement_id, created_at, updated_at
+      SELECT id, adherent_id, date_vente, montant, mode_paiement_id, created_at, updated_at
       FROM ventes
       WHERE tenant_id = $1
     `;
@@ -1107,7 +1107,7 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
       paramIndex++;
     }
     
-    ventesQuery += ` ORDER BY date, id LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    ventesQuery += ` ORDER BY date_vente, id LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     ventesParams.push(safeLimit, offset);
     
     const ventesRes = await client.query(ventesQuery, ventesParams);
