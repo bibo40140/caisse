@@ -8,7 +8,8 @@ const fetch = require('node-fetch');
  * - On autorise CAISSE_API_URL via l'env pour pointer l'API (utile en dev),
  * - mais on NE LIT PLUS le token depuis l'env pour éviter l'auto-login.
  */
-let API_BASE = (process.env.CAISSE_API_URL || 'http://localhost:3001').replace(/\/+$/, '');
+// Par défaut, pointer sur l'API Render sauf override local
+let API_BASE = (process.env.CAISSE_API_URL || 'https://caisse-api-xxxx.onrender.com').replace(/\/+$/, '');
 let AUTH_TOKEN = ''; // plus de fallback env ici (anti auto-login)
 
 /**
@@ -41,6 +42,12 @@ function getApiBase() {
  * =======================*/
 function setAuthToken(token) {
   AUTH_TOKEN = token || '';
+  // Correction : on met à jour le tenant_id dans auth/state.js à chaque fois
+  try {
+    require('./auth/state').set({ token });
+  } catch (e) {
+    console.warn('[apiClient] Erreur set tenant_id:', e?.message || e);
+  }
   // ⚠️ On NE copie PAS dans process.env pour éviter toute “ré-auth” implicite
   // via des modules qui lisent l'env.
 }

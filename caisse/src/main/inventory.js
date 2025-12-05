@@ -13,7 +13,9 @@ function readApiBase() {
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
     if (cfg && cfg.api_base_url) return cfg.api_base_url;
   } catch (_) {}
-  return 'http://localhost:3001';
+  const { getConfig } = require('./config');
+  const cfg = getConfig();
+  return cfg.api_base_url || 'https://caisse-api-xxxx.onrender.com';
 }
 const API_URL = readApiBase();
 

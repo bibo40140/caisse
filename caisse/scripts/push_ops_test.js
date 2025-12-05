@@ -5,7 +5,10 @@
 const fetch = require('node-fetch');
 const { randomUUID } = require('crypto');
 
-const API = process.env.CAISSE_API_URL || 'http://localhost:3001';
+if (!process.env.API_BASE_URL) {
+  console.warn('[INFO] La variable API_BASE_URL n\'est pas définie. Utilisation de http://localhost:3001 par défaut.');
+}
+const API = process.env.API_BASE_URL || 'http://localhost:3001';
 const TOKEN = process.env.API_AUTH_TOKEN || process.env.API_TOKEN || null;
 const TENANT = process.env.TENANT_ID || null;
 

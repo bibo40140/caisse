@@ -8,14 +8,11 @@ const { enqueueOp } = require('../db/ops');
 const db = require('../db/db');
 const { createStockMovement, getStock } = require('../db/stock');
 
+const { getConfig } = require('../config');
 function readApiBase() {
-  try {
-    if (process.env.CAISSE_API_URL) return process.env.CAISSE_API_URL.replace(/\/+$/, '');
-    const cfgPath = path.join(__dirname, '..', '..', 'config.json');
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    if (cfg && cfg.api_base_url) return cfg.api_base_url.replace(/\/+$/, '');
-  } catch (_) {}
-  return 'http://localhost:3001';
+  if (process.env.CAISSE_API_URL) return process.env.CAISSE_API_URL.replace(/\/+$/, '');
+  const cfg = getConfig();
+  return (cfg.api_base_url || 'https://caisse-api-xxxx.onrender.com').replace(/\/+$/, '');
 }
 const API = readApiBase();
 const DEFAULT_DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
