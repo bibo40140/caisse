@@ -1,7 +1,7 @@
 // caisse/renderer/lib/apiClient.js
 
 // 1) Base URL de l'API
-const API_URL = window.API_URL || (window.localStorage.getItem('API_URL') || 'http://localhost:3001');
+const API_URL = window.API_URL || window.localStorage.getItem('API_URL') || require('../../config.json').api_base_url || 'https://caisse-api-xxxx.onrender.com';
 
 // 2) Gestion du token en localStorage
 function getToken() {

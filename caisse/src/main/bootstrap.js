@@ -5,7 +5,7 @@ const fetch = require('node-fetch');
 const db = require('./db/db');
 const { getApiBase, getAuthHeader } = require('./apiClient');
 
-const BASE_FALLBACK = process.env.CAISSE_API_URL || 'http://localhost:3001';
+const BASE_FALLBACK = process.env.CAISSE_API_URL || 'https://caisse-api-xxxx.onrender.com';
 
 function apiBase() {
   const b = (typeof getApiBase === 'function' ? getApiBase() : '') || BASE_FALLBACK;

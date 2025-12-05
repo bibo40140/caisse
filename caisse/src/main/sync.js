@@ -724,9 +724,13 @@ async function pullVentes({ since = null } = {}) {
       
       let res;
       try {
+        // Correction : ne pas écraser les headers d'auth, apiFetch les ajoute déjà
+        // DEBUG : log headers envoyés
+        const { getAuthHeader } = require('./apiClient');
+        const debugHeaders = getAuthHeader();
+        logger.info('sync', 'Headers API pullVentes', debugHeaders);
         res = await apiFetch(`/sync/pull_ventes?${qs.toString()}`, { 
-          method: 'GET',
-          headers: { 'accept': 'application/json' }
+          method: 'GET'
         });
       } catch (e) {
         const errorInfo = classifyNetworkError(e);
@@ -872,9 +876,9 @@ async function pullReceptions({ since = null } = {}) {
       
       let res;
       try {
+        // Correction : ne pas écraser les headers d'auth, apiFetch les ajoute déjà
         res = await apiFetch(`/sync/pull_receptions?${qs.toString()}`, { 
-          method: 'GET',
-          headers: { 'accept': 'application/json' }
+          method: 'GET'
         });
       } catch (e) {
         const errorInfo = classifyNetworkError(e);

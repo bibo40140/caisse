@@ -90,33 +90,49 @@ async function ensureAuth() {
   const cfg = getConfig();
 
   // 0) positionner la base API pour tous les appels suivants
-  const base = (cfg.api_base_url || process.env.CAISSE_API_URL || process.env.API_BASE_URL || 'http://localhost:3001')
+  const base = (cfg.api_base_url || process.env.CAISSE_API_URL || process.env.API_BASE_URL || 'https://caisse-api-xxxx.onrender.com')
     .replace(/\/+$/, '');
   setApiBase(base);
 
   // 1) Token déjà enregistré en config.json
   if (cfg.auth_token && typeof cfg.auth_token === 'string' && cfg.auth_token.trim() !== '') {
     const token = cfg.auth_token.trim();
-    setAuthToken(token);
-    process.env.API_AUTH_TOKEN = token; // compat
-    return { ok: true, token, tenant_id: parseJwtTenant(token) };
+      setAuthToken(token);
+      process.env.API_AUTH_TOKEN = token; // compat
+      // Correction : stocker le tenant_id dans auth/state.js
+      try {
+        require('./auth/state').set({ token });
+      } catch (e) {
+        console.warn('[auth] Erreur set tenant_id:', e?.message || e);
+      }
+      return { ok: true, token, tenant_id: parseJwtTenant(token) };
   }
 
   // 2) Token via env → on le persiste en config.json pour la prochaine fois
   if (process.env.API_AUTH_TOKEN && String(process.env.API_AUTH_TOKEN).trim()) {
     const token = String(process.env.API_AUTH_TOKEN).trim();
-    setAuthToken(token);
-    setConfig({ auth_token: token });
-    return { ok: true, token, tenant_id: parseJwtTenant(token) };
+      setAuthToken(token);
+      setConfig({ auth_token: token });
+      try {
+        require('./auth/state').set({ token });
+      } catch (e) {
+        console.warn('[auth] Erreur set tenant_id:', e?.message || e);
+      }
+      return { ok: true, token, tenant_id: parseJwtTenant(token) };
   }
 
   // 3) Token déjà en mémoire (apiClient) ?
   const mem = (typeof getAuthToken === 'function') ? getAuthToken() : '';
   if (mem) {
-    setAuthToken(mem);
-    process.env.API_AUTH_TOKEN = mem;
-    setConfig({ auth_token: mem });
-    return { ok: true, token: mem, tenant_id: parseJwtTenant(mem) };
+      setAuthToken(mem);
+      process.env.API_AUTH_TOKEN = mem;
+      setConfig({ auth_token: mem });
+      try {
+        require('./auth/state').set({ token: mem });
+      } catch (e) {
+        console.warn('[auth] Erreur set tenant_id:', e?.message || e);
+      }
+      return { ok: true, token: mem, tenant_id: parseJwtTenant(mem) };
   }
 
   // 4) Tentative de login silencieux via config.json
@@ -132,10 +148,15 @@ async function ensureAuth() {
         return { ok: false, error: js?.error || `login http ${r.status}` };
       }
       const token = js.token;
-      setAuthToken(token);
-      process.env.API_AUTH_TOKEN = token;
-      setConfig({ auth_token: token }); // persiste le token
-      return { ok: true, token, tenant_id: parseJwtTenant(token) };
+        setAuthToken(token);
+        process.env.API_AUTH_TOKEN = token;
+        setConfig({ auth_token: token }); // persiste le token
+        try {
+          require('./auth/state').set({ token });
+        } catch (e) {
+          console.warn('[auth] Erreur set tenant_id:', e?.message || e);
+        }
+        return { ok: true, token, tenant_id: parseJwtTenant(token) };
     } catch (e) {
       return { ok: false, error: e?.message || String(e) };
     }

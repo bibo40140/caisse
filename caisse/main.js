@@ -33,7 +33,7 @@ function getEffectiveConfig() {
 
   // Fallback ENV puis valeur par défaut locale
   if (!apiBase || typeof apiBase !== 'string' || !apiBase.trim()) {
-    apiBase = process.env.API_BASE_URL || disk.api_base_url || 'http://localhost:3001';
+    apiBase = process.env.API_BASE_URL || disk.api_base_url || require('./config.json').api_base_url || 'https://caisse-api-xxxx.onrender.com';
   }
 
   return {
@@ -748,7 +748,10 @@ function startEmbeddedApi() {
   // Si l'API n'existe pas dans resources, c'est le mode dev
   if (!fs.existsSync(serverScript)) {
     console.log('[API] ❌ API non trouvée - Mode développement');
-    console.log('[API] API externe attendue sur localhost:3001');
+    if (!process.env.API_BASE_URL) {
+      console.warn('[INFO] La variable API_BASE_URL n\'est pas définie. Utilisation de http://localhost:3001 par défaut.');
+    }
+    console.log(`[API] API externe attendue sur ${process.env.API_BASE_URL || 'http://localhost:3001'}`);
     return;
   }
 
@@ -796,15 +799,15 @@ app.whenReady().then(async () => {
     await new Promise(resolve => setTimeout(resolve, 2000));
   }
 
-  // 1) Config → API base (avec fallback ENV/localhost)
+  // 1) Config → API base (avec fallback ENV/API_BASE_URL/localhost)
   try {
     const { getConfig } = require('./src/main/config');
     const cfg = await getConfig();
     const fromCfg = cfg?.api_base_url && String(cfg.api_base_url).trim();
-    const fallback = process.env.API_BASE_URL || 'http://localhost:3001';
+    const fallback = process.env.API_BASE_URL || require('./config.json').api_base_url || 'https://caisse-api-xxxx.onrender.com';
     setApiBase(fromCfg || fallback);
   } catch (e) {
-    const fallback = process.env.API_BASE_URL || 'http://localhost:3001';
+    const fallback = process.env.API_BASE_URL || require('./config.json').api_base_url || 'https://caisse-api-xxxx.onrender.com';
     setApiBase(fallback);
     console.warn('[config] lecture impossible, fallback API_BASE_URL =', fallback, '-', e?.message || e);
   }
