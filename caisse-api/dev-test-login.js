@@ -5,7 +5,8 @@ async function main() {
 
   console.log('Test login avec :', email, password);
 
-  const res = await fetch('http://localhost:3001/auth/login', {
+  const apiBase = process.env.API_BASE_URL || 'http://localhost:3001';
+  const res = await fetch(`${apiBase}/auth/login`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

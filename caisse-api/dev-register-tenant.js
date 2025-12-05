@@ -4,7 +4,8 @@ async function main() {
 
   console.log('On enregistre le tenant avec :', email, password);
 
-  const res = await fetch('http://localhost:3001/auth/register-tenant', {
+  const apiBase = process.env.API_BASE_URL || 'http://localhost:3001';
+  const res = await fetch(`${apiBase}/auth/register-tenant`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

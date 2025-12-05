@@ -5,7 +5,7 @@ const path = require("path");
 const axios = require("axios");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-const API_BASE = process.env.API_BASE || "http://localhost:3001";
+const API_BASE = process.env.API_BASE_URL || "http://localhost:3001";
 
 const ok = (msg) => console.log(`[OK] ${msg}`);
 const info = (msg) => console.log(`[i] ${msg}`);
