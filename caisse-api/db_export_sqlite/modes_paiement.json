@@ -1,0 +1,34 @@
+[
+  {
+    "id": 1,
+    "nom": "CB",
+    "taux_percent": 0,
+    "frais_fixe": 0,
+    "actif": 1,
+    "remote_uuid": "39b62c8c-8c87-47c6-af11-aa6687bb8650"
+  },
+  {
+    "id": 2,
+    "nom": "Chèque",
+    "taux_percent": 0,
+    "frais_fixe": 0,
+    "actif": 1,
+    "remote_uuid": "b9aedcf1-c41a-467c-af31-c1cd607cd5aa"
+  },
+  {
+    "id": 3,
+    "nom": "Espèces",
+    "taux_percent": 0,
+    "frais_fixe": 0,
+    "actif": 1,
+    "remote_uuid": "c24d12ed-51d9-4f86-9ab8-61f8b8a9044b"
+  },
+  {
+    "id": 4,
+    "nom": "Virement",
+    "taux_percent": 0,
+    "frais_fixe": 0,
+    "actif": 1,
+    "remote_uuid": "ee92c5b4-186c-4ad0-8762-135ce1cb8a85"
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "total": 12,
+    "adherent_id": 1,
+    "date_vente": "2025-12-05 09:12:43",
+    "mode_paiement_id": 2,
+    "frais_paiement": 0,
+    "cotisation": 0,
+    "sale_type": "adherent",
+    "client_email": "fabien.hicauber@gmail.com",
+    "updated_at": "2025-12-05 09:12:43",
+    "remote_uuid": "66ca4556-5c8c-4cf4-a158-24613c59be5b",
+    "acompte": 0
+  }
+]

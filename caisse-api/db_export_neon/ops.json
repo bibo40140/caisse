@@ -1,0 +1,5308 @@
+[
+  {
+    "id": "85bac0bb-91ed-49ba-a80b-b3e6bc0100eb",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "adherent.created",
+    "entity_type": "adherent",
+    "entity_id": "",
+    "payload": {
+      "nom": "utilisateur",
+      "ville": "azur",
+      "email1": "epiceriecoopaz+testcaisse@gmail.com",
+      "email2": null,
+      "prenom": "adhérent test",
+      "statut": "actif",
+      "adresse": "100 rue de la coopaz",
+      "archive": 0,
+      "local_id": 1,
+      "telephone1": "06060606060606",
+      "telephone2": null,
+      "code_postal": "40140",
+      "tranche_age": null,
+      "nb_personnes_foyer": null
+    },
+    "applied_at": "2025-12-02T16:08:17.392Z"
+  },
+  {
+    "id": "578e51d4-b1f7-49fd-941b-71d9a2c4a9ab",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 1,
+      "nom": "fournisseur de légumes",
+      "email": "fournisseurdelegumes@danslaterre.fr",
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": null,
+      "code_postal": null,
+      "referent_id": null,
+      "categorie_id": 30
+    },
+    "applied_at": "2025-12-02T16:09:05.705Z"
+  },
+  {
+    "id": "086bb184-8595-4386-8a69-72e9baf106f8",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "adherent.archived",
+    "entity_type": "adherent",
+    "entity_id": "",
+    "payload": {
+      "archive": 1,
+      "local_id": 2
+    },
+    "applied_at": "2025-12-02T16:09:13.025Z"
+  },
+  {
+    "id": "2e33a5f7-7057-44ce-8eb8-ce902e2ff208",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 2,
+      "nom": "founisseur de lait",
+      "email": "fournisseur@lait.fr",
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": "0606060606",
+      "code_postal": null,
+      "referent_id": 1,
+      "categorie_id": 28
+    },
+    "applied_at": "2025-12-02T18:24:18.628Z"
+  },
+  {
+    "id": "a65fa170-d3a1-44eb-a7fd-2f1fbd6272d6",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 3,
+      "nom": "Fournisseur de fruits",
+      "email": null,
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": null,
+      "code_postal": null,
+      "referent_id": null,
+      "categorie_id": 21
+    },
+    "applied_at": "2025-12-02T18:24:40.919Z"
+  },
+  {
+    "id": "f6d420b3-ddfe-448a-8467-19ddd924aed0",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 4,
+      "nom": "pecheur",
+      "email": null,
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": null,
+      "code_postal": null,
+      "referent_id": null,
+      "categorie_id": 38
+    },
+    "applied_at": "2025-12-02T18:24:53.909Z"
+  },
+  {
+    "id": "2e57cf06-d88e-4422-a7b2-1dcd26133447",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 5,
+      "nom": "brasserie",
+      "email": null,
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": null,
+      "code_postal": null,
+      "referent_id": null,
+      "categorie_id": 9
+    },
+    "applied_at": "2025-12-02T18:25:09.558Z"
+  },
+  {
+    "id": "6455bed9-eb67-438a-a4e6-5dbb1cc5233b",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 6,
+      "nom": "fournisseur de viande",
+      "email": null,
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": null,
+      "code_postal": null,
+      "referent_id": null,
+      "categorie_id": 49
+    },
+    "applied_at": "2025-12-02T18:36:31.570Z"
+  },
+  {
+    "id": "8d183814-8601-4ac9-84c3-71cf6c837393",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 7,
+      "nom": "grossiste",
+      "email": null,
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": null,
+      "code_postal": null,
+      "referent_id": null,
+      "categorie_id": 43
+    },
+    "applied_at": "2025-12-02T18:36:55.519Z"
+  },
+  {
+    "id": "dcb8ad4f-c14c-4097-b82a-cfc4565a3860",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "fournisseur.updated",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "nom": "fournisseur de légumes",
+      "email": "fournisseurdelegumes@danslaterre.fr",
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": null,
+      "code_postal": null,
+      "referent_id": null,
+      "categorie_id": 30
+    },
+    "applied_at": "2025-12-02T18:37:51.977Z"
+  },
+  {
+    "id": "febd540d-ba27-49b6-b323-7e7d52bb7cd2",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.updated",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "nom": "Fournisseur de fruits",
+      "email": null,
+      "label": null,
+      "ville": null,
+      "adresse": null,
+      "contact": null,
+      "telephone": null,
+      "code_postal": null,
+      "referent_id": null,
+      "categorie_id": 21
+    },
+    "applied_at": "2025-12-03T14:01:24.695Z"
+  },
+  {
+    "id": "932eeb59-f0e1-44be-a320-d7d1128d5528",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:00:31.907Z"
+  },
+  {
+    "id": "584cfec9-ec06-4f74-973a-6b60d34fd6ad",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:00:35.876Z"
+  },
+  {
+    "id": "f37b6862-df91-41a9-b039-5b3825adb4f1",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:00:38.280Z"
+  },
+  {
+    "id": "876a41b0-7de7-4484-9c2f-57d7c55dd80a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:00:44.424Z"
+  },
+  {
+    "id": "4b7bcfe7-0e85-4a4d-adbf-14cb5eedf673",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:02:06.812Z"
+  },
+  {
+    "id": "665c673a-93d9-4a80-a692-6cc1f7bf71d9",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:02:10.324Z"
+  },
+  {
+    "id": "8f223bd1-37aa-449f-b729-ba78e3431d55",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:02:13.624Z"
+  },
+  {
+    "id": "99fac77a-e9c5-47e0-87ad-8722d22b58b7",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:02:38.556Z"
+  },
+  {
+    "id": "0f6f23db-fee4-4dd9-a0b0-36c000d4e2ce",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:04:11.734Z"
+  },
+  {
+    "id": "70b41cec-9e80-48f6-9913-6f9370426930",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:04:18.056Z"
+  },
+  {
+    "id": "7f02f283-7890-404d-b2a8-10c3fbb7d7da",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 29,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:04:45.598Z"
+  },
+  {
+    "id": "4b4e1ccf-2ade-4094-a40e-393fdc33690e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:17.727Z"
+  },
+  {
+    "id": "de6c273a-e877-4cd4-b27a-4768b2533033",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:21.695Z"
+  },
+  {
+    "id": "da8c6a77-4f71-4296-b8f7-66fb831623e2",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:25.548Z"
+  },
+  {
+    "id": "99b79a65-af5e-4b18-a4a4-49fa2909d7aa",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:29.636Z"
+  },
+  {
+    "id": "384c8193-dece-4e09-96a1-07582033d533",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 28,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:32.652Z"
+  },
+  {
+    "id": "03fb2066-64eb-4a09-9495-38754e818799",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 29,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:35.908Z"
+  },
+  {
+    "id": "d62fc7d1-71fd-4ff2-8bd6-d93113ed9913",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 27,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:39.536Z"
+  },
+  {
+    "id": "ec9482f1-561f-41ef-8348-2fc39123f92a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 8,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:47.240Z"
+  },
+  {
+    "id": "8b509ac0-b1b0-45df-81c9-d57d189b72df",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 7,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:51.500Z"
+  },
+  {
+    "id": "c4edc4db-f9dd-478d-90da-6d9e545462d3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 8,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:54.621Z"
+  },
+  {
+    "id": "3aa180d2-395d-48f0-84ce-baca131e02ab",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 7,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:07:57.536Z"
+  },
+  {
+    "id": "19cb9812-3bd4-43a2-ae5d-c3c79202b3ff",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 8,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:08:08.914Z"
+  },
+  {
+    "id": "0f8f7613-c2e4-4786-ae2a-f5ed8da18fec",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 7,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:08:14.088Z"
+  },
+  {
+    "id": "877bb0b6-5eb3-44c3-b755-dcd3b0656043",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:08:20.328Z"
+  },
+  {
+    "id": "7c0cd808-2643-4c4b-afc8-39d4e74af083",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:08:22.890Z"
+  },
+  {
+    "id": "5d8ecbf2-fc3a-4c41-b125-0ad0d04dfd3a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 8,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:08:41.506Z"
+  },
+  {
+    "id": "99978e76-1da6-4cbc-930f-8cb79fc17e9e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:08:48.826Z"
+  },
+  {
+    "id": "48100cd5-939f-408d-a1a4-b8b77fd42532",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:13:48.077Z"
+  },
+  {
+    "id": "a5585cfb-422d-4625-8369-112dbda9495d",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:13:51.488Z"
+  },
+  {
+    "id": "319cada0-4c8e-4cb9-9168-1d094950a3d4",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:14:07.193Z"
+  },
+  {
+    "id": "94f7d7c0-93a4-443f-b2c4-db406aa4f6fc",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:14:15.176Z"
+  },
+  {
+    "id": "16ab82b0-b7e3-489a-a481-18dda90a1b03",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:22:49.821Z"
+  },
+  {
+    "id": "64ce9b04-c08c-4161-9510-c21e236d2f3c",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:22:52.464Z"
+  },
+  {
+    "id": "5b839c87-9e59-499f-a0c7-6c83a51b00dd",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:23:17.463Z"
+  },
+  {
+    "id": "38ccf788-6293-400e-9ce0-40ab5ed230bc",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:23:20.401Z"
+  },
+  {
+    "id": "2576cfeb-0369-428e-a31f-426371a1ba2a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:23:47.383Z"
+  },
+  {
+    "id": "c163d2dc-9f1c-4c3c-b390-fd6fb2598c0c",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 27,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:23:55.831Z"
+  },
+  {
+    "id": "4389ee9a-2b79-4dc5-8bb1-da0a9bd86c2b",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:25:04.753Z"
+  },
+  {
+    "id": "f5a15b56-ea21-45f3-9ac0-8882ba9a200c",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "default",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:28:57.975Z"
+  },
+  {
+    "id": "f4cc54d8-74b6-44be-a4f5-f6c5e7dcac81",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "default",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:28:57.975Z"
+  },
+  {
+    "id": "74c4d721-38de-44d0-a404-0b9db4892863",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "default",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 27,
+      "deleted": 1
+    },
+    "applied_at": "2025-12-03T15:28:57.975Z"
+  },
+  {
+    "id": "f3e66c58-6ccd-4a23-b8fb-bb3edf0404f8",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 25,
+      "nom": "Fournisseur de fruits",
+      "deleted": 1,
+      "remote_uuid": "463cbdf8-43e3-49fc-8f1c-7dad66df5301"
+    },
+    "applied_at": "2025-12-03T15:29:03.772Z"
+  },
+  {
+    "id": "adf0b8ec-81a5-454a-a3f0-88298e523227",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 26,
+      "nom": "brasserie",
+      "deleted": 1,
+      "remote_uuid": "0bae2212-fa20-4320-93e3-ddb2aed72582"
+    },
+    "applied_at": "2025-12-03T15:29:11.449Z"
+  },
+  {
+    "id": "33f1ba14-f38a-45ce-9e31-33bc827b0572",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 27,
+      "nom": "founisseur de lait",
+      "deleted": 1,
+      "remote_uuid": "db422ce3-8f24-4ad0-9596-7a06501a583c"
+    },
+    "applied_at": "2025-12-03T15:29:15.540Z"
+  },
+  {
+    "id": "02ad926e-79bb-4bf5-ae00-9c35928ccf26",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 28,
+      "nom": "fournisseur de légumes",
+      "deleted": 1,
+      "remote_uuid": "4a4da6a2-d86d-453c-84e4-377ae4111165"
+    },
+    "applied_at": "2025-12-03T15:29:18.146Z"
+  },
+  {
+    "id": "71ec4177-6cb4-4d7e-a40a-061abf6351f3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 29,
+      "nom": "fournisseur de viande",
+      "deleted": 1,
+      "remote_uuid": "f27459b6-6c93-4676-bb91-ea6b67fec41c"
+    },
+    "applied_at": "2025-12-03T15:29:21.125Z"
+  },
+  {
+    "id": "1d982be7-aa3d-43e0-819b-b2a1f52433af",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 6,
+      "nom": "fournisseur grossiste",
+      "deleted": 1,
+      "remote_uuid": "552b3b1f-799e-459b-ab41-1516ae176377"
+    },
+    "applied_at": "2025-12-03T15:29:23.982Z"
+  },
+  {
+    "id": "701064a5-d68b-471b-99f0-1037d766dfca",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 7,
+      "nom": "grossiste",
+      "deleted": 1,
+      "remote_uuid": "45a56dda-3d76-4893-ba4f-4a88f7b3e583"
+    },
+    "applied_at": "2025-12-03T15:29:26.290Z"
+  },
+  {
+    "id": "f59e0b4c-5a1a-4c20-ae8b-c60cce0ec24f",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 8,
+      "nom": "pecheur",
+      "deleted": 1,
+      "remote_uuid": "3d2d4e73-073d-4aa8-8d50-e0fb38865801"
+    },
+    "applied_at": "2025-12-03T15:29:28.892Z"
+  },
+  {
+    "id": "685e5d6e-7425-43af-b79c-a0c5f83fbf46",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 1,
+      "nom": "La Ferme du Bonheur",
+      "deleted": 1,
+      "remote_uuid": "1aec95c7-f07f-4548-b4e8-cea4b4f9f291"
+    },
+    "applied_at": "2025-12-03T17:04:32.550Z"
+  },
+  {
+    "id": "05461a5f-6bc1-463f-be9a-1befa006ea5d",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 2,
+      "nom": "La Vache Heureuse",
+      "deleted": 1,
+      "remote_uuid": "e95e7915-a970-47a3-830c-4393379cadca"
+    },
+    "applied_at": "2025-12-03T17:04:35.401Z"
+  },
+  {
+    "id": "9c75f307-fbd2-4e41-a503-74be43aea9dd",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 3,
+      "nom": "Le Moulin Farineux",
+      "deleted": 1,
+      "remote_uuid": "e3f19a51-a61a-4d07-8b25-853fedca6673"
+    },
+    "applied_at": "2025-12-03T17:04:37.928Z"
+  },
+  {
+    "id": "d9545b70-a09f-46f9-a4c1-03406caaa7b5",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 4,
+      "nom": "Le Panier Rigolo",
+      "deleted": 1,
+      "remote_uuid": "98ce0cd2-1e1a-4452-88d4-931f584f907e"
+    },
+    "applied_at": "2025-12-03T17:04:40.848Z"
+  },
+  {
+    "id": "f62fea88-02c8-4a1c-8ef1-8d6c48f1e935",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 5,
+      "nom": "Les Pâtes du Village",
+      "deleted": 1,
+      "remote_uuid": "42ef424f-9398-4636-a01b-2217653288db"
+    },
+    "applied_at": "2025-12-03T17:04:43.193Z"
+  },
+  {
+    "id": "ea71166f-3304-470e-b4f9-0aeb49fb7bd3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 6,
+      "nom": "Miel et Abeilles",
+      "deleted": 1,
+      "remote_uuid": "e3ebc9df-ecd0-42d5-bcbc-f0c537334054"
+    },
+    "applied_at": "2025-12-03T17:04:47.239Z"
+  },
+  {
+    "id": "65d6319b-44f0-44f0-9cc5-c6652f328b46",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 42,
+      "nom": "La Ferme du Bonheur",
+      "email": "ferme.bonheur@example.com",
+      "label": "",
+      "ville": "Patateland",
+      "adresse": "1 chemin des Carottes",
+      "contact": "Jean Patate",
+      "deleted": 0,
+      "telephone": "601010101",
+      "code_postal": "12345",
+      "referent_id": null,
+      "categorie_id": 30
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "3eea0406-843d-4fd2-a349-9fbc53f4a1ce",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 43,
+      "nom": "Le Panier Rigolo",
+      "email": "panier.rigolo@example.com",
+      "label": "",
+      "ville": "Tomatopolis",
+      "adresse": "2 rue des Tomates",
+      "contact": "Suzanne Tomate",
+      "deleted": 0,
+      "telephone": "602020202",
+      "code_postal": "23456",
+      "referent_id": null,
+      "categorie_id": 21
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "798a38a2-4dc6-4ca9-a5f4-ecff5b902391",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 44,
+      "nom": "Miel et Abeilles",
+      "email": "miel.abeilles@example.com",
+      "label": "",
+      "ville": "Ruches-sur-Mer",
+      "adresse": "3 impasse du Miel",
+      "contact": "Bernard Abeille",
+      "deleted": 0,
+      "telephone": "603030303",
+      "code_postal": "34567",
+      "referent_id": null,
+      "categorie_id": 32
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "8687de37-a70c-4ced-a8cb-fe02f5a4d9f5",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 45,
+      "nom": "La Vache Heureuse",
+      "email": "vache.heureuse@example.com",
+      "label": "",
+      "ville": "Prairieville",
+      "adresse": "4 avenue des Prairies",
+      "contact": "Pauline Lait",
+      "deleted": 0,
+      "telephone": "604040404",
+      "code_postal": "45678",
+      "referent_id": null,
+      "categorie_id": 28
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "acdf2f5b-1858-424a-b51d-c50e7cc1b1c6",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 46,
+      "nom": "Le Moulin Farineux",
+      "email": "moulin.farineux@example.com",
+      "label": "",
+      "ville": "Farineville",
+      "adresse": "5 route du Moulin",
+      "contact": "Gaston Blé",
+      "deleted": 0,
+      "telephone": "605050505",
+      "code_postal": "56789",
+      "referent_id": null,
+      "categorie_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "e0d048a9-fa41-4f16-a7a3-500f64fe3906",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 47,
+      "nom": "Les Pâtes du Village",
+      "email": "pates.village@example.com",
+      "label": "",
+      "ville": "Pastaville",
+      "adresse": "6 place des Fusilli",
+      "contact": "Martine Pâtes",
+      "deleted": 0,
+      "telephone": "606060606",
+      "code_postal": "67890",
+      "referent_id": null,
+      "categorie_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "eddafa76-c24b-4058-a840-3fd770de811d",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 101,
+      "nom": "Pomme de terre bio",
+      "prix": 1.2,
+      "stock": 100,
+      "unite_id": 1,
+      "reference": "P0101",
+      "code_barre": "1234567890001",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "b6384fbd-b087-46ab-adaa-8d7991b501f3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 102,
+      "nom": "Tomate cerise",
+      "prix": 2.5,
+      "stock": 80,
+      "unite_id": 1,
+      "reference": "P0102",
+      "code_barre": "1234567890002",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "9fb93ee2-4fc5-4f0a-b40b-77ab87f8a0d2",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 103,
+      "nom": "Miel de printemps",
+      "prix": 5,
+      "stock": 50,
+      "unite_id": 3,
+      "reference": "P0103",
+      "code_barre": "1234567890003",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a86eb89d-595e-46f6-9e81-4238d94059d8",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 24,
+      "nom": "Bière blanche Océan 33cl",
+      "prix": 3,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0024",
+      "remote_id": null,
+      "code_barre": "3000000000024",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:51:56.404Z"
+  },
+  {
+    "id": "95668ac1-0a9d-4ce4-a6e2-597442bd1687",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "adherent.created",
+    "entity_type": "adherent",
+    "entity_id": "",
+    "payload": {
+      "nom": "test2",
+      "ville": null,
+      "email1": "fabien.hicauber+test2@gmail.com",
+      "email2": null,
+      "prenom": "test2",
+      "statut": "actif",
+      "adresse": null,
+      "archive": 0,
+      "local_id": 1,
+      "telephone1": null,
+      "telephone2": null,
+      "code_postal": null,
+      "tranche_age": null,
+      "nb_personnes_foyer": null
+    },
+    "applied_at": "2025-12-04T18:35:40.901Z"
+  },
+  {
+    "id": "fedd3b20-c5f6-444b-83ef-61df76a16895",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "inventory.adjust",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "delta": 46,
+      "reason": "manual.edit",
+      "produitId": 24,
+      "reference": "P0024"
+    },
+    "applied_at": "2025-12-04T20:51:56.404Z"
+  },
+  {
+    "id": "a144726e-22ff-439c-93b8-2df0237c2a42",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 24,
+      "nom": "Bière blanche Océan 33cl",
+      "prix": 12,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0024",
+      "remote_id": null,
+      "code_barre": "3000000000024",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T21:02:57.126Z"
+  },
+  {
+    "id": "acc20730-436a-4e4d-bd21-91371dcc30f3",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "inventory.adjust",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "delta": -39,
+      "reason": "manual.edit",
+      "produitId": 24,
+      "reference": "P0024"
+    },
+    "applied_at": "2025-12-04T21:02:57.126Z"
+  },
+  {
+    "id": "e4366aa2-106e-4137-a5be-c91890ed92d5",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 104,
+      "nom": "Yaourt nature",
+      "prix": 0.8,
+      "stock": 200,
+      "unite_id": 3,
+      "reference": "P0104",
+      "code_barre": "1234567890004",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "d71d18a5-5505-48c8-a51e-0100cba5f188",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 105,
+      "nom": "Farine de blé",
+      "prix": 1,
+      "stock": 150,
+      "unite_id": 1,
+      "reference": "P0105",
+      "code_barre": "1234567890005",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "e48590c3-7f2c-4606-989e-718612a54210",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 106,
+      "nom": "Pâtes fusilli",
+      "prix": 1.5,
+      "stock": 120,
+      "unite_id": 1,
+      "reference": "P0106",
+      "code_barre": "1234567890006",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "10250bfe-9948-4645-aada-4df2dd63bd3f",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 107,
+      "nom": "Carotte bio",
+      "prix": 1.1,
+      "stock": 90,
+      "unite_id": 1,
+      "reference": "P0107",
+      "code_barre": "1234567890007",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "06ccd358-5df6-4aa4-aa3c-9bacb3dee3fe",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 108,
+      "nom": "Oignon jaune",
+      "prix": 1.3,
+      "stock": 70,
+      "unite_id": 1,
+      "reference": "P0108",
+      "code_barre": "1234567890008",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "f5ba06cf-9831-424b-b729-9bd2334e7483",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 109,
+      "nom": "Lait entier",
+      "prix": 0.95,
+      "stock": 180,
+      "unite_id": 3,
+      "reference": "P0109",
+      "code_barre": "1234567890009",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "af3b04a5-a68a-443e-b05c-db132a0ba7ef",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 110,
+      "nom": "Miel d'acacia",
+      "prix": 6,
+      "stock": 40,
+      "unite_id": 1,
+      "reference": "P0110",
+      "code_barre": "1234567890010",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "61173083-b56e-4d02-966c-0db2ed92555f",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 111,
+      "nom": "Baguette tradition",
+      "prix": 1.2,
+      "stock": 60,
+      "unite_id": 3,
+      "reference": "P0111",
+      "code_barre": "1234567890011",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "d0d832f8-0913-41f4-8192-af6a4f98509e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 112,
+      "nom": "Pâtes penne",
+      "prix": 1.6,
+      "stock": 110,
+      "unite_id": 3,
+      "reference": "P0112",
+      "code_barre": "1234567890012",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "01d84455-64ea-4613-ac4c-7fa51656c135",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 113,
+      "nom": "Compote de pommes",
+      "prix": 2.8,
+      "stock": 75,
+      "unite_id": 1,
+      "reference": "P0113",
+      "code_barre": "1234567890013",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "4c894d6f-43aa-41e7-af6f-398bf7e9e2a2",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 114,
+      "nom": "Crème fraîche",
+      "prix": 1.5,
+      "stock": 90,
+      "unite_id": 3,
+      "reference": "P0114",
+      "code_barre": "1234567890014",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "de6b7f06-1254-48eb-ae6d-5a06d0c0b362",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "adherent.created",
+    "entity_type": "adherent",
+    "entity_id": "",
+    "payload": {
+      "nom": "test3",
+      "ville": null,
+      "email1": "fabien.hicauber+test3@gmail.com",
+      "email2": null,
+      "prenom": "test3",
+      "statut": "actif",
+      "adresse": null,
+      "archive": 0,
+      "local_id": 1,
+      "telephone1": null,
+      "telephone2": null,
+      "code_postal": null,
+      "tranche_age": null,
+      "nb_personnes_foyer": null
+    },
+    "applied_at": "2025-12-04T19:23:00.026Z"
+  },
+  {
+    "id": "05cd6116-3165-4f69-b353-7219e0bde33d",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 1,
+      "nom": "Les Jardins d'Azur",
+      "email": "contact@jardins-azur.fr",
+      "label": "",
+      "ville": "Azur",
+      "adresse": "10 chemin des Potagers",
+      "contact": "Léa Légume",
+      "telephone": "607070707",
+      "code_postal": "40140",
+      "referent_id": null,
+      "categorie_id": 30
+    },
+    "applied_at": "2025-12-04T19:57:56.439Z"
+  },
+  {
+    "id": "1a26082e-1a11-41a1-a487-fb658877a764",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 2,
+      "nom": "Le Verger des Landes",
+      "email": "contact@verger-landes.fr",
+      "label": "",
+      "ville": "Soustons",
+      "adresse": "22 route des Vergers",
+      "contact": "Martin Fruit",
+      "telephone": "608080808",
+      "code_postal": "40150",
+      "referent_id": null,
+      "categorie_id": 21
+    },
+    "applied_at": "2025-12-04T19:57:56.439Z"
+  },
+  {
+    "id": "22cea7a1-6c09-4d0b-8f01-e56d1c7af929",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 3,
+      "nom": "Brasserie Côté Océan",
+      "email": "contact@brasserie-ocean.fr",
+      "label": "",
+      "ville": "Capbreton",
+      "adresse": "5 quai des Brasseurs",
+      "contact": "Chloé Houblon",
+      "telephone": "609090909",
+      "code_postal": "40130",
+      "referent_id": null,
+      "categorie_id": 9
+    },
+    "applied_at": "2025-12-04T19:57:56.439Z"
+  },
+  {
+    "id": "7c4e4de6-db16-4746-8f92-498f7e55b902",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 4,
+      "nom": "Fromagerie du Marensin",
+      "email": "contact@fromagerie-marensin.fr",
+      "label": "",
+      "ville": "Saint-Vincent-de-Tyrosse",
+      "adresse": "8 rue des Alpages",
+      "contact": "Pauline Fromage",
+      "telephone": "610101010",
+      "code_postal": "40230",
+      "referent_id": null,
+      "categorie_id": 28
+    },
+    "applied_at": "2025-12-04T19:57:56.439Z"
+  },
+  {
+    "id": "a7bbac89-6e48-41ef-8c18-a7ad93edee71",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 115,
+      "nom": "Farine de seigle",
+      "prix": 1.1,
+      "stock": 80,
+      "unite_id": 1,
+      "reference": "P0115",
+      "code_barre": "1234567890015",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "1aceb07d-4cee-4d62-bb14-0e8b4b581bac",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 116,
+      "nom": "Pâtes spaghetti",
+      "prix": 1.4,
+      "stock": 130,
+      "unite_id": 3,
+      "reference": "P0116",
+      "code_barre": "1234567890016",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "46af2f61-5dd9-4340-bc73-08701e0d51d4",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 117,
+      "nom": "Radis rose",
+      "prix": 1,
+      "stock": 60,
+      "unite_id": 3,
+      "reference": "P0117",
+      "code_barre": "1234567890017",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "be3d9db8-ef25-4ca0-800a-62fb786ba4ff",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 118,
+      "nom": "Tomate cœur de bœuf",
+      "prix": 2.8,
+      "stock": 70,
+      "unite_id": 1,
+      "reference": "P0118",
+      "code_barre": "1234567890018",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "123a626d-5212-4c36-84c9-3a95f6d32752",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 119,
+      "nom": "Miel de montagne",
+      "prix": 7,
+      "stock": 30,
+      "unite_id": 3,
+      "reference": "P0119",
+      "code_barre": "1234567890019",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "8a0e4dab-1b14-40e7-a068-83286d2d1086",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 120,
+      "nom": "Yaourt aux fruits",
+      "prix": 1,
+      "stock": 150,
+      "unite_id": 3,
+      "reference": "P0120",
+      "code_barre": "1234567890020",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "c98a7517-994c-4bb4-bbda-02615e74631e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 121,
+      "nom": "Pain complet",
+      "prix": 1.3,
+      "stock": 50,
+      "unite_id": 3,
+      "reference": "P0121",
+      "code_barre": "1234567890021",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "bb59b3c4-bffa-4ad4-ac57-1686dbb5cea4",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 122,
+      "nom": "Pâtes coquillettes",
+      "prix": 1.2,
+      "stock": 140,
+      "unite_id": 3,
+      "reference": "P0122",
+      "code_barre": "1234567890022",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "1fa12b35-c64f-46e2-8ace-483bebb08bb8",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 123,
+      "nom": "Betterave rouge",
+      "prix": 1.4,
+      "stock": 65,
+      "unite_id": 1,
+      "reference": "P0123",
+      "code_barre": "1234567890023",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "8712a46b-1e6d-4d83-8900-d3b4fa2931c8",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 124,
+      "nom": "Tomate noire",
+      "prix": 3,
+      "stock": 55,
+      "unite_id": 1,
+      "reference": "P0124",
+      "code_barre": "1234567890024",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "1fd27183-b294-4a8f-a7a1-721d7897a25d",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 125,
+      "nom": "Miel de forêt",
+      "prix": 6.5,
+      "stock": 35,
+      "unite_id": 3,
+      "reference": "P0125",
+      "code_barre": "1234567890025",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "30353d6e-f995-4690-b195-fd10d46d73e4",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 5,
+      "nom": "Pasta della Landa",
+      "email": "contact@pastadellalanda.fr",
+      "label": "",
+      "ville": "Dax",
+      "adresse": "12 avenue des Italiens",
+      "contact": "Marco Pasta",
+      "telephone": "611111111",
+      "code_postal": "40100",
+      "referent_id": null,
+      "categorie_id": 42
+    },
+    "applied_at": "2025-12-04T19:57:56.439Z"
+  },
+  {
+    "id": "8d7f219a-fe84-4f2f-a6be-517a93623a7b",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "sale.created",
+    "entity_type": "vente",
+    "entity_id": "",
+    "payload": {
+      "total": 12,
+      "acompte": 0,
+      "venteId": 1,
+      "saleType": "adherent",
+      "adherentId": 1,
+      "cotisation": 0,
+      "clientEmail": "fabien.hicauber@gmail.com",
+      "adherentUuid": "5efdb9ec-e320-4ee1-a793-f91e08301f46",
+      "fraisPaiement": 0,
+      "modePaiementId": 2,
+      "modePaiementUuid": "b9aedcf1-c41a-467c-af31-c1cd607cd5aa"
+    },
+    "applied_at": "2025-12-05T08:12:43.690Z"
+  },
+  {
+    "id": "2ccab452-6477-4b47-b2af-ee5698fe95f5",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "sale.line_added",
+    "entity_type": "ligne_vente",
+    "entity_id": "",
+    "payload": {
+      "prix": 12,
+      "ligneId": null,
+      "venteId": 1,
+      "quantite": 1,
+      "produitId": 7,
+      "produitUuid": "a2dc87f9-02aa-42ea-a63c-1b6b0f10758d",
+      "prixUnitaire": 12,
+      "remisePercent": 0
+    },
+    "applied_at": "2025-12-05T08:12:43.690Z"
+  },
+  {
+    "id": "c80a3bcf-1c16-43b2-90fe-86d1c293ae00",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 4,
+      "prix": 3
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "a8277904-e2cd-4bcf-9278-9a8d3869afaa",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 5,
+      "prix": 4
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "3d526fa8-aaa5-4c3a-85ec-930c798830c5",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 6,
+      "prix": 5
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "b0345c6f-5544-44dd-a98d-a0ce7a43e94c",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 8,
+      "prix": 3
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "bef0a58f-4853-45bc-8bbe-a4d34e4ae6d0",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 9,
+      "prix": 4
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "8714c29b-d0be-4783-9f9a-a3083ead1a48",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 126,
+      "nom": "Lait demi-écrémé",
+      "prix": 0.9,
+      "stock": 170,
+      "unite_id": 1,
+      "reference": "P0126",
+      "code_barre": "1234567890026",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "16002084-2ea8-40e3-bae3-422065b3fc0e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 127,
+      "nom": "Farine d'épeautre",
+      "prix": 1.2,
+      "stock": 70,
+      "unite_id": 1,
+      "reference": "P0127",
+      "code_barre": "1234567890027",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "462b341c-dc67-423b-9471-d4648408ca1a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 128,
+      "nom": "Pâtes torsades",
+      "prix": 1.3,
+      "stock": 120,
+      "unite_id": 3,
+      "reference": "P0128",
+      "code_barre": "1234567890028",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "5d585c93-552a-4452-ac6d-f69a9c41bf05",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 129,
+      "nom": "Navet blanc",
+      "prix": 1.1,
+      "stock": 50,
+      "unite_id": 1,
+      "reference": "P0129",
+      "code_barre": "1234567890029",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "d71a853f-e096-4a4d-b584-cd8072de13cc",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 130,
+      "nom": "Tomate ananas",
+      "prix": 3.2,
+      "stock": 40,
+      "unite_id": 1,
+      "reference": "P0130",
+      "code_barre": "1234567890030",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "0e3e97a2-0574-4589-a83f-79f29ee8d096",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 131,
+      "nom": "Miel de lavande",
+      "prix": 8,
+      "stock": 25,
+      "unite_id": 3,
+      "reference": "P0131",
+      "code_barre": "1234567890031",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "dbca2f8e-260d-4716-b25a-946fa8df8373",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 132,
+      "nom": "Yaourt grec",
+      "prix": 1.2,
+      "stock": 100,
+      "unite_id": 3,
+      "reference": "P0132",
+      "code_barre": "1234567890032",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "0cbe95b8-25f7-4744-b9d4-83eac9755454",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 133,
+      "nom": "Pain aux céréales",
+      "prix": 1.4,
+      "stock": 45,
+      "unite_id": 3,
+      "reference": "P0133",
+      "code_barre": "1234567890033",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "691891ce-7f5f-42f6-ae6f-1f2cfced74bb",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 134,
+      "nom": "Pâtes macaronis",
+      "prix": 1.25,
+      "stock": 110,
+      "unite_id": 3,
+      "reference": "P0134",
+      "code_barre": "1234567890034",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "fd831a9b-5cf9-43e2-acc8-9edd65362631",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 135,
+      "nom": "Poireau",
+      "prix": 1.5,
+      "stock": 80,
+      "unite_id": 1,
+      "reference": "P0135",
+      "code_barre": "1234567890035",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "5ff9a47b-a4a0-4292-82ec-d9635570618f",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 136,
+      "nom": "Tomate green zebra",
+      "prix": 2.9,
+      "stock": 60,
+      "unite_id": 1,
+      "reference": "P0136",
+      "code_barre": "1234567890036",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "5cd352b1-029e-4634-aca9-62af65e17aa9",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "test3",
+      "prix": 5,
+      "local_id": 76,
+      "unite_id": "e9cf6b9a-ae7e-4329-9eb4-3999088d2e2f",
+      "reference": "P0076",
+      "code_barre": "3000000000052",
+      "categorie_id": "3a511aee-4e7d-4b2d-b369-cc46422e461d",
+      "fournisseur_id": "9a974baa-385a-4351-8d3c-5853c8a8c5fb"
+    },
+    "applied_at": "2025-12-04T20:19:34.405Z"
+  },
+  {
+    "id": "b81505e6-521c-4653-b160-866d7edc3b6f",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "adherent.created",
+    "entity_type": "adherent",
+    "entity_id": "",
+    "payload": {
+      "nom": "test4",
+      "ville": null,
+      "email1": "fabien.hicauber+test4@gmail.com",
+      "email2": null,
+      "prenom": "test4",
+      "statut": "actif",
+      "adresse": null,
+      "archive": 0,
+      "local_id": 3,
+      "telephone1": null,
+      "telephone2": null,
+      "code_postal": null,
+      "tranche_age": null,
+      "nb_personnes_foyer": null
+    },
+    "applied_at": "2025-12-04T20:24:03.402Z"
+  },
+  {
+    "id": "d6aec31e-a266-418c-bb9e-8220976abeb7",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "adherent.created",
+    "entity_type": "adherent",
+    "entity_id": "",
+    "payload": {
+      "nom": "test 5",
+      "ville": null,
+      "email1": "fabien.hicauber+test5@gmail.com",
+      "email2": null,
+      "prenom": "test 5",
+      "statut": "actif",
+      "adresse": null,
+      "archive": 0,
+      "local_id": 5,
+      "telephone1": null,
+      "telephone2": null,
+      "code_postal": null,
+      "tranche_age": null,
+      "nb_personnes_foyer": null
+    },
+    "applied_at": "2025-12-04T20:25:28.640Z"
+  },
+  {
+    "id": "72ee963a-ae22-403e-8609-ea5daccb3819",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 10,
+      "prix": 5
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "c13f3055-3f1f-4bac-82e3-623e12e2234b",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 11,
+      "prix": 3
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "640b82b2-5ab0-4a88-b2b2-8ec67a060c31",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 18,
+      "prix": 4
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "b0c71f55-1052-469a-a81b-9c43f32a7aac",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 19,
+      "prix": 5
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "45d5e617-a340-4e1a-9588-a78e681614a2",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 4,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 1,
+      "produitUuid": "097cd500-2e45-4820-a054-ea6eccd89687",
+      "receptionId": 1,
+      "prixUnitaire": 3,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0023"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "f56b6fc3-0dde-4a06-b343-73167fd3faee",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 137,
+      "nom": "Miel de sapin",
+      "prix": 7.5,
+      "stock": 20,
+      "unite_id": 1,
+      "reference": "P0137",
+      "code_barre": "1234567890037",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a58f59c0-757b-4f46-bb6b-e2f86643734e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 138,
+      "nom": "Lait cru",
+      "prix": 1.1,
+      "stock": 160,
+      "unite_id": 2,
+      "reference": "P0138",
+      "code_barre": "1234567890038",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "2b634cfd-e038-4846-9b9e-758735d091bb",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 139,
+      "nom": "Farine de maïs",
+      "prix": 1.3,
+      "stock": 60,
+      "unite_id": 1,
+      "reference": "P0139",
+      "code_barre": "1234567890039",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "7d7507f6-789a-48c1-8dc5-8d81bb9143a3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 140,
+      "nom": "Pâtes cannelloni",
+      "prix": 1.8,
+      "stock": 100,
+      "unite_id": 2,
+      "reference": "P0140",
+      "code_barre": "1234567890040",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "d8ad98e0-c518-4a45-b84d-6b2fbdf88d40",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 141,
+      "nom": "Céleri branche",
+      "prix": 1.2,
+      "stock": 55,
+      "unite_id": 1,
+      "reference": "P0141",
+      "code_barre": "1234567890041",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "5233f078-ac41-474c-a728-33e52e09b0d3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 142,
+      "nom": "Tomate jaune",
+      "prix": 2.7,
+      "stock": 50,
+      "unite_id": 1,
+      "reference": "P0142",
+      "code_barre": "1234567890042",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "71a49794-288e-4989-9aa8-3fbde2067639",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 143,
+      "nom": "Miel de ronce",
+      "prix": 6.8,
+      "stock": 18,
+      "unite_id": 3,
+      "reference": "P0143",
+      "code_barre": "1234567890043",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "70a36650-d1ba-4567-9251-854403a356af",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 144,
+      "nom": "Yaourt vanille",
+      "prix": 1.1,
+      "stock": 90,
+      "unite_id": 3,
+      "reference": "P0144",
+      "code_barre": "1234567890044",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "8add02eb-8f66-4738-b86e-66cbb4663cef",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 145,
+      "nom": "Pain de campagne",
+      "prix": 1.5,
+      "stock": 40,
+      "unite_id": 3,
+      "reference": "P0145",
+      "code_barre": "1234567890045",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "1cd93f40-4612-4401-85e7-483b3e854866",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 146,
+      "nom": "Pâtes tagliatelles",
+      "prix": 1.6,
+      "stock": 100,
+      "unite_id": 3,
+      "reference": "P0146",
+      "code_barre": "1234567890046",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "ddbf7906-0b14-4b25-93c3-b1c935f2dc01",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 147,
+      "nom": "Chou vert",
+      "prix": 1.3,
+      "stock": 70,
+      "unite_id": 1,
+      "reference": "P0147",
+      "code_barre": "1234567890047",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "2df83eb9-a0d8-4cb2-a318-d8d79917e704",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "adherent.created",
+    "entity_type": "adherent",
+    "entity_id": "",
+    "payload": {
+      "nom": "test",
+      "ville": null,
+      "email1": "fabien.hicauber@gmail.com",
+      "email2": null,
+      "prenom": "test",
+      "statut": "actif",
+      "adresse": null,
+      "archive": 0,
+      "local_id": 1,
+      "telephone1": null,
+      "telephone2": null,
+      "code_postal": null,
+      "tranche_age": null,
+      "nb_personnes_foyer": null
+    },
+    "applied_at": "2025-12-04T20:47:12.652Z"
+  },
+  {
+    "id": "aec82a7e-1d59-4f19-8724-496956184205",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 1,
+      "nom": "Les Jardins d'Azur",
+      "email": "contact@jardins-azur.fr",
+      "label": "",
+      "ville": "Azur",
+      "adresse": "10 chemin des Potagers",
+      "contact": "Léa Légume",
+      "telephone": "607070707",
+      "code_postal": "40140",
+      "referent_id": null,
+      "categorie_id": 30
+    },
+    "applied_at": "2025-12-04T20:48:04.681Z"
+  },
+  {
+    "id": "25a9bcc6-646c-423c-bc9c-0a3160d36f15",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 2,
+      "nom": "Le Verger des Landes",
+      "email": "contact@verger-landes.fr",
+      "label": "",
+      "ville": "Soustons",
+      "adresse": "22 route des Vergers",
+      "contact": "Martin Fruit",
+      "telephone": "608080808",
+      "code_postal": "40150",
+      "referent_id": null,
+      "categorie_id": 21
+    },
+    "applied_at": "2025-12-04T20:48:04.681Z"
+  },
+  {
+    "id": "781bfb1f-3474-47d3-b370-c7439b6ec58b",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 3,
+      "nom": "Brasserie Côté Océan",
+      "email": "contact@brasserie-ocean.fr",
+      "label": "",
+      "ville": "Capbreton",
+      "adresse": "5 quai des Brasseurs",
+      "contact": "Chloé Houblon",
+      "telephone": "609090909",
+      "code_postal": "40130",
+      "referent_id": null,
+      "categorie_id": 9
+    },
+    "applied_at": "2025-12-04T20:48:04.681Z"
+  },
+  {
+    "id": "b1d218d7-d9cb-487d-8b4c-799d8183c53d",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 4,
+      "nom": "Fromagerie du Marensin",
+      "email": "contact@fromagerie-marensin.fr",
+      "label": "",
+      "ville": "Saint-Vincent-de-Tyrosse",
+      "adresse": "8 rue des Alpages",
+      "contact": "Pauline Fromage",
+      "telephone": "610101010",
+      "code_postal": "40230",
+      "referent_id": null,
+      "categorie_id": 20
+    },
+    "applied_at": "2025-12-04T20:48:04.681Z"
+  },
+  {
+    "id": "38fedda9-d83c-46dd-a0ff-9bb00a9e9402",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 148,
+      "nom": "Tomate rose",
+      "prix": 2.6,
+      "stock": 45,
+      "unite_id": 1,
+      "reference": "P0148",
+      "code_barre": "1234567890048",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "30737da4-e6ed-4baa-80be-06b42d253159",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 149,
+      "nom": "Miel de trèfle",
+      "prix": 7.2,
+      "stock": 15,
+      "unite_id": 3,
+      "reference": "P0149",
+      "code_barre": "1234567890049",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "11645205-6845-46df-b24e-57768bed5eb3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 150,
+      "nom": "Lait de chèvre",
+      "prix": 1.5,
+      "stock": 80,
+      "unite_id": 3,
+      "reference": "P0150",
+      "code_barre": "1234567890050",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "1c0b72a4-f833-474b-af7b-9540051ab2cf",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 151,
+      "nom": "Farine de riz",
+      "prix": 1.4,
+      "stock": 50,
+      "unite_id": 1,
+      "reference": "P0151",
+      "code_barre": "1234567890051",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "53bec90e-3ee5-4860-9b92-b31a67c8eaa4",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 152,
+      "nom": "Pâtes lasagnes",
+      "prix": 1.9,
+      "stock": 90,
+      "unite_id": 3,
+      "reference": "P0152",
+      "code_barre": "1234567890052",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "1c57c189-9460-440c-896a-2c97cbe2c05a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 153,
+      "nom": "Courgette verte",
+      "prix": 1.2,
+      "stock": 60,
+      "unite_id": 1,
+      "reference": "P0153",
+      "code_barre": "1234567890053",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "b81c3c6b-1a8c-45f6-b843-7d5f0573ced3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 154,
+      "nom": "Tomate orange",
+      "prix": 2.4,
+      "stock": 40,
+      "unite_id": 1,
+      "reference": "P0154",
+      "code_barre": "1234567890054",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "5a5f4dda-2b1a-4d92-aa78-7e8ea76883e5",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 155,
+      "nom": "Miel de tilleul",
+      "prix": 8.5,
+      "stock": 12,
+      "unite_id": 3,
+      "reference": "P0155",
+      "code_barre": "1234567890055",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "99893dd5-6acd-42b9-abc7-7bc34669bcd4",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 156,
+      "nom": "Yaourt coco",
+      "prix": 1.3,
+      "stock": 70,
+      "unite_id": 3,
+      "reference": "P0156",
+      "code_barre": "1234567890056",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "6bdafeb6-b6a2-4a9e-b926-21a6ef00bc33",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 157,
+      "nom": "Pain viennois",
+      "prix": 1.6,
+      "stock": 35,
+      "unite_id": 3,
+      "reference": "P0157",
+      "code_barre": "1234567890057",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "9b59ab91-28e5-4b8e-bacc-fa01722b5326",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 158,
+      "nom": "Pâtes linguine",
+      "prix": 1.7,
+      "stock": 80,
+      "unite_id": 3,
+      "reference": "P0158",
+      "code_barre": "1234567890058",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "eeb6edb0-893a-4802-9c82-7bd3058ceef2",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 5,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 2,
+      "produitUuid": "495c0a03-3280-47b5-8199-374ce106fcf4",
+      "receptionId": 1,
+      "prixUnitaire": 4,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0022"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "626aee33-214d-4816-95e1-b7b3f22a51e7",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 6,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 3,
+      "produitUuid": "e6bfd0d9-53e4-40da-a8ab-60d3cb6506f6",
+      "receptionId": 1,
+      "prixUnitaire": 5,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0027"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "9c53d131-e850-43e8-8090-dd7e1cd073f5",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 8,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 4,
+      "produitUuid": "a5dca1a3-7776-46cb-bef8-30939d18e23d",
+      "receptionId": 1,
+      "prixUnitaire": 3,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0021"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "37c7782d-9d92-44d2-ada1-b3555d605816",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 159,
+      "nom": "Chou rouge",
+      "prix": 1.4,
+      "stock": 50,
+      "unite_id": 1,
+      "reference": "P0159",
+      "code_barre": "1234567890059",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "66ebc87b-03a9-4add-b264-34a4f7e653f1",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 160,
+      "nom": "Tomate verte",
+      "prix": 2.2,
+      "stock": 30,
+      "unite_id": 1,
+      "reference": "P0160",
+      "code_barre": "1234567890060",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "855f76f8-d3c6-4cca-abcc-8b7e83845fe3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 161,
+      "nom": "Miel de bruyère",
+      "prix": 7.8,
+      "stock": 10,
+      "unite_id": 2,
+      "reference": "P0161",
+      "code_barre": "1234567890061",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "c10cb059-72a5-47d5-89e1-b80db2c79a46",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 162,
+      "nom": "Lait chocolaté",
+      "prix": 1.2,
+      "stock": 60,
+      "unite_id": 3,
+      "reference": "P0162",
+      "code_barre": "1234567890062",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "82c95e92-cb41-4c41-a970-bfa33ff97758",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 163,
+      "nom": "Farine de sarrasin",
+      "prix": 1.5,
+      "stock": 40,
+      "unite_id": 1,
+      "reference": "P0163",
+      "code_barre": "1234567890063",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "f26bd2c4-21aa-4741-85e6-fdbba24cfa1d",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 164,
+      "nom": "Pâtes ditalini",
+      "prix": 1.3,
+      "stock": 70,
+      "unite_id": 2,
+      "reference": "P0164",
+      "code_barre": "1234567890064",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "12ed6fda-09ae-4352-addc-6bd5964381cf",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 165,
+      "nom": "Poivron rouge",
+      "prix": 1.6,
+      "stock": 55,
+      "unite_id": 1,
+      "reference": "P0165",
+      "code_barre": "1234567890065",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "4f068e06-baa0-45ab-ae25-174d0717f9a3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 166,
+      "nom": "Tomate blanche",
+      "prix": 2.1,
+      "stock": 25,
+      "unite_id": 1,
+      "reference": "P0166",
+      "code_barre": "1234567890066",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a945bbdf-3be2-45f4-b5bc-0e73f592a472",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 167,
+      "nom": "Miel de tournesol",
+      "prix": 8,
+      "stock": 8,
+      "unite_id": 3,
+      "reference": "P0167",
+      "code_barre": "1234567890067",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "12bd3eb5-c858-45ec-a9f2-7c787be7e112",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 168,
+      "nom": "Yaourt citron",
+      "prix": 1.2,
+      "stock": 50,
+      "unite_id": 3,
+      "reference": "P0168",
+      "code_barre": "1234567890068",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "dbf5e7a1-44ee-4c78-b61f-70d6937bfde8",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 169,
+      "nom": "Pain pita",
+      "prix": 1.7,
+      "stock": 30,
+      "unite_id": 3,
+      "reference": "P0169",
+      "code_barre": "1234567890069",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "e1d4c117-2c1e-43a3-887a-60183a74358d",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "fournisseur.created",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 5,
+      "nom": "Pasta della Landa",
+      "email": "contact@pastadellalanda.fr",
+      "label": "",
+      "ville": "Dax",
+      "adresse": "12 avenue des Italiens",
+      "contact": "Marco Pasta",
+      "telephone": "611111111",
+      "code_postal": "40100",
+      "referent_id": null,
+      "categorie_id": 42
+    },
+    "applied_at": "2025-12-04T20:48:04.681Z"
+  },
+  {
+    "id": "c66b9fe8-9da9-42a7-9de7-343b7b144197",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Carottes des jardins",
+      "prix": 45718,
+      "local_id": 1,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0001",
+      "code_barre": "3000000000001",
+      "categorie_id": "13b6bacd-c864-4392-8a17-50f1ec614150",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "224b3ab4-901a-449c-ab8f-2320f586ef03",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Poireaux frais botte",
+      "prix": 45902,
+      "local_id": 2,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0002",
+      "code_barre": "3000000000002",
+      "categorie_id": "13b6bacd-c864-4392-8a17-50f1ec614150",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "b860bdf0-fd7b-43a3-a197-fd4a7a683f0d",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Courgettes primeur",
+      "prix": 45840,
+      "local_id": 3,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0003",
+      "code_barre": "3000000000003",
+      "categorie_id": "13b6bacd-c864-4392-8a17-50f1ec614150",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "90c00ac3-1207-44a0-b1f5-dae64be5a92e",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Tomates rondes locales",
+      "prix": 45750,
+      "local_id": 4,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0004",
+      "code_barre": "3000000000004",
+      "categorie_id": "13b6bacd-c864-4392-8a17-50f1ec614150",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "8437e4f9-49b2-4cf4-906f-cc4aef20a559",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 170,
+      "nom": "Pâtes orzo",
+      "prix": 1.4,
+      "stock": 60,
+      "unite_id": 3,
+      "reference": "P0170",
+      "code_barre": "1234567890070",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a76acd22-5954-4e9e-b31d-a70939cad87d",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 171,
+      "nom": "Aubergine",
+      "prix": 1.8,
+      "stock": 40,
+      "unite_id": 1,
+      "reference": "P0171",
+      "code_barre": "1234567890071",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a2e69113-329d-49e8-8f00-63a514c66382",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 172,
+      "nom": "Tomate rayée",
+      "prix": 2.6,
+      "stock": 20,
+      "unite_id": 1,
+      "reference": "P0172",
+      "code_barre": "1234567890072",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "c6e5c8ab-2b51-4489-a612-41e967971d4e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 173,
+      "nom": "Miel de colza",
+      "prix": 7,
+      "stock": 6,
+      "unite_id": 3,
+      "reference": "P0173",
+      "code_barre": "1234567890073",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "86dca51b-b48a-412b-a470-76e7329cfae6",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 174,
+      "nom": "Lait fermenté",
+      "prix": 1.3,
+      "stock": 40,
+      "unite_id": 1,
+      "reference": "P0174",
+      "code_barre": "1234567890074",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "ef2b7959-51e9-4405-b262-7d772c83e61e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 175,
+      "nom": "Farine de quinoa",
+      "prix": 1.6,
+      "stock": 30,
+      "unite_id": 1,
+      "reference": "P0175",
+      "code_barre": "1234567890075",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "fa0f8c4e-b077-4687-adc5-04d7bb4c917e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 176,
+      "nom": "Pâtes trofie",
+      "prix": 1.5,
+      "stock": 50,
+      "unite_id": 3,
+      "reference": "P0176",
+      "code_barre": "1234567890076",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "6bbf557e-244d-4795-b75d-67367796b265",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 177,
+      "nom": "Poivron jaune",
+      "prix": 1.7,
+      "stock": 35,
+      "unite_id": 1,
+      "reference": "P0177",
+      "code_barre": "1234567890077",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "696cb14f-a52c-4784-ba7e-522e8910fc27",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 178,
+      "nom": "Tomate violette",
+      "prix": 2.8,
+      "stock": 15,
+      "unite_id": 1,
+      "reference": "P0178",
+      "code_barre": "1234567890078",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "393f152b-1f62-4fba-b0c8-34810c8c487c",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 179,
+      "nom": "Miel de carotte",
+      "prix": 8.2,
+      "stock": 4,
+      "unite_id": 2,
+      "reference": "P0179",
+      "code_barre": "1234567890079",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "e97d2785-8975-4e78-8e93-db41f35b33ab",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 180,
+      "nom": "Yaourt fraise",
+      "prix": 1.3,
+      "stock": 30,
+      "unite_id": 3,
+      "reference": "P0180",
+      "code_barre": "1234567890080",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "256f31b6-7c59-41c3-a160-e7aced9bbcf7",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Pommes de terre nouvelles",
+      "prix": 45779,
+      "local_id": 5,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0005",
+      "code_barre": "3000000000005",
+      "categorie_id": "6ed5aaaa-ae7e-431a-85de-b568243911e5",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "4b232391-784f-4d4d-9e80-6f5fcaffd6a1",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Oignons blancs frais",
+      "prix": 45659,
+      "local_id": 6,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0006",
+      "code_barre": "3000000000006",
+      "categorie_id": "13b6bacd-c864-4392-8a17-50f1ec614150",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "cbc7c3a9-654c-4472-bf99-9ec5ab0ae5de",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Persil plat frais",
+      "prix": 45748,
+      "local_id": 7,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0007",
+      "code_barre": "3000000000007",
+      "categorie_id": "acfb8d2f-e7fb-4f86-bbd0-033fff019906",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "15c6f8b1-d579-4c4f-87b8-0acf70037487",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Ciboulette fraîche",
+      "prix": 45778,
+      "local_id": 8,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0008",
+      "code_barre": "3000000000008",
+      "categorie_id": "acfb8d2f-e7fb-4f86-bbd0-033fff019906",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "f354b497-14e4-4be3-aa4d-17b9a6c62fb3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 181,
+      "nom": "Pain burger",
+      "prix": 1.8,
+      "stock": 20,
+      "unite_id": 3,
+      "reference": "P0181",
+      "code_barre": "1234567890081",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "49e371dd-06ae-4c09-9024-e566ac81313a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 182,
+      "nom": "Pâtes farfalle",
+      "prix": 1.6,
+      "stock": 40,
+      "unite_id": 1,
+      "reference": "P0182",
+      "code_barre": "1234567890082",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "d00ed642-a98e-4a2f-be24-1b8e0a22bfb9",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 183,
+      "nom": "Courgette jaune",
+      "prix": 1.3,
+      "stock": 25,
+      "unite_id": 1,
+      "reference": "P0183",
+      "code_barre": "1234567890083",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "7c71488a-dbe0-4b9c-aa0b-7757e3e47877",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 184,
+      "nom": "Tomate rose de Berne",
+      "prix": 3.1,
+      "stock": 10,
+      "unite_id": 1,
+      "reference": "P0184",
+      "code_barre": "1234567890084",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "40c3452e-82ae-4639-8b03-4c7ddb261109",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 185,
+      "nom": "Miel de pissenlit",
+      "prix": 8.5,
+      "stock": 2,
+      "unite_id": 3,
+      "reference": "P0185",
+      "code_barre": "1234567890085",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "b2ce1752-20b5-4dea-98f8-ecf82f598917",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 186,
+      "nom": "Lait ribot",
+      "prix": 1.4,
+      "stock": 20,
+      "unite_id": 3,
+      "reference": "P0186",
+      "code_barre": "1234567890086",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "9c4a6386-ab98-4887-a8e5-76d78fdcf74a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 187,
+      "nom": "Farine de millet",
+      "prix": 1.7,
+      "stock": 10,
+      "unite_id": 1,
+      "reference": "P0187",
+      "code_barre": "1234567890087",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "6faf68d0-e0a9-410c-b2d5-546f1fefe4f5",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 188,
+      "nom": "Pâtes bucatini",
+      "prix": 1.8,
+      "stock": 30,
+      "unite_id": 1,
+      "reference": "P0188",
+      "code_barre": "1234567890088",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "4062a91a-69a6-4447-b5ce-373c49eb1be9",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 189,
+      "nom": "Poivron vert",
+      "prix": 1.6,
+      "stock": 15,
+      "unite_id": 1,
+      "reference": "P0189",
+      "code_barre": "1234567890089",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "7f9f0dc4-ef9a-4182-93f3-65feb8b6c823",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 190,
+      "nom": "Tomate noire de Crimée",
+      "prix": 3.2,
+      "stock": 8,
+      "unite_id": 1,
+      "reference": "P0190",
+      "code_barre": "1234567890090",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "3210fa33-7807-4a73-87cd-d15c955d5b19",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 191,
+      "nom": "Miel de trèfle blanc",
+      "prix": 9,
+      "stock": 1,
+      "unite_id": 3,
+      "reference": "P0191",
+      "code_barre": "1234567890091",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a12ff79e-8434-41ec-bef8-a484100a475c",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Champignons de Paris bruns",
+      "prix": 45693,
+      "local_id": 9,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0009",
+      "code_barre": "3000000000009",
+      "categorie_id": "932d598a-c512-4b82-85fc-ea4b1ec77d94",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "c24dc8e4-cbba-42e1-8d26-e0e0edef41d4",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Patates douces du Sud-Ouest",
+      "prix": 45719,
+      "local_id": 10,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0010",
+      "code_barre": "3000000000010",
+      "categorie_id": "6ed5aaaa-ae7e-431a-85de-b568243911e5",
+      "fournisseur_id": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "da9b05e0-4a9a-473f-a605-4c2d0da02772",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Pommes Chanteclerc",
+      "prix": 45660,
+      "local_id": 11,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0011",
+      "code_barre": "3000000000011",
+      "categorie_id": "2d74c859-3020-4456-b363-4412bc32904d",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "8f2d7e9b-40b6-4ed9-a63c-c748cc650378",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Pommes Fuji",
+      "prix": 3,
+      "local_id": 12,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0012",
+      "code_barre": "3000000000012",
+      "categorie_id": "2d74c859-3020-4456-b363-4412bc32904d",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "d26f37b9-21a5-4d21-af73-f43cee2ab249",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Poires Williams",
+      "prix": 45750,
+      "local_id": 13,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0013",
+      "code_barre": "3000000000013",
+      "categorie_id": "2d74c859-3020-4456-b363-4412bc32904d",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "7b0b3b22-e376-4590-9ff9-146355b44dd5",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 192,
+      "nom": "Yaourt nature bio",
+      "prix": 1,
+      "stock": 10,
+      "unite_id": 3,
+      "reference": "P0192",
+      "code_barre": "1234567890092",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "93e4d653-5812-48c9-9999-4ee64290990b",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 193,
+      "nom": "Pain suédois",
+      "prix": 1.9,
+      "stock": 5,
+      "unite_id": 3,
+      "reference": "P0193",
+      "code_barre": "1234567890093",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "bd4b6ae6-9ce2-4649-ab2b-565b19b8ddf9",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 194,
+      "nom": "Pâtes fusilli bio",
+      "prix": 1.7,
+      "stock": 10,
+      "unite_id": 3,
+      "reference": "P0194",
+      "code_barre": "1234567890094",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "6cb02373-90d1-4b32-b253-b5558d222222",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 195,
+      "nom": "Chou-fleur",
+      "prix": 1.5,
+      "stock": 8,
+      "unite_id": 1,
+      "reference": "P0195",
+      "code_barre": "1234567890095",
+      "categorie_id": 30,
+      "fournisseur_id": 42
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "3897326e-2fe4-45fb-ac6b-d43e171a8284",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 196,
+      "nom": "Tomate cocktail",
+      "prix": 2.7,
+      "stock": 6,
+      "unite_id": 1,
+      "reference": "P0196",
+      "code_barre": "1234567890096",
+      "categorie_id": 21,
+      "fournisseur_id": 43
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "fc15fa67-35c5-4005-a5aa-d0a59dc2f9e5",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 197,
+      "nom": "Miel de luzerne",
+      "prix": 9.5,
+      "stock": 1,
+      "unite_id": 3,
+      "reference": "P0197",
+      "code_barre": "1234567890097",
+      "categorie_id": 32,
+      "fournisseur_id": 44
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "5524c9a0-99b9-4dac-9d0c-bab87ac8e1a6",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 198,
+      "nom": "Lait végétal",
+      "prix": 2,
+      "stock": 5,
+      "unite_id": 1,
+      "reference": "P0198",
+      "code_barre": "1234567890098",
+      "categorie_id": 28,
+      "fournisseur_id": 45
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "695209b8-959a-4032-8c46-b43a87a2677a",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 199,
+      "nom": "Farine de coco",
+      "prix": 2.1,
+      "stock": 3,
+      "unite_id": 1,
+      "reference": "P0199",
+      "code_barre": "1234567890099",
+      "categorie_id": 45,
+      "fournisseur_id": 46
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "15e98289-b803-47dd-b6ef-298a0e9f5395",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 200,
+      "nom": "Pâtes rigatoni",
+      "prix": 1.9,
+      "stock": 2,
+      "unite_id": 3,
+      "reference": "P0200",
+      "code_barre": "1234567890100",
+      "categorie_id": 42,
+      "fournisseur_id": 47
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "299ed9c6-f0e0-4487-934c-4fb9d4c97347",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Kiwis jaunes",
+      "prix": 45692,
+      "local_id": 14,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0014",
+      "code_barre": "3000000000014",
+      "categorie_id": "2d74c859-3020-4456-b363-4412bc32904d",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "4aba7699-aa0e-43ba-b034-44be71bac4ee",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Oranges de table",
+      "prix": 45810,
+      "local_id": 15,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0015",
+      "code_barre": "3000000000015",
+      "categorie_id": "2d74c859-3020-4456-b363-4412bc32904d",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "7328a92d-a974-45f3-8e40-0e67cc69019b",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Clémentines feuilles",
+      "prix": 45691,
+      "local_id": 16,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0016",
+      "code_barre": "3000000000016",
+      "categorie_id": "2d74c859-3020-4456-b363-4412bc32904d",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "c68f7da4-55ce-4cb5-9882-93906f054521",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Noix du Périgord",
+      "prix": 45787,
+      "local_id": 17,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0017",
+      "code_barre": "3000000000017",
+      "categorie_id": "15dcade0-2b37-4adc-b8bb-65790d9f43ca",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "754418c6-1cca-4756-a369-09fba72f0fef",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Amandes complètes",
+      "prix": 45912,
+      "local_id": 18,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0018",
+      "code_barre": "3000000000018",
+      "categorie_id": "15dcade0-2b37-4adc-b8bb-65790d9f43ca",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "14618bd9-3b08-4102-9289-73f3f876e4c8",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Noisettes décortiquées",
+      "prix": 45758,
+      "local_id": 19,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0019",
+      "code_barre": "3000000000019",
+      "categorie_id": "15dcade0-2b37-4adc-b8bb-65790d9f43ca",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "2916004a-ca41-4dc8-af0e-f6adef307582",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Mélange fruits secs apéritif",
+      "prix": 45909,
+      "local_id": 20,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0020",
+      "code_barre": "3000000000020",
+      "categorie_id": "15dcade0-2b37-4adc-b8bb-65790d9f43ca",
+      "fournisseur_id": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "04b75b81-f154-478f-ba9f-405906d284d7",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bière blonde Océan 33cl",
+      "prix": 45902,
+      "local_id": 21,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0021",
+      "code_barre": "3000000000021",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "78d3f823-ce87-47f7-bc36-30fa5aecc703",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bière ambrée Océan 33cl",
+      "prix": 45660,
+      "local_id": 22,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0022",
+      "code_barre": "3000000000022",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "1ea5678e-140c-4248-9dc8-c45a06fec254",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bière IPA Océan 33cl",
+      "prix": 45719,
+      "local_id": 23,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0023",
+      "code_barre": "3000000000023",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "e2c29e40-1e35-449f-9bc4-333ccd448cb5",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bière blanche Océan 33cl",
+      "prix": 3,
+      "local_id": 24,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0024",
+      "code_barre": "3000000000024",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "69eb1dc1-44a1-4da4-93ac-1d356384e88f",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bière brune Océan 33cl",
+      "prix": 45750,
+      "local_id": 25,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0025",
+      "code_barre": "3000000000025",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "b897e70a-d163-4504-b156-6445490438be",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bière blonde Océan 75cl",
+      "prix": 45905,
+      "local_id": 26,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0026",
+      "code_barre": "3000000000026",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "b48da57a-50aa-4510-9202-7445ae593da4",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bière ambrée Océan 75cl",
+      "prix": 45663,
+      "local_id": 27,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0027",
+      "code_barre": "3000000000027",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "00879e88-dbb8-4717-a8d4-985e7fd56b8e",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Cidre brut artisanal 75cl",
+      "prix": 45873,
+      "local_id": 28,
+      "unite_id": "a5ac44d4-8d3f-4b1f-9472-315e3565a548",
+      "reference": "P0028",
+      "code_barre": "3000000000028",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "2a952e20-79fe-44b6-b726-dd2b3a7d6365",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Cidre doux artisanal 75cl",
+      "prix": 45812,
+      "local_id": 29,
+      "unite_id": "a5ac44d4-8d3f-4b1f-9472-315e3565a548",
+      "reference": "P0029",
+      "code_barre": "3000000000029",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "ccef33bd-6abe-4eba-9233-9487e7fb3732",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bière sans alcool Océan 33cl",
+      "prix": 45840,
+      "local_id": 30,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0030",
+      "code_barre": "3000000000030",
+      "categorie_id": "78685b41-5131-4f42-bf6d-4ea001108f4c",
+      "fournisseur_id": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "738921dd-016d-443c-a5a8-64f710f30936",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Tomme brebis des Landes",
+      "prix": 45796,
+      "local_id": 31,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0031",
+      "code_barre": "3000000000031",
+      "categorie_id": "801c2149-daac-4660-89fa-e48991b438cb",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "100197cb-9afd-4241-bdfc-80a54f4c7f4d",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Tomme vache Marensin",
+      "prix": 45705,
+      "local_id": 32,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0032",
+      "code_barre": "3000000000032",
+      "categorie_id": "801c2149-daac-4660-89fa-e48991b438cb",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "fc88b349-bbf5-4452-81e4-4779d23f31f1",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "product.updated",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "id": 1,
+      "prix": 1.2
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "e90ccfdb-29b1-438d-b9f3-c39577b53efd",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Bleu crémeux des Dunes",
+      "prix": 45918,
+      "local_id": 33,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0033",
+      "code_barre": "3000000000033",
+      "categorie_id": "801c2149-daac-4660-89fa-e48991b438cb",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "33fa64b0-8432-4845-8a22-c505eef10898",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Camembert fermier 250g",
+      "prix": 45719,
+      "local_id": 34,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0034",
+      "code_barre": "3000000000034",
+      "categorie_id": "801c2149-daac-4660-89fa-e48991b438cb",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "409cc1f5-96d9-4fa0-b870-552622f38186",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Brie fermier 1/8",
+      "prix": 45811,
+      "local_id": 35,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0035",
+      "code_barre": "3000000000035",
+      "categorie_id": "801c2149-daac-4660-89fa-e48991b438cb",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "9cf13784-7502-46ee-b48b-c71b7f71681c",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Comté 24 mois",
+      "prix": 45803,
+      "local_id": 36,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0036",
+      "code_barre": "3000000000036",
+      "categorie_id": "801c2149-daac-4660-89fa-e48991b438cb",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "64d8297b-8f61-4825-8254-10392dc7f2ba",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Fromage blanc fermier 500g",
+      "prix": 45810,
+      "local_id": 37,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0037",
+      "code_barre": "3000000000037",
+      "categorie_id": "0d85bda1-ee07-4561-82e2-8a3f220dccad",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "550180a2-8903-4bd0-b33c-bf3cb4acba85",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Yaourts nature x4",
+      "prix": 45871,
+      "local_id": 38,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0038",
+      "code_barre": "3000000000038",
+      "categorie_id": "1dca0004-46b5-4968-b2c6-3cd41f38a74f",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "ec6a30d5-5dbf-44c1-9c6d-1dd0be82a473",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Beurre doux moulé 250g",
+      "prix": 45690,
+      "local_id": 39,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0039",
+      "code_barre": "3000000000039",
+      "categorie_id": "143f7ca1-7792-434d-9324-dc17e4bdd525",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "ec745b80-f84b-43a0-8485-5b92f5f67cee",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Beurre demi-sel moulé 250g",
+      "prix": 45690,
+      "local_id": 40,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0040",
+      "code_barre": "3000000000040",
+      "categorie_id": "143f7ca1-7792-434d-9324-dc17e4bdd525",
+      "fournisseur_id": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "0219c580-f4c0-4112-9989-04f48a73b08a",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Spaghetti blé dur 500g",
+      "prix": 45839,
+      "local_id": 41,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0041",
+      "code_barre": "3000000000041",
+      "categorie_id": "424e855c-e972-4a13-8347-9bbdedd24ce5",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "acc2c9dd-0b23-4d88-8384-cac0971c9a02",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Penne rigate 500g",
+      "prix": 45870,
+      "local_id": 42,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0042",
+      "code_barre": "3000000000042",
+      "categorie_id": "424e855c-e972-4a13-8347-9bbdedd24ce5",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "e31443f0-d4be-4fb2-a819-69a21eaaf5dc",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Fusilli tricolore 500g",
+      "prix": 2,
+      "local_id": 43,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0043",
+      "code_barre": "3000000000043",
+      "categorie_id": "424e855c-e972-4a13-8347-9bbdedd24ce5",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "f37ae399-5c24-4dc9-9ac3-eca4cc2a92e8",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Coquillettes 500g",
+      "prix": 45809,
+      "local_id": 44,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0044",
+      "code_barre": "3000000000044",
+      "categorie_id": "424e855c-e972-4a13-8347-9bbdedd24ce5",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "1b6b9929-2181-4f5c-bc28-412747e17c69",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Lasagnes sèches 500g",
+      "prix": 45718,
+      "local_id": 45,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0045",
+      "code_barre": "3000000000045",
+      "categorie_id": "424e855c-e972-4a13-8347-9bbdedd24ce5",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "a6401922-2607-4030-83ca-907f0d4b0e7d",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Riz arborio risotto 1kg",
+      "prix": 45750,
+      "local_id": 46,
+      "unite_id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+      "reference": "P0046",
+      "code_barre": "3000000000046",
+      "categorie_id": "424e855c-e972-4a13-8347-9bbdedd24ce5",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "b9d3f48b-cec4-4b1f-a659-155be43b4ff1",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Sauce tomate basilic 350g",
+      "prix": 3,
+      "local_id": 47,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0047",
+      "code_barre": "3000000000047",
+      "categorie_id": "6ac88b6a-7ca7-4938-a445-47f9723c144c",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "46e44471-dd37-425f-b9d1-5be9cbaece48",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 30,
+      "nom": "La Ferme du Bonheur",
+      "deleted": 1,
+      "remote_uuid": null
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "0fbfae48-e5e1-41e9-a25f-b36b085c30fd",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 36,
+      "nom": "La Ferme du Bonheur",
+      "deleted": 1,
+      "remote_uuid": "1aec95c7-f07f-4548-b4e8-cea4b4f9f291"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "ec80c159-2ca6-4119-850e-60aa6afef041",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 33,
+      "nom": "La Vache Heureuse",
+      "deleted": 1,
+      "remote_uuid": null
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "25a36e7d-4921-45f1-b7c9-64bffe9f2cb9",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 36,
+      "nom": "La Ferme du Bonheur",
+      "deleted": 1,
+      "remote_uuid": "1aec95c7-f07f-4548-b4e8-cea4b4f9f291"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "c9b97bb2-f0b0-4fbb-be36-47110be8f014",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 37,
+      "nom": "La Vache Heureuse",
+      "deleted": 1,
+      "remote_uuid": "e95e7915-a970-47a3-830c-4393379cadca"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a003f19d-820b-4a2e-972f-d1db6fe62637",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 34,
+      "nom": "Le Moulin Farineux",
+      "deleted": 1,
+      "remote_uuid": null
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "3ce58bdb-d2c6-4c11-bb65-abc35e2dd0b3",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 36,
+      "nom": "La Ferme du Bonheur",
+      "deleted": 1,
+      "remote_uuid": "1aec95c7-f07f-4548-b4e8-cea4b4f9f291"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "cc164026-a04b-4f9d-b178-925b993d4639",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 37,
+      "nom": "La Vache Heureuse",
+      "deleted": 1,
+      "remote_uuid": "e95e7915-a970-47a3-830c-4393379cadca"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "5aa35cd4-9466-4149-a486-54f0d65ea689",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 38,
+      "nom": "Le Moulin Farineux",
+      "deleted": 1,
+      "remote_uuid": "e3f19a51-a61a-4d07-8b25-853fedca6673"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "00f0266f-7c42-4200-a828-5e2f599df8fc",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 31,
+      "nom": "Le Panier Rigolo",
+      "deleted": 1,
+      "remote_uuid": null
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "c1d651c4-d5cc-4f41-aa8e-f104c03fcca0",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 36,
+      "nom": "La Ferme du Bonheur",
+      "deleted": 1,
+      "remote_uuid": "1aec95c7-f07f-4548-b4e8-cea4b4f9f291"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "6301294c-b3c9-41ea-a87c-d0be824d83ea",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 40,
+      "nom": "Les Pâtes du Village",
+      "deleted": 1,
+      "remote_uuid": "42ef424f-9398-4636-a01b-2217653288db"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "32850ed3-e830-406e-ad0f-fdf284fa0f5f",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 41,
+      "nom": "Miel et Abeilles",
+      "deleted": 1,
+      "remote_uuid": "e3ebc9df-ecd0-42d5-bcbc-f0c537334054"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a9c726b1-d95c-43ef-8c35-7e86838f37aa",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 40,
+      "nom": "Les Pâtes du Village",
+      "deleted": 1,
+      "remote_uuid": "42ef424f-9398-4636-a01b-2217653288db"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "8b1e8e72-cb2e-4b6b-9e6a-bcf9061435a7",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 39,
+      "nom": "Le Panier Rigolo",
+      "deleted": 1,
+      "remote_uuid": "98ce0cd2-1e1a-4452-88d4-931f584f907e"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "30c8c752-03d5-4322-94f5-dd0d6b36bb25",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 40,
+      "nom": "Les Pâtes du Village",
+      "deleted": 1,
+      "remote_uuid": "42ef424f-9398-4636-a01b-2217653288db"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a89f2e18-fa97-443c-8972-1863f9e44e52",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Sauce pesto vert 190g",
+      "prix": 45811,
+      "local_id": 48,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0048",
+      "code_barre": "3000000000048",
+      "categorie_id": "6ac88b6a-7ca7-4938-a445-47f9723c144c",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "1446c648-beeb-4164-bd60-9bd8834b4d66",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Torsades apéritives au romarin",
+      "prix": 45902,
+      "local_id": 49,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0049",
+      "code_barre": "3000000000049",
+      "categorie_id": "fa796bf5-83b1-47cc-89af-7e4f7adeb84a",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "f2bdc159-d2f1-4a64-b474-04b08abf6532",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "default",
+    "op_type": "product.created",
+    "entity_type": "produit",
+    "entity_id": "",
+    "payload": {
+      "nom": "Crackers aux graines apéritif",
+      "prix": 45660,
+      "local_id": 50,
+      "unite_id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+      "reference": "P0050",
+      "code_barre": "3000000000050",
+      "categorie_id": "fa796bf5-83b1-47cc-89af-7e4f7adeb84a",
+      "fournisseur_id": "b12991bd-1205-437f-a37d-b7542224361c"
+    },
+    "applied_at": "2025-12-04T20:48:20.841Z"
+  },
+  {
+    "id": "b8746a93-4daa-4b87-8c94-80241a04574f",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 9,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 5,
+      "produitUuid": "9da0f41f-80b1-46e4-a198-40487c9d9651",
+      "receptionId": 1,
+      "prixUnitaire": 4,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0026"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "8b4401ba-c9b7-4aa3-9a9c-c80fd84ba56d",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 10,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 6,
+      "produitUuid": "35eb861e-071a-484a-a5d8-0da853b349a2",
+      "receptionId": 1,
+      "prixUnitaire": 5,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0025"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "8dac7382-8ed4-4e88-8b6d-9182c7439938",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 11,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 7,
+      "produitUuid": "0f0d187e-8c38-456e-98c9-bf442cdad564",
+      "receptionId": 1,
+      "prixUnitaire": 3,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0030"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "af7654ef-2371-4978-9c06-393c14a4e68e",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 40,
+      "nom": "Les Pâtes du Village",
+      "deleted": 1,
+      "remote_uuid": "42ef424f-9398-4636-a01b-2217653288db"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "5831c771-cc8e-48ce-ab09-8aa127387db8",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 36,
+      "nom": "La Ferme du Bonheur",
+      "deleted": 1,
+      "remote_uuid": "1aec95c7-f07f-4548-b4e8-cea4b4f9f291"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "6a4121ac-a561-4092-bd40-a427846d85aa",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 37,
+      "nom": "La Vache Heureuse",
+      "deleted": 1,
+      "remote_uuid": "e95e7915-a970-47a3-830c-4393379cadca"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "271674e4-81c1-4fe3-8fd5-2087eaa05604",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 38,
+      "nom": "Le Moulin Farineux",
+      "deleted": 1,
+      "remote_uuid": "e3f19a51-a61a-4d07-8b25-853fedca6673"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "b58f2d87-7308-4c26-9dd5-e0694a927787",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 39,
+      "nom": "Le Panier Rigolo",
+      "deleted": 1,
+      "remote_uuid": "98ce0cd2-1e1a-4452-88d4-931f584f907e"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "68ff9edc-a226-4308-9265-8583cd1b2120",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 35,
+      "nom": "Les Pâtes du Village",
+      "deleted": 1,
+      "remote_uuid": null
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "006a7afe-1393-4d7f-9a3f-02e2169c6228",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 40,
+      "nom": "Les Pâtes du Village",
+      "deleted": 1,
+      "remote_uuid": "42ef424f-9398-4636-a01b-2217653288db"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "bbfc768c-190d-4c09-bf5b-41bb558e5b57",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 32,
+      "nom": "Miel et Abeilles",
+      "deleted": 1,
+      "remote_uuid": null
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "a5e0bed5-6ccd-406b-94b1-822ff03c81d2",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "fournisseur.deleted",
+    "entity_type": "fournisseur",
+    "entity_id": "",
+    "payload": {
+      "id": 41,
+      "nom": "Miel et Abeilles",
+      "deleted": 1,
+      "remote_uuid": "e3ebc9df-ecd0-42d5-bcbc-f0c537334054"
+    },
+    "applied_at": "2025-12-03T17:21:16.129Z"
+  },
+  {
+    "id": "85056d28-5d25-4e98-9efa-10d6fc42062f",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "sale.created",
+    "entity_type": "vente",
+    "entity_id": "",
+    "payload": {
+      "total": 3,
+      "acompte": 0,
+      "venteId": 1,
+      "saleType": "adherent",
+      "adherentId": 1,
+      "cotisation": 0,
+      "clientEmail": "fabien.hicauber@gmail.com",
+      "adherentUuid": "5efdb9ec-e320-4ee1-a793-f91e08301f46",
+      "fraisPaiement": 0,
+      "modePaiementId": 1,
+      "modePaiementUuid": "39b62c8c-8c87-47c6-af11-aa6687bb8650"
+    },
+    "applied_at": "2025-12-04T20:50:04.059Z"
+  },
+  {
+    "id": "79157f03-43ed-4dcc-9600-d5c941b40dda",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "484ba2e2-81af-4fdf-9097-ce22d8b8dc21",
+    "op_type": "sale.line_added",
+    "entity_type": "ligne_vente",
+    "entity_id": "",
+    "payload": {
+      "prix": 3,
+      "ligneId": null,
+      "venteId": 1,
+      "quantite": 1,
+      "produitId": 24,
+      "produitUuid": "a2dc87f9-02aa-42ea-a63c-1b6b0f10758d",
+      "prixUnitaire": 3,
+      "remisePercent": 0
+    },
+    "applied_at": "2025-12-04T20:50:04.059Z"
+  },
+  {
+    "id": "d6e54c0b-4fad-48ad-b363-74b1534765fd",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 18,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 8,
+      "produitUuid": "28780f9d-3391-4272-9f10-de4128a051ea",
+      "receptionId": 1,
+      "prixUnitaire": 4,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0028"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  },
+  {
+    "id": "6742b75a-9811-47e0-9e71-076798a3f9f4",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "device_id": "29f52639-a259-4a65-8656-adf07c09d1da",
+    "op_type": "reception.line_added",
+    "entity_type": "ligne_reception",
+    "entity_id": "",
+    "payload": {
+      "quantite": 12,
+      "produitId": 19,
+      "reference": "BL-20251205-0925",
+      "ligneRecId": 9,
+      "produitUuid": "85b126e0-deb5-4e58-9686-c4295a2b35c7",
+      "receptionId": 1,
+      "prixUnitaire": 5,
+      "stockCorrige": null,
+      "fournisseurId": 1,
+      "receptionUuid": null,
+      "fournisseurUuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5",
+      "produitReference": "P0029"
+    },
+    "applied_at": "2025-12-05T08:25:33.979Z"
+  }
+]

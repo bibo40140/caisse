@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "nom": "kg",
+    "remote_uuid": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c"
+  },
+  {
+    "id": 2,
+    "nom": "litre",
+    "remote_uuid": "a5ac44d4-8d3f-4b1f-9472-315e3565a548"
+  },
+  {
+    "id": 3,
+    "nom": "pièce",
+    "remote_uuid": "83f95638-fc8e-47ed-8705-4c7395a9b0f4"
+  }
+]

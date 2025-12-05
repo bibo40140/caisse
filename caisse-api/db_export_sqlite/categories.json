@@ -1,0 +1,350 @@
+[
+  {
+    "id": 1,
+    "nom": "Aides pâtisserie & levures",
+    "famille_id": 13,
+    "remote_uuid": "4b606601-799d-4353-878c-81e92a9090aa"
+  },
+  {
+    "id": 2,
+    "nom": "Alternatives végétales",
+    "famille_id": 3,
+    "remote_uuid": "b2c4afc6-d106-4334-b960-6689eeef3bb1"
+  },
+  {
+    "id": 3,
+    "nom": "Apéro salé",
+    "famille_id": 12,
+    "remote_uuid": "fa796bf5-83b1-47cc-89af-7e4f7adeb84a"
+  },
+  {
+    "id": 4,
+    "nom": "Beauté",
+    "famille_id": 8,
+    "remote_uuid": "2aea276e-3296-4f2d-87e3-699d95982a8b"
+  },
+  {
+    "id": 5,
+    "nom": "Beurre & matières grasses",
+    "famille_id": 6,
+    "remote_uuid": "143f7ca1-7792-434d-9324-dc17e4bdd525"
+  },
+  {
+    "id": 6,
+    "nom": "Biscottes & pains grillés",
+    "famille_id": 4,
+    "remote_uuid": "a29c190c-495b-4a7a-b797-68ba285d56ab"
+  },
+  {
+    "id": 7,
+    "nom": "Biscuits & boissons enfant",
+    "famille_id": 5,
+    "remote_uuid": "c742d958-3e30-4348-832f-f0cb6311f336"
+  },
+  {
+    "id": 8,
+    "nom": "Biscuits & gâteaux",
+    "famille_id": 13,
+    "remote_uuid": "524ac6d4-27f5-4871-afcb-10d6d4c74b56"
+  },
+  {
+    "id": 9,
+    "nom": "Bières & cidres",
+    "famille_id": 2,
+    "remote_uuid": "78685b41-5131-4f42-bf6d-4ea001108f4c"
+  },
+  {
+    "id": 10,
+    "nom": "Boissons chaudes",
+    "famille_id": 2,
+    "remote_uuid": "db49dc9f-edeb-4aad-a9a4-e222e0bb4f78"
+  },
+  {
+    "id": 11,
+    "nom": "Champignons",
+    "famille_id": 7,
+    "remote_uuid": "932d598a-c512-4b82-85fc-ea4b1ec77d94"
+  },
+  {
+    "id": 12,
+    "nom": "Charcuterie",
+    "famille_id": 3,
+    "remote_uuid": "31fc0336-7bb2-44c6-ba93-ed36fadaab6f"
+  },
+  {
+    "id": 13,
+    "nom": "Chocolat & confiseries",
+    "famille_id": 13,
+    "remote_uuid": "ef7cf578-ddc2-4456-a340-2abad106450b"
+  },
+  {
+    "id": 14,
+    "nom": "Confitures & pâtes à tartiner",
+    "famille_id": 13,
+    "remote_uuid": "273956e2-dade-4655-a639-7e918e7c7a50"
+  },
+  {
+    "id": 15,
+    "nom": "Conserves & bocaux",
+    "famille_id": 12,
+    "remote_uuid": "0dd49143-e524-4254-b924-e39aaee042b6"
+  },
+  {
+    "id": 16,
+    "nom": "Couches & soins bébé",
+    "famille_id": 5,
+    "remote_uuid": "6c37f0b3-1e78-451e-82b8-e3e70d951e91"
+  },
+  {
+    "id": 17,
+    "nom": "Crèmes & fromages blancs",
+    "famille_id": 6,
+    "remote_uuid": "0d85bda1-ee07-4561-82e2-8a3f220dccad"
+  },
+  {
+    "id": 18,
+    "nom": "Eaux",
+    "famille_id": 2,
+    "remote_uuid": "d85418e4-1c7a-400b-94fa-091bdd3bce23"
+  },
+  {
+    "id": 19,
+    "nom": "Entretien",
+    "famille_id": 8,
+    "remote_uuid": "77e7aa44-1253-453f-92c1-58db3e075ec7"
+  },
+  {
+    "id": 20,
+    "nom": "Fromages",
+    "famille_id": 6,
+    "remote_uuid": "801c2149-daac-4660-89fa-e48991b438cb"
+  },
+  {
+    "id": 21,
+    "nom": "Fruits frais",
+    "famille_id": 7,
+    "remote_uuid": "2d74c859-3020-4456-b363-4412bc32904d"
+  },
+  {
+    "id": 22,
+    "nom": "Fruits secs & oléagineux",
+    "famille_id": 7,
+    "remote_uuid": "15dcade0-2b37-4adc-b8bb-65790d9f43ca"
+  },
+  {
+    "id": 23,
+    "nom": "Glaces",
+    "famille_id": 10,
+    "remote_uuid": "f74bc3f8-b46c-49f3-a930-9cb1bc42f10c"
+  },
+  {
+    "id": 24,
+    "nom": "Herbes & aromates",
+    "famille_id": 7,
+    "remote_uuid": "acfb8d2f-e7fb-4f86-bbd0-033fff019906"
+  },
+  {
+    "id": 25,
+    "nom": "Huiles & vinaigres",
+    "famille_id": 12,
+    "remote_uuid": "960fe8f8-8f7d-411f-8e11-c0b4a8de9be5"
+  },
+  {
+    "id": 26,
+    "nom": "Hygiène",
+    "famille_id": 8,
+    "remote_uuid": "6a702ccb-740c-4e91-8760-06c269ba2895"
+  },
+  {
+    "id": 27,
+    "nom": "Jus & nectars",
+    "famille_id": 2,
+    "remote_uuid": "5be40fda-5969-4f5e-9489-0644864f4c8a"
+  },
+  {
+    "id": 28,
+    "nom": "Lait & boissons lactées",
+    "famille_id": 6,
+    "remote_uuid": "e24c5ae0-c3cf-43be-b4d7-d4db16b152bc"
+  },
+  {
+    "id": 29,
+    "nom": "Laits & petits pots",
+    "famille_id": 5,
+    "remote_uuid": "1096e131-3f33-469e-a9b0-68b17cffe39d"
+  },
+  {
+    "id": 30,
+    "nom": "Légumes frais",
+    "famille_id": 7,
+    "remote_uuid": "13b6bacd-c864-4392-8a17-50f1ec614150"
+  },
+  {
+    "id": 31,
+    "nom": "Légumineuses",
+    "famille_id": 12,
+    "remote_uuid": "6f8b23ef-9c02-44e4-a990-8175da33b850"
+  },
+  {
+    "id": 32,
+    "nom": "Miel & sirops",
+    "famille_id": 13,
+    "remote_uuid": "697fb282-cc37-4f02-a6bb-fd66b3c75e3b"
+  },
+  {
+    "id": 33,
+    "nom": "NAC & oiseaux",
+    "famille_id": 1,
+    "remote_uuid": "48818a5b-9603-44f1-a47e-65c4c8d7a976"
+  },
+  {
+    "id": 34,
+    "nom": "Nourriture chats",
+    "famille_id": 1,
+    "remote_uuid": "fccb3680-f2a1-4219-a8d6-2689daa35634"
+  },
+  {
+    "id": 35,
+    "nom": "Nourriture chiens",
+    "famille_id": 1,
+    "remote_uuid": "2038d446-7f1d-4e41-9a4a-59d481a761d6"
+  },
+  {
+    "id": 36,
+    "nom": "Pains & viennoiseries",
+    "famille_id": 4,
+    "remote_uuid": "98cc2e86-8b03-4c4d-bb35-35959f1b4e82"
+  },
+  {
+    "id": 37,
+    "nom": "Papeterie",
+    "famille_id": 8,
+    "remote_uuid": "27dac1da-81be-41ed-9702-86fa927840d4"
+  },
+  {
+    "id": 38,
+    "nom": "Poisson & fruits de mer",
+    "famille_id": 3,
+    "remote_uuid": "f893764b-a537-463a-a2bd-1ee7462ca767"
+  },
+  {
+    "id": 39,
+    "nom": "Pommes de terre & tubercules",
+    "famille_id": 7,
+    "remote_uuid": "6ed5aaaa-ae7e-431a-85de-b568243911e5"
+  },
+  {
+    "id": 40,
+    "nom": "Producteurs locaux",
+    "famille_id": 9,
+    "remote_uuid": "f090fe9f-207d-4bf0-bbe1-285e7a6d6f79"
+  },
+  {
+    "id": 41,
+    "nom": "Produits de saison",
+    "famille_id": 9,
+    "remote_uuid": "71b58fe8-81db-43fd-9c82-2521dbdc68f7"
+  },
+  {
+    "id": 42,
+    "nom": "Pâtes, riz & céréales",
+    "famille_id": 12,
+    "remote_uuid": "424e855c-e972-4a13-8347-9bbdedd24ce5"
+  },
+  {
+    "id": 43,
+    "nom": "Sauces, condiments & épices",
+    "famille_id": 12,
+    "remote_uuid": "6ac88b6a-7ca7-4938-a445-47f9723c144c"
+  },
+  {
+    "id": 44,
+    "nom": "Sodas",
+    "famille_id": 2,
+    "remote_uuid": "2475a49f-c8d7-4076-b8cf-be14cad7549e"
+  },
+  {
+    "id": 45,
+    "nom": "Sucres & farines",
+    "famille_id": 13,
+    "remote_uuid": "15546e4b-db0b-4e72-b8a7-dc0d86de455b"
+  },
+  {
+    "id": 46,
+    "nom": "Surgelés salés",
+    "famille_id": 10,
+    "remote_uuid": "3e9f1b8e-3d51-4e32-b1df-fb58ec3053e9"
+  },
+  {
+    "id": 47,
+    "nom": "Surgelés sucrés",
+    "famille_id": 10,
+    "remote_uuid": "6a6a6489-5d5c-460b-9d72-6ba8f8467c79"
+  },
+  {
+    "id": 48,
+    "nom": "Vaisselle",
+    "famille_id": 8,
+    "remote_uuid": "5ca75af1-6970-413a-9374-74f9d2234e60"
+  },
+  {
+    "id": 49,
+    "nom": "Viande autres",
+    "famille_id": 3,
+    "remote_uuid": "b0d40faa-6029-432d-928b-be249e513225"
+  },
+  {
+    "id": 50,
+    "nom": "Viande boeuf & agneau",
+    "famille_id": 3,
+    "remote_uuid": "11d0a1da-f23f-4140-93fd-525793578f23"
+  },
+  {
+    "id": 51,
+    "nom": "Viande porc",
+    "famille_id": 3,
+    "remote_uuid": "809b84e1-7748-4818-bf92-ebf5179df3d2"
+  },
+  {
+    "id": 52,
+    "nom": "Vins & spiritueux",
+    "famille_id": 2,
+    "remote_uuid": "21de1438-b7e8-4c5e-a59f-28578996324d"
+  },
+  {
+    "id": 53,
+    "nom": "Volaille",
+    "famille_id": 3,
+    "remote_uuid": "a9757a38-a2f1-4564-9e42-be7bbf1b356e"
+  },
+  {
+    "id": 54,
+    "nom": "Vrac salé",
+    "famille_id": 11,
+    "remote_uuid": "c526c571-543a-41e6-9584-878b9b2ab782"
+  },
+  {
+    "id": 55,
+    "nom": "Vrac sucré",
+    "famille_id": 11,
+    "remote_uuid": "96af182f-509f-47d5-bb31-9e858bd8eb9d"
+  },
+  {
+    "id": 56,
+    "nom": "Yaourts & desserts lactés",
+    "famille_id": 6,
+    "remote_uuid": "1dca0004-46b5-4968-b2c6-3cd41f38a74f"
+  },
+  {
+    "id": 57,
+    "nom": "Éditions limitées",
+    "famille_id": 9,
+    "remote_uuid": "ca189a31-3918-4c67-b613-86b1d2d3b1d6"
+  },
+  {
+    "id": 58,
+    "nom": "Œufs",
+    "famille_id": 6,
+    "remote_uuid": "863b25d1-44ef-4fb3-af63-6a402c651f97"
+  }
+]

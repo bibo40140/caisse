@@ -1,0 +1,74 @@
+[
+  {
+    "id": "13a2cd53-11dd-40fa-bcb1-b694e3c8a635",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "097cd500-2e45-4820-a054-ea6eccd89687",
+    "quantite": "12.000",
+    "prix_unitaire": "3.00"
+  },
+  {
+    "id": "39c63176-0d33-41c5-9d24-06da7d74fe72",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "495c0a03-3280-47b5-8199-374ce106fcf4",
+    "quantite": "12.000",
+    "prix_unitaire": "4.00"
+  },
+  {
+    "id": "5d6ed56d-cea6-49b6-aef5-a1f6f86a1d12",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "e6bfd0d9-53e4-40da-a8ab-60d3cb6506f6",
+    "quantite": "12.000",
+    "prix_unitaire": "5.00"
+  },
+  {
+    "id": "2ffb736c-0d50-47fb-81b6-e97cbc111466",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "a5dca1a3-7776-46cb-bef8-30939d18e23d",
+    "quantite": "12.000",
+    "prix_unitaire": "3.00"
+  },
+  {
+    "id": "08e8a977-c16d-4702-8494-4fdaa5ec611e",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "9da0f41f-80b1-46e4-a198-40487c9d9651",
+    "quantite": "12.000",
+    "prix_unitaire": "4.00"
+  },
+  {
+    "id": "813c9eb5-f37e-42d8-907a-cf3da940b1d0",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "35eb861e-071a-484a-a5d8-0da853b349a2",
+    "quantite": "12.000",
+    "prix_unitaire": "5.00"
+  },
+  {
+    "id": "50902380-bbb9-491f-b612-a423134fe02d",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "0f0d187e-8c38-456e-98c9-bf442cdad564",
+    "quantite": "12.000",
+    "prix_unitaire": "3.00"
+  },
+  {
+    "id": "50c07b74-7632-4b73-97a0-e9447ae46329",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "28780f9d-3391-4272-9f10-de4128a051ea",
+    "quantite": "12.000",
+    "prix_unitaire": "4.00"
+  },
+  {
+    "id": "15a4f8b4-2063-4a18-9ffa-a312477504c3",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "reception_id": "254e9a0d-bcdf-46cf-b1b5-66506524b990",
+    "produit_id": "85b126e0-deb5-4e58-9686-c4295a2b35c7",
+    "quantite": "12.000",
+    "prix_unitaire": "5.00"
+  }
+]
