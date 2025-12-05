@@ -1,0 +1,107 @@
+[
+  {
+    "id": "82040319-5422-4f0e-bf76-18423966c6e4",
+    "tenant_id": "d8ecd23f-1513-463d-be4d-f8e4d7372a46",
+    "nom": "kg"
+  },
+  {
+    "id": "6d321e6a-83a1-462b-be5d-7e7b794827b0",
+    "tenant_id": "d8ecd23f-1513-463d-be4d-f8e4d7372a46",
+    "nom": "litre"
+  },
+  {
+    "id": "a058886f-81fb-4e7c-b82d-507ff7b179c2",
+    "tenant_id": "d8ecd23f-1513-463d-be4d-f8e4d7372a46",
+    "nom": "pièce"
+  },
+  {
+    "id": "43b43375-8513-4eb8-8ec9-a04ce64449d9",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "nom": "kg"
+  },
+  {
+    "id": "aedd15bf-06a8-4fc1-871f-f365751f60d8",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "nom": "litre"
+  },
+  {
+    "id": "f8c468e1-0d75-48f1-b89f-23e457b0b1d9",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "nom": "pièce"
+  },
+  {
+    "id": "41c46f85-606f-4111-bbea-1c797b78b071",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "nom": "kg"
+  },
+  {
+    "id": "c83499ca-9449-46cd-b99d-744154c78e1d",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "nom": "litre"
+  },
+  {
+    "id": "fe4a81ec-4fa6-4582-b3f4-b278e111198a",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "nom": "pièce"
+  },
+  {
+    "id": "d0b28aba-aae2-4ee3-a019-164c4ab157e7",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "nom": "kg"
+  },
+  {
+    "id": "9816813b-9a30-44a7-807d-7a09b0ecc062",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "nom": "litre"
+  },
+  {
+    "id": "e9cf6b9a-ae7e-4329-9eb4-3999088d2e2f",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "nom": "pièce"
+  },
+  {
+    "id": "3fccd5d3-10de-49d5-9da9-c5e9783b5c6c",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "nom": "kg"
+  },
+  {
+    "id": "a5ac44d4-8d3f-4b1f-9472-315e3565a548",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "nom": "litre"
+  },
+  {
+    "id": "83f95638-fc8e-47ed-8705-4c7395a9b0f4",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "nom": "pièce"
+  },
+  {
+    "id": "ebf2cb60-7804-45fc-95e3-651299b92179",
+    "tenant_id": "e4ced87c-721d-43de-b8a5-fd5a5aa1df5b",
+    "nom": "kg"
+  },
+  {
+    "id": "b37eea7e-0396-4c28-a02c-16b36c019d84",
+    "tenant_id": "e4ced87c-721d-43de-b8a5-fd5a5aa1df5b",
+    "nom": "litre"
+  },
+  {
+    "id": "7f5c6823-8449-47c3-afe0-633e1d79ff71",
+    "tenant_id": "e4ced87c-721d-43de-b8a5-fd5a5aa1df5b",
+    "nom": "pièce"
+  },
+  {
+    "id": "b75f4957-210e-4aef-ad18-6b7c929bfd9c",
+    "tenant_id": "fff2f274-cf04-446d-9880-1a81567c2972",
+    "nom": "kg"
+  },
+  {
+    "id": "452c9921-cb92-459a-9f75-acccbf15c34b",
+    "tenant_id": "fff2f274-cf04-446d-9880-1a81567c2972",
+    "nom": "litre"
+  },
+  {
+    "id": "f8b48955-7157-4a65-8d6a-6dec5f4b6ddf",
+    "tenant_id": "fff2f274-cf04-446d-9880-1a81567c2972",
+    "nom": "pièce"
+  }
+]

@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "nom": "test",
+    "prenom": "test",
+    "email1": "fabien.hicauber@gmail.com",
+    "email2": null,
+    "telephone1": null,
+    "telephone2": null,
+    "adresse": null,
+    "code_postal": null,
+    "ville": null,
+    "nb_personnes_foyer": null,
+    "tranche_age": null,
+    "statut": "actif",
+    "droit_entree": null,
+    "date_inscription": "2025-12-03T23:00:00.000Z",
+    "archive": 0,
+    "date_archivage": null,
+    "date_reactivation": null,
+    "remote_uuid": "5efdb9ec-e320-4ee1-a793-f91e08301f46"
+  }
+]

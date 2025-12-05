@@ -1,0 +1,72 @@
+[
+  {
+    "id": 1,
+    "nom": "Brasserie Côté Océan",
+    "contact": "Chloé Houblon",
+    "email": "contact@brasserie-ocean.fr",
+    "telephone": "609090909",
+    "adresse": "5 quai des Brasseurs",
+    "code_postal": "40130",
+    "ville": "Capbreton",
+    "categorie_id": null,
+    "referent_id": null,
+    "label": null,
+    "remote_uuid": "fef8e326-6865-4dc7-9e9e-dbf83289abd5"
+  },
+  {
+    "id": 2,
+    "nom": "Fromagerie du Marensin",
+    "contact": "Pauline Fromage",
+    "email": "contact@fromagerie-marensin.fr",
+    "telephone": "610101010",
+    "adresse": "8 rue des Alpages",
+    "code_postal": "40230",
+    "ville": "Saint-Vincent-de-Tyrosse",
+    "categorie_id": null,
+    "referent_id": null,
+    "label": null,
+    "remote_uuid": "d7701a78-caa4-4d86-87e9-c316add2fdde"
+  },
+  {
+    "id": 3,
+    "nom": "Le Verger des Landes",
+    "contact": "Martin Fruit",
+    "email": "contact@verger-landes.fr",
+    "telephone": "608080808",
+    "adresse": "22 route des Vergers",
+    "code_postal": "40150",
+    "ville": "Soustons",
+    "categorie_id": null,
+    "referent_id": null,
+    "label": null,
+    "remote_uuid": "19a68f88-dfba-4b25-a6af-63b2a973cf3a"
+  },
+  {
+    "id": 4,
+    "nom": "Les Jardins d'Azur",
+    "contact": "Léa Légume",
+    "email": "contact@jardins-azur.fr",
+    "telephone": "607070707",
+    "adresse": "10 chemin des Potagers",
+    "code_postal": "40140",
+    "ville": "Azur",
+    "categorie_id": null,
+    "referent_id": null,
+    "label": null,
+    "remote_uuid": "ce2fa6cf-b20b-46bf-a3c2-52f527cfcf50"
+  },
+  {
+    "id": 5,
+    "nom": "Pasta della Landa",
+    "contact": "Marco Pasta",
+    "email": "contact@pastadellalanda.fr",
+    "telephone": "611111111",
+    "adresse": "12 avenue des Italiens",
+    "code_postal": "40100",
+    "ville": "Dax",
+    "categorie_id": null,
+    "referent_id": null,
+    "label": null,
+    "remote_uuid": "b12991bd-1205-437f-a37d-b7542224361c"
+  }
+]

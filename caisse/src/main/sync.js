@@ -419,7 +419,6 @@ async function pullRefs({ since = null } = {}) {
           nom = ?,
           reference = ?,
           prix = ?,
-          stock = ?,
           code_barre = ?,
           unite_id = ?,
           fournisseur_id = ?,
@@ -493,12 +492,11 @@ async function pullRefs({ since = null } = {}) {
           const existing = checkStmt.get(p.id);
           if (existing) {
             // Toujours mettre à jour depuis le serveur (source de vérité pour nom, prix, etc.)
-            // Le stock sera recalculé depuis stock_movements après le pull
+            // ⚠️ Le stock n'est JAMAIS mis à jour ici - géré exclusivement via stock_movements
             updateStmt.run(
               p.nom,
               reference,
               Number(p.prix || 0),
-              Number(p.stock || 0),
               p.code_barre || null,
               uniteIdLocal,
               fournisseurIdLocal,
@@ -506,13 +504,13 @@ async function pullRefs({ since = null } = {}) {
               p.id  // WHERE remote_uuid = ?
             );
           } else {
-            // Insertion
+            // Insertion avec stock=0 (sera recalculé par stock_movements)
             insertStmt.run(
               p.id,           // remote_uuid
               p.nom,
               reference,
               Number(p.prix || 0),
-              Number(p.stock || 0),
+              0,              // stock toujours 0 à l'insertion, recalculé après
               p.code_barre || null,
               uniteIdLocal,
               fournisseurIdLocal,
@@ -543,6 +541,13 @@ async function pullRefs({ since = null } = {}) {
     
       for (const m of stock_movements) {
         try {
+          // Vérifier si le mouvement existe déjà (par son UUID serveur) - AVANT toute autre opération
+          const exists = checkMovement.get(m.id);
+          if (exists) {
+            // Mouvement déjà présent, on skip
+            continue;
+          }
+        
           // Résoudre le produit_id local
           const produitLocal = getProduitIdByUuid.get(m.produit_id);
           if (!produitLocal) {
@@ -550,11 +555,7 @@ async function pullRefs({ since = null } = {}) {
             continue;
           }
         
-          // Vérifier si le mouvement existe déjà (par son UUID serveur)
-          const exists = checkMovement.get(m.id);
-          if (exists) continue;
-        
-          // Insérer le mouvement
+          // Insérer le mouvement (sans OR IGNORE car on a déjà checké)
           insertMovement.run(
             produitLocal.id,         // ID local du produit
             Number(m.delta || 0),
@@ -781,21 +782,61 @@ async function pullVentes({ since = null } = {}) {
     if (ventes.length > 0) {
       const checkVente = db.prepare('SELECT 1 FROM ventes WHERE remote_uuid = ?');
       const insertVente = db.prepare(`
-        INSERT OR IGNORE INTO ventes (remote_uuid, adherent_id, date, montant, mode_paiement_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO ventes (remote_uuid, adherent_id, date_vente, total, mode_paiement_id, sale_type, client_email, frais_paiement, cotisation, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const updateVente = db.prepare(`
-        UPDATE ventes SET adherent_id = ?, date = ?, montant = ?, mode_paiement_id = ?, updated_at = ?
+        UPDATE ventes SET adherent_id = ?, date_vente = ?, total = ?, mode_paiement_id = ?, sale_type = ?, client_email = ?, frais_paiement = ?, cotisation = ?, updated_at = ?
         WHERE remote_uuid = ? AND updated_at < ?
       `);
 
       for (const v of ventes) {
         try {
+          // Vérifier que les FK existent
+          if (v.adherent_id) {
+            const adherentExists = db.prepare('SELECT 1 FROM adherents WHERE remote_uuid = ?').get(v.adherent_id);
+            if (!adherentExists) {
+              logger.warn('sync', 'Adhérent manquant pour vente', { vente_id: v.id, adherent_id: v.adherent_id });
+              continue;
+            }
+          }
+          if (v.mode_paiement_id) {
+            const modeExists = db.prepare('SELECT 1 FROM modes_paiement WHERE remote_uuid = ?').get(v.mode_paiement_id);
+            if (!modeExists) {
+              logger.warn('sync', 'Mode paiement manquant pour vente', { vente_id: v.id, mode_paiement_id: v.mode_paiement_id });
+              continue;
+            }
+          }
+
           const exists = checkVente.get(v.id);
           if (exists) {
-            updateVente.run(v.adherent_id, v.date, v.montant, v.mode_paiement_id, v.updated_at, v.id, v.updated_at);
+            updateVente.run(
+              v.adherent_id, 
+              v.date_vente || v.created_at, 
+              v.total, 
+              v.mode_paiement_id, 
+              v.sale_type || 'adherent', 
+              v.client_email, 
+              v.frais_paiement || 0, 
+              v.cotisation || 0, 
+              v.updated_at, 
+              v.id, 
+              v.updated_at
+            );
           } else {
-            insertVente.run(v.id, v.adherent_id, v.date, v.montant, v.mode_paiement_id, v.created_at, v.updated_at);
+            insertVente.run(
+              v.id, 
+              v.adherent_id, 
+              v.date_vente || v.created_at, 
+              v.total, 
+              v.mode_paiement_id, 
+              v.sale_type || 'adherent', 
+              v.client_email, 
+              v.frais_paiement || 0, 
+              v.cotisation || 0, 
+              v.created_at, 
+              v.updated_at
+            );
           }
           ventesImported++;
         } catch (e) {

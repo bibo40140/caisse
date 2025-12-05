@@ -1,0 +1,83 @@
+[
+  {
+    "id": 1,
+    "reception_id": 1,
+    "produit_id": 4,
+    "quantite": 12,
+    "prix_unitaire": 3,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  },
+  {
+    "id": 2,
+    "reception_id": 1,
+    "produit_id": 5,
+    "quantite": 12,
+    "prix_unitaire": 4,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  },
+  {
+    "id": 3,
+    "reception_id": 1,
+    "produit_id": 6,
+    "quantite": 12,
+    "prix_unitaire": 5,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  },
+  {
+    "id": 4,
+    "reception_id": 1,
+    "produit_id": 8,
+    "quantite": 12,
+    "prix_unitaire": 3,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  },
+  {
+    "id": 5,
+    "reception_id": 1,
+    "produit_id": 9,
+    "quantite": 12,
+    "prix_unitaire": 4,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  },
+  {
+    "id": 6,
+    "reception_id": 1,
+    "produit_id": 10,
+    "quantite": 12,
+    "prix_unitaire": 5,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  },
+  {
+    "id": 7,
+    "reception_id": 1,
+    "produit_id": 11,
+    "quantite": 12,
+    "prix_unitaire": 3,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  },
+  {
+    "id": 8,
+    "reception_id": 1,
+    "produit_id": 18,
+    "quantite": 12,
+    "prix_unitaire": 4,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  },
+  {
+    "id": 9,
+    "reception_id": 1,
+    "produit_id": 19,
+    "quantite": 12,
+    "prix_unitaire": 5,
+    "updated_at": "2025-12-05 09:25:33",
+    "remote_uuid": null
+  }
+]

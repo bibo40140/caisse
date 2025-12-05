@@ -1,0 +1,58 @@
+[
+  {
+    "id": "93c3cee2-3ca4-40e8-8dfa-cd4690a6e12a",
+    "tenant_id": "d8ecd23f-1513-463d-be4d-f8e4d7372a46",
+    "email": "fabien.hicauber@gmail.com",
+    "password_hash": "$2b$10$LYLGAa/8dFXDLu8sh.u7Vemjtg3EOwoUjCpjGfP8ePGykDBHVWQm2",
+    "role": "admin",
+    "created_at": "2025-11-24T16:04:30.345Z"
+  },
+  {
+    "id": "704944d8-940b-49c7-b1ad-f656da7e406e",
+    "tenant_id": "e4ced87c-721d-43de-b8a5-fd5a5aa1df5b",
+    "email": "guilhem@coopaz.fr",
+    "password_hash": "$2b$10$MnIpO4Ot1tt4.elvCbg/k.ybHW9Uwm5naZdIHsWIN7el7GgYgyd7W",
+    "role": "admin",
+    "created_at": "2025-12-02T15:23:15.280Z"
+  },
+  {
+    "id": "581197bf-5b3c-4289-adda-a20fa82dc4d2",
+    "tenant_id": "fff2f274-cf04-446d-9880-1a81567c2972",
+    "email": "test@admin.fr",
+    "password_hash": "$2b$10$yD5yQMMzPt9rFPRPYMRVtu/V/yxl/tuUyZymatvEpUX9MZWMQnwLC",
+    "role": "admin",
+    "created_at": "2025-12-02T16:05:22.202Z"
+  },
+  {
+    "id": "4188de7f-3a68-43ae-bba2-09ad801d90bc",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "email": "test@utilisateur.fr",
+    "password_hash": "$2b$10$TSVBAED1/CU4vaxM760u8.AWF8Q369uP9Apif6N7OuJo4bveWIqH2",
+    "role": "admin",
+    "created_at": "2025-12-02T16:05:47.347Z"
+  },
+  {
+    "id": "06387199-69b4-45b7-ac81-aa71690f7832",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "email": "test2",
+    "password_hash": "$2b$10$0FGaPUQdmoTDAxWhNUT/FurnOptWO0Y7ZzbxLNPynyAGG6uMjBLpW",
+    "role": "admin",
+    "created_at": "2025-12-04T18:30:50.954Z"
+  },
+  {
+    "id": "c9c68313-4b2e-4e1c-85cc-b0f089c9daab",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "email": "test3",
+    "password_hash": "$2b$10$19/eEmuOnddUiwvdYL.2A.beap.xMYHR38tj40.OA5as5DT54eHry",
+    "role": "admin",
+    "created_at": "2025-12-04T18:52:12.185Z"
+  },
+  {
+    "id": "04134661-1130-4a88-afb6-06ecfa08b963",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "email": "test",
+    "password_hash": "$2b$10$PqlNkC.y4so09WQeURYAJuELBey16Arn6iXAeer9el5egBqjKA.py",
+    "role": "admin",
+    "created_at": "2025-12-04T20:46:18.089Z"
+  }
+]

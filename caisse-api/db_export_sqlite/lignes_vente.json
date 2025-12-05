@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1,
+    "vente_id": 1,
+    "produit_id": 7,
+    "quantite": 1,
+    "prix": 12,
+    "prix_unitaire": 12,
+    "remise_percent": 0,
+    "updated_at": "2025-12-05 09:12:43",
+    "remote_uuid": null
+  }
+]

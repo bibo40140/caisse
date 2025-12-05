@@ -1,0 +1,22 @@
+[
+  {
+    "id": "3ee2af04-ab2a-4953-a91d-e557c0d76cd4",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "vente_id": "a0aafdf8-7d2d-4ef4-9561-22c94d38efb4",
+    "produit_id": "a2dc87f9-02aa-42ea-a63c-1b6b0f10758d",
+    "quantite": "1.000",
+    "prix": "3.00",
+    "prix_unitaire": "3.00",
+    "remise_percent": "0.00"
+  },
+  {
+    "id": "3baed574-5c9e-4463-b0f7-f531067187dd",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "vente_id": "66ca4556-5c8c-4cf4-a158-24613c59be5b",
+    "produit_id": "a2dc87f9-02aa-42ea-a63c-1b6b0f10758d",
+    "quantite": "1.000",
+    "prix": "12.00",
+    "prix_unitaire": "12.00",
+    "remise_percent": "0.00"
+  }
+]

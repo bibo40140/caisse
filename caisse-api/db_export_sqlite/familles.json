@@ -1,0 +1,67 @@
+[
+  {
+    "id": 1,
+    "nom": "Animaux",
+    "remote_uuid": "e21ce9b3-9db3-4b47-97d8-6d110923f601"
+  },
+  {
+    "id": 2,
+    "nom": "Boissons",
+    "remote_uuid": "7d9a1645-7417-457f-b3e5-728bb3f5c0d7"
+  },
+  {
+    "id": 3,
+    "nom": "Boucherie / Charcuterie / Poissonnerie",
+    "remote_uuid": "9336ca88-772f-4765-88b4-eb4915bb2a4e"
+  },
+  {
+    "id": 4,
+    "nom": "Boulangerie",
+    "remote_uuid": "e9a747fe-f134-47a0-969a-2ee84b2bb1e1"
+  },
+  {
+    "id": 5,
+    "nom": "Bébé & Enfant",
+    "remote_uuid": "09792dd5-11e0-46f7-bb9f-8fbe972f1d15"
+  },
+  {
+    "id": 6,
+    "nom": "Crèmerie & Œufs",
+    "remote_uuid": "fa767c8f-a698-441f-b1f9-39a55d8c01a8"
+  },
+  {
+    "id": 7,
+    "nom": "Fruits & Légumes (frais)",
+    "remote_uuid": "1acb73fb-e312-4118-a10a-94c807d79f76"
+  },
+  {
+    "id": 8,
+    "nom": "Hygiène & Entretien",
+    "remote_uuid": "83e994b6-9d40-4d4f-86ea-8beec4c1875f"
+  },
+  {
+    "id": 9,
+    "nom": "Local / Saisonnier",
+    "remote_uuid": "7a5f6390-c81a-40fc-9ee4-9acfa9d2e397"
+  },
+  {
+    "id": 10,
+    "nom": "Surgelés",
+    "remote_uuid": "bba57452-2b6b-4e96-a484-00aa310ca075"
+  },
+  {
+    "id": 11,
+    "nom": "VRAC",
+    "remote_uuid": "21b44e51-a703-4621-a83a-bcd06fa08645"
+  },
+  {
+    "id": 12,
+    "nom": "Épicerie salée",
+    "remote_uuid": "49a6ad68-940a-4081-959f-79835504f627"
+  },
+  {
+    "id": 13,
+    "nom": "Épicerie sucrée",
+    "remote_uuid": "472398e4-031a-4ad4-8e37-db74f4e1f470"
+  }
+]

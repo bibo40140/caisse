@@ -1,23 +1,22 @@
 {
   "modules": {
-    "cotisations": true,
-    "emails": true,
-    "prospects": false,
-    "inventaire": true,
-    "adherents": true,
-    "email": true,
-    "receptions": true,
-    "ventes_exterieur": false,
+    "email": false,
+    "emails": false,
     "stocks": true,
     "exports": false,
+    "adherents": true,
+    "prospects": false,
+    "emailAdmin": false,
+    "inventaire": false,
     "multiusers": false,
+    "cotisations": true,
     "fournisseurs": true,
+    "statistiques": true,
     "modes_paiement": true,
-    "emailAdmin": true,
-    "statistiques": true
+    "ventes_exterieur": true,
+    "receptions": true
   },
   "ventes_exterieur_margin_percent": 30,
-  "api_base_url": "https://caisse-api.onrender.com",
-  "last_email": "azeqsd",
+  "last_email": "test",
   "auth_token": null
 }

@@ -1,0 +1,226 @@
+[
+  {
+    "id": "bb1370ae-dd65-4859-970b-6c42ff412e91",
+    "tenant_id": "d8ecd23f-1513-463d-be4d-f8e4d7372a46",
+    "nom": "Espèces",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "0b8ee1ef-2ae2-4fe0-a162-59ff29830d06",
+    "tenant_id": "d8ecd23f-1513-463d-be4d-f8e4d7372a46",
+    "nom": "CB",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "25141bcc-0316-462d-ab20-a256a15f579e",
+    "tenant_id": "d8ecd23f-1513-463d-be4d-f8e4d7372a46",
+    "nom": "Chèque",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "52202194-0b29-4480-bbf8-a08bb6d69157",
+    "tenant_id": "d8ecd23f-1513-463d-be4d-f8e4d7372a46",
+    "nom": "Virement",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "302fdc32-e4cf-4d70-a83c-e69525e1a919",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "nom": "CB",
+    "taux_percent": "0.550",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "1813686b-c61a-4805-a7d8-14ee1e22d1e0",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "nom": "Chèque",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "ff5f7d04-a48c-45ce-8a2a-712de40156fc",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "nom": "Espèces",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "7a9d53cd-c6d6-4022-8edd-6feebba350df",
+    "tenant_id": "fc162437-bfe9-4eb6-acf7-3156076216e5",
+    "nom": "Virement",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "f839253a-18e5-459d-9dc1-fdc8fc92d723",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "nom": "CB",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "7951d997-3d28-4f72-a6f2-00e870f020b7",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "nom": "Chèque",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "2e99b77f-9031-4299-889c-0b34170e5d95",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "nom": "Espèces",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "6ac437d4-fee1-4e81-9253-3b5d2146e8e4",
+    "tenant_id": "f2dcebd1-b710-48a3-b2cb-675f5bc9f184",
+    "nom": "Virement",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "55e3dc19-23b7-4991-80fa-25d4987412e2",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "nom": "Espèces",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "984ea0f7-1f99-4cf6-9f82-6515495a8d7d",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "nom": "CB",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "a7a27683-c2d3-4ac5-86fe-64f83ec9efd9",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "nom": "Chèque",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "b6d1ff0c-9f3a-42b1-b0fe-3789e3fae6c9",
+    "tenant_id": "d3c65156-9c17-471b-b9f2-3a471fb8a6d1",
+    "nom": "Virement",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "51658058-4acb-49d0-bb4e-8b54f5494b95",
+    "tenant_id": "e4ced87c-721d-43de-b8a5-fd5a5aa1df5b",
+    "nom": "Espèces",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "8b703864-e522-4a01-9c69-afd63d8d4857",
+    "tenant_id": "e4ced87c-721d-43de-b8a5-fd5a5aa1df5b",
+    "nom": "CB",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "ce3605d6-ea99-4ac5-b03b-c2cd5b672579",
+    "tenant_id": "e4ced87c-721d-43de-b8a5-fd5a5aa1df5b",
+    "nom": "Chèque",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "090f4ded-4a42-45e4-805d-961b2e96625d",
+    "tenant_id": "e4ced87c-721d-43de-b8a5-fd5a5aa1df5b",
+    "nom": "Virement",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "20dd9b84-6099-4d69-9edb-7d7cc6da85f4",
+    "tenant_id": "fff2f274-cf04-446d-9880-1a81567c2972",
+    "nom": "Espèces",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "e95dea6d-05eb-4f74-8329-b86cbdd86948",
+    "tenant_id": "fff2f274-cf04-446d-9880-1a81567c2972",
+    "nom": "CB",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "34a24141-817b-4b8e-94a1-4e6f61e20b23",
+    "tenant_id": "fff2f274-cf04-446d-9880-1a81567c2972",
+    "nom": "Chèque",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "e1108260-bed1-4ad4-b35d-2f639f0154dc",
+    "tenant_id": "fff2f274-cf04-446d-9880-1a81567c2972",
+    "nom": "Virement",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "c24d12ed-51d9-4f86-9ab8-61f8b8a9044b",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "nom": "Espèces",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "39b62c8c-8c87-47c6-af11-aa6687bb8650",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "nom": "CB",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "b9aedcf1-c41a-467c-af31-c1cd607cd5aa",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "nom": "Chèque",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  },
+  {
+    "id": "ee92c5b4-186c-4ad0-8762-135ce1cb8a85",
+    "tenant_id": "59bef0ac-a444-4301-902a-581e7a0231c8",
+    "nom": "Virement",
+    "taux_percent": "0.000",
+    "frais_fixe": "0.00",
+    "actif": true
+  }
+]

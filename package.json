@@ -25,6 +25,10 @@
     "bcryptjs": "^3.0.2",
     "chalk": "^5.6.2",
     "dotenv": "^17.2.3",
+    "electron-rebuild": "^3.2.9",
     "pg": "^8.16.3"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.7"
   }
 }

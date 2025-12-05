@@ -1094,7 +1094,7 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
     
     // Récupérer les ventes avec pagination
     let ventesQuery = `
-      SELECT id, adherent_id, date_vente, montant, mode_paiement_id, created_at, updated_at
+      SELECT id, adherent_id, date_vente, total, mode_paiement_id, created_at, updated_at
       FROM ventes
       WHERE tenant_id = $1
     `;
@@ -1168,7 +1168,7 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 app.get('/sync/pull_receptions', authRequired, async (req, res) => {
   const startTime = Date.now(); // 📊 Performance monitoring
-  const tenantId = req.user?.tenantId;
+  const tenantId = req.user?.tenant_id || req.tenantId;
   if (!tenantId) return res.status(401).json({ ok: false, error: 'Tenant requis' });
 
   const since = req.query.since || null;
@@ -1199,7 +1199,7 @@ app.get('/sync/pull_receptions', authRequired, async (req, res) => {
     
     // Récupérer les réceptions avec pagination
     let receptionsQuery = `
-      SELECT id, fournisseur_id, date, reference, updated_at
+      SELECT id, fournisseur_id, date_reception, reference, updated_at
       FROM receptions
       WHERE tenant_id = $1
     `;
@@ -1212,7 +1212,7 @@ app.get('/sync/pull_receptions', authRequired, async (req, res) => {
       paramIndex++;
     }
     
-    receptionsQuery += ` ORDER BY date, id LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    receptionsQuery += ` ORDER BY date_reception, id LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     receptionsParams.push(safeLimit, offset);
     
     const receptionsRes = await client.query(receptionsQuery, receptionsParams);
@@ -1300,7 +1300,6 @@ async function handleProductCreated(client, tenantId, p) {
   }
 
   const prix      = Number(p.prix ?? 0);
-  const stock     = Number(p.stock ?? 0);
   const codeBarre = p.code_barre || null;
   // Foreign key fields - expect UUID values from client
   const uniteId       = p.unite_id || null;
@@ -1322,11 +1321,10 @@ async function handleProductCreated(client, tenantId, p) {
         categorie_id,
         updated_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+      VALUES ($1,$2,$3,$4,0,$5,$6,$7,$8,now())
       ON CONFLICT (tenant_id, reference) DO UPDATE SET
         nom            = EXCLUDED.nom,
         prix           = EXCLUDED.prix,
-        stock          = EXCLUDED.stock,
         code_barre     = EXCLUDED.code_barre,
         unite_id       = EXCLUDED.unite_id,
         fournisseur_id = EXCLUDED.fournisseur_id,
@@ -1334,7 +1332,7 @@ async function handleProductCreated(client, tenantId, p) {
         updated_at     = now()
       RETURNING id
       `,
-      [tenantId, nom, reference, prix, stock, codeBarre, uniteId, fournisseurId, categorieId]
+      [tenantId, nom, reference, prix, codeBarre, uniteId, fournisseurId, categorieId]
     );
 
     const remoteId = res.rows?.[0]?.id || null;
@@ -1344,7 +1342,6 @@ async function handleProductCreated(client, tenantId, p) {
       reference,
       nom,
       prix,
-      stock,
     });
 
     // ⚠️ NE PAS créer de mouvement de stock ici - géré exclusivement par inventory.adjust
@@ -1539,15 +1536,20 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
         payloadObj
       );
 
-      // Enregistre l'op dans la table ops (idempotent)
+      // 🔥 Créer un SAVEPOINT avant chaque opération pour éviter que les erreurs abortent toute la transaction
+      const savepointName = `op_${op.id.replace(/-/g, '_')}`;
+      await client.query(`SAVEPOINT ${savepointName}`);
+
       try {
-        await client.query(
-          `
-          INSERT INTO ops (id, tenant_id, device_id, op_type, entity_type, entity_id, payload)
-          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
-          ON CONFLICT (id) DO NOTHING
-          `,
-          [
+        // Enregistre l'op dans la table ops (idempotent)
+        try {
+          await client.query(
+            `
+            INSERT INTO ops (id, tenant_id, device_id, op_type, entity_type, entity_id, payload)
+            VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+            ON CONFLICT (id) DO NOTHING
+            `,
+            [
             op.id,
             tenantId,
             deviceId,
@@ -2294,14 +2296,25 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
         default:
           console.log('    [?] op ignorée', op.op_type);
           break;
-      }
+        }
 
-      try {
-        await client.query(`UPDATE ops SET applied_at = now() WHERE id=$1`, [
-          op.id,
-        ]);
-      } catch (e) {
-        if (e?.code !== '42P01') throw e;
+        // Marquer l'opération comme appliquée
+        try {
+          await client.query(`UPDATE ops SET applied_at = now() WHERE id=$1`, [
+            op.id,
+          ]);
+        } catch (e) {
+          if (e?.code !== '42P01') throw e;
+        }
+
+        // 🔥 Valider le SAVEPOINT si tout s'est bien passé
+        await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+
+      } catch (opError) {
+        // 🔥 En cas d'erreur, rollback au SAVEPOINT et continuer avec les autres ops
+        console.warn(`    [!] Erreur opération ${op.op_type}, rollback au savepoint:`, opError.message || opError);
+        await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+        // On continue avec les autres opérations
       }
     }
 
