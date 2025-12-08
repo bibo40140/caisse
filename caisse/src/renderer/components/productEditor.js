@@ -53,7 +53,7 @@
       categorie_id:    initialProduct.categorie_id ?? initialProduct.categorie_produit_id ?? null,
       prix:            Number(initialProduct.prix ?? 0),
       stock:           Number(initialProduct.stock ?? 0),
-      code_barre:      initialProduct.code_barre ?? initialProduct.code_barres ?? '',
+      code_barre:      initialProduct.code_barre ?? initialProduct.code_barre ?? '',
       unite_id:        initialProduct.unite_id ?? null,
       // au cas où seul le libellé d’unité est présent
       unite:           initialProduct.unite ?? null,

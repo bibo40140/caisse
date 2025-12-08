@@ -37,7 +37,7 @@ if (!TOKEN) {
         op_type: 'inventory.count_add',
         entity_type: 'inventory',
         entity_id: String(localSessionId),
-        payload_json: JSON.stringify({ session_id: localSessionId, local_product_id: 1, qty: 2, device_id: deviceId, user: 'tester' })
+        payload_json: JSON.stringify({ session_id: localSessionId, local_produit_id: 1, qty: 2, device_id: deviceId, user: 'tester' })
       },
       {
         id: randomUUID(),

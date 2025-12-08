@@ -310,7 +310,7 @@ async function tryCall(fn, label, record) {
     }
     const r = await http.post(
       "/inventory/count",
-      { sessionId, product_id: produitId, qty: 1, user: "E2E" },
+      { sessionId, produit_id: produitId, qty: 1, user: "E2E" },
       bearer(tenantToken)
     );
     return r.data;

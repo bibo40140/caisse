@@ -259,7 +259,7 @@ function tableLine(step, status, details = "") {
   await tolerantCall(async () => {
     return http.post(
       "/inventory/count",
-      { sessionId, product_id: produitId, qty: 2, user: "E2E" },
+      { sessionId, produit_id: produitId, qty: 2, user: "E2E" },
       bearer(token)
     );
   }, "POST /inventory/count (+2)", r10b);

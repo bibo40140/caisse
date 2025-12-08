@@ -224,8 +224,8 @@ function printAndWrite(RUN, extras = []) {
 
   const r9b = add("inventory-counts");
   await tolerantCall(async () => {
-    await http.post("/inventory/count", { sessionId, product_id: produitId1, qty: 2, user: "E2E" }, bearer(token));
-    return http.post("/inventory/count", { sessionId, product_id: produitId2, qty: -1, user: "E2E" }, bearer(token));
+    await http.post("/inventory/count", { sessionId, produit_id: produitId1, qty: 2, user: "E2E" }, bearer(token));
+    return http.post("/inventory/count", { sessionId, produit_id: produitId2, qty: -1, user: "E2E" }, bearer(token));
   }, "POST /inventory/count (p1:+2, p2:-1)", r9b);
 
   const r9c = add("inventory-finalize");

@@ -59,7 +59,7 @@
 **Code original (INCORRECT) :**
 ```javascript
 const produits = await pool.query(
-  `SELECT id, nom, code_barre, code_barres, stock, prix
+  `SELECT id, nom, code_barre, code_barre, stock, prix
    FROM produits
    WHERE tenant_id = $1 AND deleted IS NOT TRUE
    ORDER BY nom`,
@@ -74,7 +74,7 @@ const produits = await pool.query(
 **Solution V5 :**
 ```javascript
 const produits = await pool.query(
-  `SELECT id, nom, code_barre, code_barres, stock, prix, fournisseur_id, categorie_id
+  `SELECT id, nom, code_barre, code_barre, stock, prix, fournisseur_id, categorie_id
    FROM produits
    WHERE tenant_id = $1 AND deleted IS NOT TRUE
    ORDER BY nom`,
@@ -199,7 +199,7 @@ if (countedLines.length > 0) {
 
 **Ligne 193 :** Requête SELECT enrichie
 ```sql
-SELECT id, nom, code_barre, code_barres, stock, prix, fournisseur_id, categorie_id
+SELECT id, nom, code_barre, code_barre, stock, prix, fournisseur_id, categorie_id
 FROM produits
 WHERE tenant_id = $1 AND deleted IS NOT TRUE
 ORDER BY nom
@@ -208,7 +208,7 @@ ORDER BY nom
 **Ligne 207 :** Objet retourné enrichi
 ```javascript
 return {
-  product_id: p.id,
+  produit_id: p.id,
   // ... autres champs ...
   fournisseur_id: p.fournisseur_id || null,
   categorie_id: p.categorie_id || null,
@@ -417,7 +417,7 @@ Exécuter les 5 tests documentés ci-dessus.
 
 ```
 Terminal-A (DEVICE_ID=Terminal-A)
-    ↓ POST /inventory/:session/count-add { product_id, qty: 5, device_id }
+    ↓ POST /inventory/:session/count-add { produit_id, qty: 5, device_id }
     ↓
 Neon PostgreSQL (inventory_counts table)
     - session_id, produit_id, device_id, qty

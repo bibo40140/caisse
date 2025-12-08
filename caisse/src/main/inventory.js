@@ -64,11 +64,11 @@ function registerInventoryHandlers() {
   });
 
   // Ajouter (cumuler) une quantité scannée pour un produit depuis CE poste
-  ipcMain.handle('inventory:countAdd', async (_evt, { sessionId, product_id, qty, user } = {}) => {
-    const payload = { product_id: Number(product_id), qty: Number(qty), device_id: DEVICE_ID, user: user || null };
+  ipcMain.handle('inventory:countAdd', async (_evt, { sessionId, produit_id, qty, user } = {}) => {
+    const payload = { produit_id: Number(produit_id), qty: Number(qty), device_id: DEVICE_ID, user: user || null };
     const r = await apiPost(`/inventory/${Number(sessionId)}/count-add`, payload);
     // rafraîchir live summary côté renderer si besoin
-    notifyRenderer('inventory:count-updated', { sessionId, product_id, qty });
+    notifyRenderer('inventory:count-updated', { sessionId, produit_id, qty });
     return r;
   });
 

@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   delta       REAL NOT NULL,
   source      TEXT NOT NULL,       -- 'sale_line' | 'reception_line' | 'inventory_adjust' | ...
   source_id   TEXT,
+  meta        TEXT,                -- JSON metadata
   created_at  TEXT DEFAULT (datetime('now','localtime')),
   FOREIGN KEY (produit_id) REFERENCES produits(id) ON DELETE CASCADE
 );

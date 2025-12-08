@@ -24,8 +24,8 @@
 - ✅ Agrégation multi-devices avec `device_id`
 
 **Schéma Neon Aligné:**
-- Colonne `produit_id` (pas `product_id`) dans toutes les tables
-- API accepte `product_id` dans body pour compatibilité, convertit en `produit_id` en interne
+- Colonne `produit_id` (pas `produit_id`) dans toutes les tables
+- API accepte `produit_id` dans body pour compatibilité, convertit en `produit_id` en interne
 
 ---
 
@@ -298,10 +298,10 @@ ops_queue (opType='inventory.finalize', payload={session_id, ...})
 curl POST /inventory/start → session_id: XXX
 
 # Terminal B (après sync)
-curl POST /inventory/XXX/count-add -d '{"product_id":"...", "qty":10, "device_id":"B"}'
+curl POST /inventory/XXX/count-add -d '{"produit_id":"...", "qty":10, "device_id":"B"}'
 
 # Terminal A
-curl POST /inventory/XXX/count-add -d '{"product_id":"...", "qty":5, "device_id":"A"}'
+curl POST /inventory/XXX/count-add -d '{"produit_id":"...", "qty":5, "device_id":"A"}'
 
 # Vérifier agrégation
 curl GET /inventory/XXX/summary → counted_total: 15

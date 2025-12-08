@@ -43,27 +43,27 @@ router.post('/inventory/start', authRequired, async (req, res) => {
 
 /**
  * POST /inventory/count
- * body: { sessionId, product_id, qty, user? }
+ * body: { sessionId, produit_id, qty, user? }
  *
  * Table attendue (même schéma que ton fichier inventory_extra.js) :
  *   inventory_counts(id UUID PK DEFAULT gen_random_uuid(),
  *                    session_id BIGINT, tenant_id UUID,
- *                    product_id BIGINT, qty NUMERIC,
+ *                    produit_id BIGINT, qty NUMERIC,
  *                    user_label TEXT, created_at TIMESTAMPTZ DEFAULT now())
  */
 router.post('/inventory/count', authRequired, async (req, res) => {
   const tenantId = req.user?.tenant_id;
-  const { sessionId, product_id, qty, user = null } = req.body || {};
+  const { sessionId, produit_id, qty, user = null } = req.body || {};
 
-  if (!tenantId || !sessionId || !product_id || !Number.isFinite(Number(qty))) {
+  if (!tenantId || !sessionId || !produit_id || !Number.isFinite(Number(qty))) {
     return res.status(400).json({ error: 'champs requis' });
   }
 
   try {
     await pool.query(
-      `INSERT INTO inventory_counts (session_id, tenant_id, product_id, qty, user_label)
+      `INSERT INTO inventory_counts (session_id, tenant_id, produit_id, qty, user_label)
        VALUES ($1, $2, $3, $4, $5)`,
-      [Number(sessionId), tenantId, Number(product_id), Number(qty), user]
+      [Number(sessionId), tenantId, Number(produit_id), Number(qty), user]
     );
     return res.json({ ok: true });
   } catch (e) {
@@ -96,10 +96,10 @@ router.post('/inventory/finalize', authRequired, async (req, res) => {
 
     // agrégat par produit
     const agg = await client.query(
-      `SELECT product_id, SUM(qty)::numeric AS counted
+      `SELECT produit_id, SUM(qty)::numeric AS counted
        FROM inventory_counts
        WHERE tenant_id=$1 AND session_id=$2
-       GROUP BY product_id`,
+       GROUP BY produit_id`,
       [tenantId, Number(sessionId)]
     );
 
@@ -110,7 +110,7 @@ router.post('/inventory/finalize', authRequired, async (req, res) => {
     for (const row of agg.rows) {
       await client.query(
         `UPDATE produits SET stock = $1 WHERE tenant_id=$2 AND id=$3`,
-        [Number(row.counted || 0), tenantId, Number(row.product_id)]
+        [Number(row.counted || 0), tenantId, Number(row.produit_id)]
       );
     }
 

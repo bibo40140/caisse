@@ -77,7 +77,7 @@ async function apiInventoryCountAdd({ sessionId, product_uuid, qty, user, device
   const res = await fetch(`${API}/inventory/${encodeURIComponent(sid)}/count-add`, {
     method: 'POST',
     headers: buildJsonHeaders(),
-    body: JSON.stringify({ product_id: product_uuid, qty, user, device_id }),
+    body: JSON.stringify({ produit_id: product_uuid, qty, user, device_id }),
   });
   if (!res.ok) {
     let body = '';
@@ -100,8 +100,8 @@ async function apiInventorySummary(sessionId) {
   return {
     raw: js,
     lines: lines.map(l => ({
-      remote_product_id: l.product_id ?? l.remote_product_id ?? l.remote_id ?? null,
-      barcode: normCode(l.barcode ?? l.code_barres ?? l.ean ?? l.code ?? ''),
+      remote_produit_id: l.produit_id ?? l.remote_produit_id ?? l.remote_id ?? null,
+      barcode: normCode(l.barcode ?? l.code_barre ?? l.ean ?? l.code ?? ''),
       counted_total: Number(l.counted_total ?? l.count ?? l.qty ?? 0),
       price: Number(l.prix ?? l.price ?? 0),
     })),
@@ -169,8 +169,8 @@ function applySummaryToLocal(lines) {
     if (!Number.isFinite(qty)) continue;
     let localId = null;
     
-    // Priorité 1: remote_product_id (UUID)
-    const rid = l.remote_product_id && String(l.remote_product_id);
+    // Priorité 1: remote_produit_id (UUID)
+    const rid = l.remote_produit_id && String(l.remote_produit_id);
     if (rid && isUuidLike(rid) && byUuid.has(rid)) {
       localId = byUuid.get(rid);
     } 
@@ -260,8 +260,8 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     if (!Number.isFinite(qty)) throw new Error('inventory:count-add BAD_ARG qty');
     if (!device_id) throw new Error('inventory:count-add BAD_ARG device_id');
 
-    const productIdInput = (payload?.product_id ?? payload?.productId ?? payload?.id);
-    if (!productIdInput) throw new Error('inventory:count-add BAD_ARG product_id requis');
+    const productIdInput = (payload?.produit_id ?? payload?.productId ?? payload?.id);
+    if (!productIdInput) throw new Error('inventory:count-add BAD_ARG produit_id requis');
 
     const db = getDb();
     const cols = listColumns('produits');
@@ -310,7 +310,7 @@ module.exports = function registerInventoryHandlers(ipcMain) {
         console.warn('[inventory] count-add API failed, will retry later:', e?.message || e);
         // Si l'API échoue, enqueue pour retry
         try {
-          enqueueOp({ deviceId: DEFAULT_DEVICE_ID, opType: 'inventory.count_add', entityType: 'inventory', entityId: sessionId, payload: { session_id: sessionId, local_product_id: localNum, product_uuid: remoteUUID, qty, user, device_id } });
+          enqueueOp({ deviceId: DEFAULT_DEVICE_ID, opType: 'inventory.count_add', entityType: 'inventory', entityId: sessionId, payload: { session_id: sessionId, local_produit_id: localNum, product_uuid: remoteUUID, qty, user, device_id } });
           return { ok: true, queued: true };
         } catch (e2) { 
           console.warn('[inventory] enqueueOp failed', e2?.message || e2);

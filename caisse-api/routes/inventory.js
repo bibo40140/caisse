@@ -11,7 +11,7 @@ const router = express.Router();
  * Crée une session d'inventaire "open" pour le tenant courant.
  * Retourne un UUID de session.
  */
-router.post('/inventory/start', authRequired, async (req, res) => {
+router.post('/start', authRequired, async (req, res) => {
   const tenantId = req.user?.tenant_id;
   if (!tenantId) return res.status(400).json({ error: 'tenant_id manquant' });
 
@@ -58,7 +58,7 @@ router.post('/inventory/start', authRequired, async (req, res) => {
  * Query params: ?status=open|closed|all (default: all)
  * Liste les sessions d'inventaire pour le tenant courant.
  */
-router.get('/inventory/sessions', authRequired, async (req, res) => {
+router.get('/sessions', authRequired, async (req, res) => {
   const tenantId = req.user?.tenant_id;
   if (!tenantId) return res.status(400).json({ error: 'tenant_id manquant' });
 
@@ -90,17 +90,17 @@ router.get('/inventory/sessions', authRequired, async (req, res) => {
 
 /**
  * POST /inventory/:sessionId/count-add
- * body: { product_id (uuid), qty (numeric), user?, device_id? }
+ * body: { produit_id (uuid), qty (numeric), user?, device_id? }
  * Ajoute un comptage pour un produit dans une session.
  * Supporte plusieurs comptages du même produit (agrégation par device).
  */
-router.post('/inventory/:sessionId/count-add', authRequired, async (req, res) => {
+router.post('/:sessionId/count-add', authRequired, async (req, res) => {
   const tenantId = req.user?.tenant_id;
   const sessionId = req.params.sessionId;
-  const { product_id: produit_id, qty, user = null, device_id = null } = req.body || {};
+  const { produit_id: produit_id, qty, user = null, device_id = null } = req.body || {};
 
   if (!tenantId || !sessionId || !produit_id || !Number.isFinite(Number(qty))) {
-    return res.status(400).json({ error: 'champs requis: sessionId, product_id, qty' });
+    return res.status(400).json({ error: 'champs requis: sessionId, produit_id, qty' });
   }
 
   const deviceIdFinal = device_id || req.headers['x-device-id'] || 'unknown';
@@ -144,7 +144,7 @@ router.post('/inventory/:sessionId/count-add', authRequired, async (req, res) =>
  * - delta (counted - stock_start)
  * Pour tous les produits du tenant (y compris ceux non comptés = 0)
  */
-router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
+router.get('/:sessionId/summary', authRequired, async (req, res) => {
   const tenantId = req.user?.tenant_id;
   const sessionId = req.params.sessionId;
 
@@ -191,7 +191,7 @@ router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
       [sessionId, tenantId]
     );
 
-    // Construire une map: product_id => { device_id => qty }
+    // Construire une map: produit_id => { device_id => qty }
     const deviceCountsMap = new Map();
     countsByDevice.rows.forEach(row => {
       if (!deviceCountsMap.has(row.produit_id)) {
@@ -202,7 +202,7 @@ router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
 
     // Récupérer tous les produits du tenant avec infos de base
     const produits = await pool.query(
-      `SELECT id, nom, code_barre, code_barres, stock, prix, fournisseur_id, categorie_id
+      `SELECT id, nom, code_barre, code_barre, stock, prix, fournisseur_id, categorie_id
        FROM produits
        WHERE tenant_id = $1 AND deleted IS NOT TRUE
        ORDER BY nom`,
@@ -217,12 +217,12 @@ router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
       const device_counts = deviceCountsMap.get(p.id) || {};
 
       return {
-        product_id: p.id,
-        remote_product_id: p.id, // Pour compat avec handler Electron
+        produit_id: p.id,
+        remote_produit_id: p.id, // Pour compat avec handler Electron
         remote_id: p.id,
         nom: p.nom,
-        barcode: p.code_barre || p.code_barres || '',
-        code_barres: p.code_barre || p.code_barres || '',
+        barcode: p.code_barre || p.code_barre || '',
+        code_barre: p.code_barre || p.code_barre || '',
         stock_start: snp.stock_start,
         counted_total: counted,
         delta: delta,
@@ -270,7 +270,7 @@ router.get('/inventory/:sessionId/summary', authRequired, async (req, res) => {
  * 4. Met à jour les stocks produits
  * 5. Ferme la session
  */
-router.post('/inventory/:sessionId/finalize', authRequired, async (req, res) => {
+router.post('/:sessionId/finalize', authRequired, async (req, res) => {
   const tenantId = req.user?.tenant_id;
   const sessionId = req.params.sessionId;
   const { user = null, email_to = null } = req.body || {};
@@ -369,7 +369,7 @@ router.post('/inventory/:sessionId/finalize', authRequired, async (req, res) => 
       // Enregistrer l'ajustement si stock initial > 0 OU comptage > 0
       if (stockStart > 0 || counted > 0) {
         adjustments.push({
-          product_id: prod.id,
+          produit_id: prod.id,
           stock_start: stockStart,
           counted_total: counted,
           delta: delta,
@@ -390,7 +390,7 @@ router.post('/inventory/:sessionId/finalize', authRequired, async (req, res) => 
            delta = EXCLUDED.delta,
            unit_cost = EXCLUDED.unit_cost,
            delta_value = EXCLUDED.delta_value`,
-        [sessionId, tenantId, adj.product_id, adj.stock_start, adj.counted_total, adj.delta, adj.unit_cost, adj.delta_value]
+        [sessionId, tenantId, adj.produit_id, adj.stock_start, adj.counted_total, adj.delta, adj.unit_cost, adj.delta_value]
       );
     }
 
@@ -426,7 +426,7 @@ router.post('/inventory/:sessionId/finalize', authRequired, async (req, res) => 
  * Retourne les comptages détaillés par device pour une session.
  * Utile pour voir qui a compté quoi sur quel poste.
  */
-router.get('/inventory/:sessionId/counts', authRequired, async (req, res) => {
+router.get('/:sessionId/counts', authRequired, async (req, res) => {
   const tenantId = req.user?.tenant_id;
   const sessionId = req.params.sessionId;
 
@@ -444,7 +444,7 @@ router.get('/inventory/:sessionId/counts', authRequired, async (req, res) => {
          ic.updated_at,
          p.nom as product_name,
          p.code_barre,
-         p.code_barres
+         p.code_barre
        FROM inventory_counts ic
        LEFT JOIN produits p ON p.id = ic.produit_id AND p.tenant_id = ic.tenant_id
        WHERE ic.session_id = $1 AND ic.tenant_id = $2

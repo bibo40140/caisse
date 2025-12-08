@@ -19,7 +19,7 @@ function formatEUR(v) {
       const s = String(v ?? '');
       return (/[",;\n]/.test(s)) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const header = ['product_id','nom','code_barre','stock_start','counted_total','ecart','prix','valeur_comptee'];
+    const header = ['produit_id','nom','code_barre','stock_start','counted_total','ecart','prix','valeur_comptee'];
     const body = (rows || []).map(r => {
       const start   = Number(r.stock_start || 0);
       const counted = Number(r.counted_total || 0);
@@ -27,7 +27,7 @@ function formatEUR(v) {
       const price   = Number(r.prix || 0);
       const val     = counted * price;
       return [
-        r.product_id,
+        r.produit_id,
         r.nom || '',
         r.code_barre || '',
         start,

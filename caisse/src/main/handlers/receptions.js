@@ -22,7 +22,7 @@ function normalizeLignes(input) {
   if (!Array.isArray(input)) return [];
   return input
     .map((l) => {
-      const produitId = Number(l.produit_id ?? l.produitId ?? l.product_id ?? l.id);
+      const produitId = Number(l.produit_id ?? l.produitId ?? l.produit_id ?? l.id);
       const quantite  = Number(l.quantite ?? l.qty ?? l.qte ?? l['quantité'] ?? 0);
 
       const puRaw = (l.prix_unitaire ?? l.pu ?? l.price);

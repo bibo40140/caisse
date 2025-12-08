@@ -24,7 +24,7 @@ function isModuleActive(moduleName) {
  * optionnels: prix_unitaire, stock_corrige
  */
 function normalizeLine(l) {
-  const produit_id = Number(l.produit_id ?? l.produitId ?? l.product_id ?? l.id);
+  const produit_id = Number(l.produit_id ?? l.produitId ?? l.produit_id ?? l.id);
   const quantite   = Number(l.quantite ?? l.qty ?? l.qte ?? 0);
 
   const puRaw = l.prix_unitaire ?? l.pu ?? l.price;
