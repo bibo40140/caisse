@@ -247,6 +247,12 @@ async function applyAdherentCreated(client, tenantId, payload, mappingsArray = n
 
   const newId = r.rows[0]?.id;
   console.log('    [+] adherent créé / réutilisé, id =', newId);
+  
+  // 🔥 Collecter le mapping si localId et mappingsArray fournis
+  if (newId && localId && mappingsArray) {
+    mappingsArray.push({ local_id: localId, remote_uuid: newId });
+  }
+  
   return newId;
 }
 /* =========================================================
