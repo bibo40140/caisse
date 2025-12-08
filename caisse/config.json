@@ -1,22 +1,23 @@
 {
   "modules": {
-    "email": false,
+    "email": true,
     "emails": true,
     "stocks": true,
-    "exports": false,
+    "exports": true,
     "adherents": true,
-    "prospects": false,
-    "emailAdmin": false,
+    "prospects": true,
+    "emailAdmin": true,
     "inventaire": true,
     "multiusers": false,
     "cotisations": true,
     "fournisseurs": true,
     "statistiques": true,
     "modes_paiement": true,
-    "ventes_exterieur": false,
+    "ventes_exterieur": true,
     "receptions": true
   },
   "ventes_exterieur_margin_percent": 30,
-  "last_email": "test",
+  "last_email": "test1",
+  "api_base_url": "http://localhost:3001",
   "auth_token": null
 }

@@ -279,8 +279,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /* -------------- Inventaire (IPC -> API) -------- */
   inventory: {
     start:     (payload) => ipcRenderer.invoke('inventory:start', payload),
-    countAdd:  ({ sessionId, product_id, qty, user, device_id }) =>
-      ipcRenderer.invoke('inventory:count-add', { sessionId, product_id, qty, user, device_id }),
+    countAdd:  ({ sessionId, produit_id, qty, user, device_id }) =>
+      ipcRenderer.invoke('inventory:count-add', { sessionId, produit_id, qty, user, device_id }),
     summary:   ({ sessionId }) => ipcRenderer.invoke('inventory:summary', { sessionId }),
     finalize:  ({ sessionId, user, email_to }) =>
       ipcRenderer.invoke('inventory:finalize', { sessionId, user, email_to }),

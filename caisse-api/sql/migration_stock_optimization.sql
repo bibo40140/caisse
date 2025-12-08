@@ -5,12 +5,12 @@
 
 -- 1. Table pour les snapshots quotidiens de stock
 CREATE TABLE IF NOT EXISTS stock_snapshots (
-  product_id UUID NOT NULL,
+  produit_id UUID NOT NULL,
   tenant_id UUID NOT NULL,
   snapshot_date DATE NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT NOW(),
-  PRIMARY KEY (product_id, tenant_id, snapshot_date)
+  PRIMARY KEY (produit_id, tenant_id, snapshot_date)
 );
 
 CREATE INDEX IF NOT EXISTS idx_stock_snapshots_tenant_date 
@@ -21,7 +21,7 @@ COMMENT ON TABLE stock_snapshots IS
 
 -- 2. Table pour le stock actuel (calculé)
 CREATE TABLE IF NOT EXISTS current_stock (
-  product_id UUID PRIMARY KEY,
+  produit_id UUID PRIMARY KEY,
   tenant_id UUID NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 0,
   last_updated TIMESTAMP DEFAULT NOW()
@@ -115,7 +115,7 @@ DECLARE
 BEGIN
   -- Si tenant_id fourni, refresh seulement ce tenant
   IF p_tenant_id IS NOT NULL THEN
-    INSERT INTO current_stock (product_id, tenant_id, quantity, last_updated)
+    INSERT INTO current_stock (produit_id, tenant_id, quantity, last_updated)
     SELECT 
       sm.produit_id,
       sm.tenant_id,
@@ -124,7 +124,7 @@ BEGIN
     FROM stock_movements sm
     WHERE sm.tenant_id = p_tenant_id
     GROUP BY sm.produit_id, sm.tenant_id
-    ON CONFLICT (product_id) DO UPDATE
+    ON CONFLICT (produit_id) DO UPDATE
     SET 
       quantity = EXCLUDED.quantity,
       last_updated = NOW();
@@ -134,7 +134,7 @@ BEGIN
   END IF;
   
   -- Sinon, refresh tous les tenants
-  INSERT INTO current_stock (product_id, tenant_id, quantity, last_updated)
+  INSERT INTO current_stock (produit_id, tenant_id, quantity, last_updated)
   SELECT 
     sm.produit_id,
     sm.tenant_id,
@@ -142,7 +142,7 @@ BEGIN
     NOW()
   FROM stock_movements sm
   GROUP BY sm.produit_id, sm.tenant_id
-  ON CONFLICT (product_id) DO UPDATE
+  ON CONFLICT (produit_id) DO UPDATE
   SET 
     quantity = EXCLUDED.quantity,
     last_updated = NOW();
@@ -164,16 +164,16 @@ DECLARE
 BEGIN
   -- Si tenant_id fourni, snapshot seulement ce tenant
   IF p_tenant_id IS NOT NULL THEN
-    INSERT INTO stock_snapshots (product_id, tenant_id, snapshot_date, quantity, created_at)
+    INSERT INTO stock_snapshots (produit_id, tenant_id, snapshot_date, quantity, created_at)
     SELECT 
-      product_id,
+      produit_id,
       tenant_id,
       v_snapshot_date,
       quantity,
       NOW()
     FROM current_stock
     WHERE tenant_id = p_tenant_id
-    ON CONFLICT (product_id, tenant_id, snapshot_date) DO UPDATE
+    ON CONFLICT (produit_id, tenant_id, snapshot_date) DO UPDATE
     SET 
       quantity = EXCLUDED.quantity,
       created_at = NOW();
@@ -183,15 +183,15 @@ BEGIN
   END IF;
   
   -- Sinon, snapshot tous les tenants
-  INSERT INTO stock_snapshots (product_id, tenant_id, snapshot_date, quantity, created_at)
+  INSERT INTO stock_snapshots (produit_id, tenant_id, snapshot_date, quantity, created_at)
   SELECT 
-    product_id,
+    produit_id,
     tenant_id,
     v_snapshot_date,
     quantity,
     NOW()
   FROM current_stock
-  ON CONFLICT (product_id, tenant_id, snapshot_date) DO UPDATE
+  ON CONFLICT (produit_id, tenant_id, snapshot_date) DO UPDATE
   SET 
     quantity = EXCLUDED.quantity,
     created_at = NOW();

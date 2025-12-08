@@ -123,7 +123,7 @@
   const singularizeStr  = (s) => normalize(s).split(/\s+/).map(singularizeWord).join(" ");
   function byName(a, b) { const an = normalize(a.nom), bn = normalize(b.nom); return an < bn ? -1 : an > bn ? 1 : 0; }
 
-  function getBarcode(p){ return (p?.code_barres ?? p?.code_barre ?? p?.barcode ?? p?.code ?? p?.ean ?? "").toString(); }
+  function getBarcode(p){ return (p?.code_barre ?? p?.code_barre ?? p?.barcode ?? p?.code ?? p?.ean ?? "").toString(); }
   function getUnitName(p, unitesById={}){ return p.unite_nom || unitesById[p.unite_id]?.nom || ""; }
   function isDecimalUnit(unit){ const u=(unit||"").toLowerCase(); return /\b(kg|kilo|kilogram|g|gram|l|litre|liter|ml|cl)\b/.test(u); }
   function parseLocaleNumber(v){ if(v===""||v===null||typeof v==="undefined") return null; return Number(String(v).replace(",", ".")); }
@@ -630,6 +630,10 @@
                   sid = session.remote_uuid || session.id;
                   sessionName = session.name;
                   setSessionId(sid);
+                  
+                  // Recharger la page pour afficher les données de la session rejointe
+                  location.reload();
+                  return;
                 }
               } else {
                 // Plusieurs sessions : permettre de choisir
@@ -649,6 +653,10 @@
                   sid = sessions[idx].remote_uuid || sessions[idx].id;
                   sessionName = sessions[idx].name;
                   setSessionId(sid);
+                  
+                  // Recharger la page pour afficher les données de la session rejointe
+                  location.reload();
+                  return;
                 }
               }
             }
@@ -742,8 +750,10 @@
               
               // Rejoindre la session choisie
               setSessionId(chosenSessionId);
-              status.show(`Session "${sessionName}" rejointe. Vous pouvez compter et clôturer.`, 'ok');
-              $apply.disabled = false;
+              status.show(`Session "${sessionName}" rejointe. Rechargement...`, 'ok');
+              
+              // Recharger la page pour afficher les données de la session rejointe
+              setTimeout(() => location.reload(), 500);
               return;
             }
           }
@@ -950,7 +960,7 @@
           if (sid) {
             $search.disabled = true;
             try {
-              await window.electronAPI.inventory.countAdd({ sessionId: sid, product_id: exact.id, qty: 1, user: currentUser });
+                    await window.electronAPI.inventory.countAdd({ sessionId: sid, produit_id: exact.id, qty: 1, user: currentUser });
               const st2 = state.get(exact.id);
               st2.prevSent = Number(st2.prevSent || 0) + 1;
               state.set(exact.id, st2);
@@ -968,7 +978,7 @@
                 try {
                   if (window.electronAPI?.ensureAuth) {
                     await window.electronAPI.ensureAuth();
-                    await window.electronAPI.inventory.countAdd({ sessionId: sid, product_id: exact.id, qty: 1, user: currentUser });
+                    await window.electronAPI.inventory.countAdd({ sessionId: sid, produit_id: exact.id, qty: 1, user: currentUser });
                     const st2b = state.get(exact.id);
                     st2b.prevSent = Number(st2b.prevSent || 0) + 1;
                     state.set(exact.id, st2b);
@@ -1021,7 +1031,7 @@
                   console.error('[inventaire] Produit sans remote_uuid, comptage impossible:', id, p?.nom);
                   throw new Error('Produit non synchronisé avec le serveur');
                 }
-                await window.electronAPI.inventory.countAdd({ sessionId: sid, product_id: product_uuid, qty: deltaToSend, user: currentUser });
+                await window.electronAPI.inventory.countAdd({ sessionId: sid, produit_id: product_uuid, qty: deltaToSend, user: currentUser });
                 st.prevSent = effective;
                 state.set(id, st);
                 
@@ -1108,11 +1118,11 @@
 
           // Filtrer les comptages pour ce produit
           const pUuid = p.remote_uuid || p.remote_id || p.neon_id;
-          const pBarcode = (p.code_barre || p.code_barres || '').replace(/\s+/g, '').trim();
+          const pBarcode = (p.code_barre || '').replace(/\s+/g, '').trim();
           
           const deviceCounts = result.counts.filter(c => {
             if (pUuid && String(c.produit_id) === String(pUuid)) return true;
-            const cBarcode = (c.code_barre || c.code_barres || '').replace(/\s+/g, '').trim();
+            const cBarcode = (c.code_barre || '').replace(/\s+/g, '').trim();
             return pBarcode && cBarcode && pBarcode === cBarcode;
           });
 
@@ -1219,8 +1229,8 @@
           const byBarcode = new Map();
           
           for (const r of (sum?.lines || [])) {
-            const remoteId = r.product_id || r.remote_product_id;
-            const barcode = (r.barcode || r.code_barres || '').replace(/\s+/g, '').trim();
+            const remoteId = r.produit_id || r.remote_produit_id;
+            const barcode = (r.barcode || r.code_barre || '').replace(/\s+/g, '').trim();
             const counted = Number(r.counted_total || 0);
             const deviceCounts = r.device_counts || {}; // NOUVEAU
             
@@ -1236,8 +1246,8 @@
           // Créer aussi un mapping par nom pour les cas où remote_uuid est absent
           const byName = new Map();
           for (const r of (sum?.lines || [])) {
-            const remoteId = r.product_id || r.remote_product_id;
-            const barcode = (r.barcode || r.code_barres || '').replace(/\s+/g, '').trim();
+            const remoteId = r.produit_id || r.remote_produit_id;
+            const barcode = (r.barcode || r.code_barre || '').replace(/\s+/g, '').trim();
             const counted = Number(r.counted_total || 0);
             const deviceCounts = r.device_counts || {};
             const nom = (r.nom || '').trim().toLowerCase();
@@ -1268,8 +1278,8 @@
               deviceCounts = data.deviceCounts;
             }
             // 3) Fallback sur barcode
-            else if (p.code_barre || p.code_barres) {
-              const pBarcode = (p.code_barre || p.code_barres || '').replace(/\s+/g, '').trim();
+            else if (p.code_barre) {
+              const pBarcode = (p.code_barre || '').replace(/\s+/g, '').trim();
               if (pBarcode && byBarcode.has(pBarcode)) {
                 const data = byBarcode.get(pBarcode);
                 remoteCounted = data.counted;

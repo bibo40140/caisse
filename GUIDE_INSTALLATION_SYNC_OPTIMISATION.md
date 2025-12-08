@@ -77,7 +77,7 @@ SELECT COUNT(*) FROM current_stock;
 -- Vérifier que le stock est bien calculé
 SELECT p.nom, cs.quantity 
 FROM current_stock cs
-JOIN produits p ON p.id = cs.product_id
+JOIN produits p ON p.id = cs.produit_id
 LIMIT 10;
 ```
 

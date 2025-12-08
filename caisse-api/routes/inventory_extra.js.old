@@ -7,14 +7,14 @@ const router = express.Router();
 
 /**
  * POST /inventory/count
- * body: { sessionId (uuid), product_id (uuid), qty (numeric), user? (string) }
+ * body: { sessionId (uuid), produit_id (uuid), qty (numeric), user? (string) }
  * - device_id: lu depuis x-device-id ou généré côté DB (DEFAULT), on n’envoie rien si tu as mis un DEFAULT en DB.
  */
 router.post('/inventory/count', authRequired, async (req, res) => {
   const tenantId = req.tenantId || req.user?.tenant_id || null;
-  const { sessionId, product_id, qty, user = null } = req.body || {};
+  const { sessionId, produit_id, qty, user = null } = req.body || {};
 
-  if (!tenantId || !sessionId || !product_id || !Number.isFinite(Number(qty))) {
+  if (!tenantId || !sessionId || !produit_id || !Number.isFinite(Number(qty))) {
     return res.status(400).json({ error: 'champs requis' });
   }
 
@@ -25,10 +25,10 @@ router.post('/inventory/count', authRequired, async (req, res) => {
 
     await pool.query(
       `
-      INSERT INTO inventory_counts (session_id, tenant_id, product_id, qty, user_label)
+      INSERT INTO inventory_counts (session_id, tenant_id, produit_id, qty, user_label)
       VALUES ($1, $2, $3, $4, $5)
       `,
-      [sessionId, tenantId, product_id, Number(qty), user]
+      [sessionId, tenantId, produit_id, Number(qty), user]
     );
 
     return res.json({ ok: true });
@@ -58,10 +58,10 @@ router.post('/inventory/finalize', authRequired, async (req, res) => {
     // 1) Agrégat des comptages pour cette session/tenant
     const agg = await client.query(
       `
-      SELECT product_id, SUM(qty)::numeric AS counted
+      SELECT produit_id, SUM(qty)::numeric AS counted
       FROM inventory_counts
       WHERE tenant_id = $1 AND session_id = $2
-      GROUP BY product_id
+      GROUP BY produit_id
       `,
       [tenantId, sessionId]
     );
@@ -74,7 +74,7 @@ router.post('/inventory/finalize', authRequired, async (req, res) => {
 
     // 3) Appliquer les comptages agrégés
     for (const row of agg.rows) {
-      const pid = row.product_id;               // uuid
+      const pid = row.produit_id;               // uuid
       const counted = Number(row.counted || 0); // numeric -> JS number
 
       await client.query(

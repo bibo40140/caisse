@@ -313,9 +313,9 @@ app.post('/inventory/start', authRequired, async (req, res) => {
       const stockStart = await getCurrentStock(client, tenantId, p.id);
       await client.query(
         `
-        INSERT INTO inventory_snapshot(session_id, tenant_id, product_id, stock_start, unit_cost)
+        INSERT INTO inventory_snapshot(session_id, tenant_id, produit_id, stock_start, unit_cost)
         VALUES ($1,$2,$3,$4,$5)
-        ON CONFLICT (session_id, product_id) DO NOTHING
+        ON CONFLICT (session_id, produit_id) DO NOTHING
         `,
         [sessionId, tenantId, p.id, stockStart, null]
       );
@@ -336,7 +336,7 @@ app.post('/inventory/start', authRequired, async (req, res) => {
 app.post('/inventory/:id/count-add', authRequired, async (req, res) => {
   const tenantId = req.tenantId;
   const sessionId = String(req.params.id || '');
-  let productIdOrKey = req.body?.product_id; // uuid, ref, ou barcode
+  let productIdOrKey = req.body?.produit_id; // uuid, ref, ou barcode
   const qtyRaw = req.body?.qty;
   const deviceId = req.body?.device_id;
   const user = req.body?.user || null;
@@ -532,11 +532,11 @@ app.get('/inventory/:id/summary', authRequired, async (req, res) => {
     );
 
     const lines = produits.rows.map(p => ({
-      product_id: p.id,
-      remote_product_id: p.id,
+      produit_id: p.id,
+      remote_produit_id: p.id,
       nom: p.nom,
       barcode: p.code_barre || '',
-      code_barres: p.code_barre || '',
+      code_barre: p.code_barre || '',
       prix: Number(p.prix || 0),
       price: Number(p.prix || 0),
       counted_total: countsMap.get(p.id) || 0,
@@ -628,14 +628,14 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
          GROUP BY produit_id
        )
        SELECT
-         s.product_id        AS product_id,
+         s.produit_id        AS produit_id,
          p.nom,
          p.prix,
          s.stock_start,
          COALESCE(sm.counted_total, 0) AS counted_total
        FROM inventory_snapshot s
-       JOIN produits p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
-       LEFT JOIN summed sm ON sm.produit_id = s.product_id
+       JOIN produits p ON p.id = s.produit_id AND p.tenant_id = s.tenant_id
+       LEFT JOIN summed sm ON sm.produit_id = s.produit_id
        WHERE s.tenant_id=$1 AND s.session_id=$2
        ORDER BY p.nom
       `,
@@ -647,7 +647,7 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
       inventoryValue = 0;
 
     for (const r of agg.rows) {
-      const pid = String(r.product_id);
+      const pid = String(r.produit_id);
       const start = Number(r.stock_start || 0);
       const counted = Number(r.counted_total || 0);
       const prix = Number(r.prix || 0);
@@ -657,9 +657,9 @@ app.post('/inventory/:id/finalize', authRequired, async (req, res) => {
 
       await client.query(
         `
-        INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
+        INSERT INTO inventory_adjust(session_id, tenant_id, produit_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
         VALUES ($1,$2,$3,$4,$5,$6, NULL, $7, now())
-        ON CONFLICT (session_id, tenant_id, product_id)
+        ON CONFLICT (session_id, tenant_id, produit_id)
         DO UPDATE SET
            stock_start   = EXCLUDED.stock_start,
            counted_total = EXCLUDED.counted_total,
@@ -931,7 +931,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
             p.unite_id, p.fournisseur_id, p.categorie_id, p.updated_at,
             COALESCE(cs.quantity, 0) AS stock
           FROM produits p
-          LEFT JOIN current_stock cs ON cs.product_id = p.id
+          LEFT JOIN current_stock cs ON cs.produit_id = p.id
           WHERE p.tenant_id = $1
             AND (p.deleted IS NULL OR p.deleted = false)
             AND p.updated_at > $2
@@ -991,7 +991,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
             p.unite_id, p.fournisseur_id, p.categorie_id, p.updated_at,
             COALESCE(cs.quantity, 0) AS stock
           FROM produits p
-          LEFT JOIN current_stock cs ON cs.product_id = p.id
+          LEFT JOIN current_stock cs ON cs.produit_id = p.id
           WHERE p.tenant_id = $1
             AND (p.deleted IS NULL OR p.deleted = false)
           ORDER BY p.nom`,
@@ -2031,7 +2031,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
         }
 
         case 'inventory.count_add': {
-          // payload: { session_id, local_product_id, product_uuid, qty, user, device_id }
+          // payload: { session_id, local_produit_id, product_uuid, qty, user, device_id }
           let sessionIdRemote = null;
           if (p.session_id && typeof p.session_id === 'string' && /^[0-9a-f\-]{36}$/.test(p.session_id)) sessionIdRemote = p.session_id;
           else if (p.session_id) {
@@ -2046,12 +2046,12 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
           // Resolve product uuid: prefer explicit product_uuid, then productMappings
           let productUuid = null;
           if (p.product_uuid && typeof p.product_uuid === 'string' && /^[0-9a-f\-]{36}$/.test(p.product_uuid)) productUuid = p.product_uuid;
-          else if (p.local_product_id) {
-            const pm = productMappings.find(x => Number(x.local_id) === Number(p.local_product_id));
+          else if (p.local_produit_id) {
+            const pm = productMappings.find(x => Number(x.local_id) === Number(p.local_produit_id));
             if (pm) productUuid = pm.remote_uuid;
           }
           if (!productUuid) {
-            console.warn('[push_ops] inventory.count_add: product not resolved in batch', p.local_product_id);
+            console.warn('[push_ops] inventory.count_add: product not resolved in batch', p.local_produit_id);
             break;
           }
 
@@ -2112,21 +2112,21 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
                GROUP BY produit_id
              )
              SELECT
-               s.product_id        AS product_id,
+               s.produit_id        AS produit_id,
                p.nom,
                p.prix,
                s.stock_start,
                COALESCE(sm.counted_total, 0) AS counted_total
              FROM inventory_snapshot s
-             JOIN produits p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
-             LEFT JOIN summed sm ON sm.produit_id = s.product_id
+             JOIN produits p ON p.id = s.produit_id AND p.tenant_id = s.tenant_id
+             LEFT JOIN summed sm ON sm.produit_id = s.produit_id
              WHERE s.tenant_id=$1 AND s.session_id=$2
              ORDER BY p.nom
           `, [tenantId, sessionIdRemote]);
 
           let linesInserted = 0, countedProducts = 0, inventoryValue = 0;
           for (const r of agg.rows) {
-            const pid = String(r.product_id);
+            const pid = String(r.produit_id);
             const start = Number(r.stock_start || 0);
             const counted = Number(r.counted_total || 0);
             const prix = Number(r.prix || 0);
@@ -2135,9 +2135,9 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             const delta = counted - currentLive;
 
             await client.query(`
-              INSERT INTO inventory_adjust(session_id, tenant_id, product_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
+              INSERT INTO inventory_adjust(session_id, tenant_id, produit_id, stock_start, counted_total, delta, unit_cost, delta_value, created_at)
               VALUES ($1,$2,$3,$4,$5,$6, NULL, $7, now())
-              ON CONFLICT (session_id, tenant_id, product_id)
+              ON CONFLICT (session_id, tenant_id, produit_id)
               DO UPDATE SET
                  stock_start   = EXCLUDED.stock_start,
                  counted_total = EXCLUDED.counted_total,
