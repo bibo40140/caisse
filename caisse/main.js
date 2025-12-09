@@ -12,6 +12,9 @@ const { registerBrandingIpc } = require('./src/main/branding');
 const registerSyncDebug = require('./src/main/handlers/sync_debug');
 registerSyncDebug(ipcMain);
 
+const { registerFixInitHandler } = require('./src/main/handlers/fix-init');
+registerFixInitHandler();
+
 
 // ===============================
 // Broadcast config/modules to UI
@@ -369,6 +372,17 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
       const pullResult = await sync.pullRefs();
       if (pullResult?.ok) {
         console.log('[auth:login] Pull auto terminé');
+        
+        // 🔧 Fix: créer les mouvements 'init' manquants pour tous les produits
+        try {
+          const { fixMissingInitMovements } = require('./src/main/handlers/fix-init');
+          const fixResult = await fixMissingInitMovements();
+          if (fixResult?.fixed > 0) {
+            console.log(`[auth:login] ✅ ${fixResult.fixed} mouvements 'init' créés`);
+          }
+        } catch (e) {
+          console.warn('[auth:login] Fix init échoué (non-bloquant):', e?.message || e);
+        }
       }
     } catch (e) {
       console.warn('[auth:login] Pull auto échoué (non-bloquant):', e?.message || e);
@@ -377,7 +391,7 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
     // 7) 🆕 Démarrer l'auto-sync (push + pull périodiques)
     try {
       sync.startAutoSync(process.env.DEVICE_ID || 'default');
-      console.log('[auth:login] Auto-sync démarré (push toutes les 5s, pull toutes les 10s)');
+      // console.log('[auth:login] Auto-sync démarré (push toutes les 5s, pull toutes les 10s)');
     } catch (e) {
       console.warn('[auth:login] Erreur démarrage auto-sync:', e?.message || e);
     }

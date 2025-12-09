@@ -82,7 +82,7 @@ app.use(
 );
 app.use(express.json({ limit: '10mb' }));
 app.use((req, _res, next) => {
-  console.log('[REQ]', req.method, req.url);
+  // console.log('[REQ]', req.method, req.url); // Désactivé pour alléger la console
   next();
 });
 
@@ -731,12 +731,13 @@ async function applyFournisseurUpsert(client, tenantId, p = {}, mappingsArray = 
   if (!nom) return;
 
   const localId = p.id || p.localId || null; // ID local (INTEGER)
+  console.log(`[applyFournisseurUpsert] nom=${nom}, categorie_id=${p.categorie_id}, referent_id=${p.referent_id}, label=${p.label}`);
 
   const r = await client.query(
     `
     INSERT INTO fournisseurs
-      (tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, label)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      (tenant_id, nom, contact, email, telephone, adresse, code_postal, ville, label, categorie_id, referent_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
     ON CONFLICT (tenant_id, nom) DO UPDATE SET
       contact     = EXCLUDED.contact,
       email       = EXCLUDED.email,
@@ -744,7 +745,10 @@ async function applyFournisseurUpsert(client, tenantId, p = {}, mappingsArray = 
       adresse     = EXCLUDED.adresse,
       code_postal = EXCLUDED.code_postal,
       ville       = EXCLUDED.ville,
-      label       = EXCLUDED.label
+      label       = EXCLUDED.label,
+      categorie_id = EXCLUDED.categorie_id,
+      referent_id = EXCLUDED.referent_id,
+      updated_at = now()
     RETURNING id
     `,
     [
@@ -757,9 +761,12 @@ async function applyFournisseurUpsert(client, tenantId, p = {}, mappingsArray = 
       p.code_postal || null,
       p.ville || null,
       p.label || null,
+      p.categorie_id || null,
+      p.referent_id || null,
     ]
   );
   const remoteUuid = r.rows[0]?.id || null;
+  console.log(`[applyFournisseurUpsert] saved remoteUuid=${remoteUuid}`);
 
   // 🔥 Collecter le mapping si localId et mappingsArray fournis
   if (remoteUuid && localId && mappingsArray) {
@@ -888,7 +895,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
   
   try {
     const isIncrementalSync = since && new Date(since).getTime() > 0;
-    console.log(`[sync/pull_refs] ${isIncrementalSync ? 'Incrémental' : 'Complet'} sync pour tenant ${tenantId}`, { since });
+    // Log sync uniquement en cas d'erreur
 
     let queries;
     
@@ -1031,13 +1038,7 @@ app.get('/sync/pull_refs', authRequired, async (req, res) => {
     );
     const modules = modulesRes.rows[0]?.modules_json || {};
 
-    console.log(`[sync/pull_refs] Résultats:`, {
-      unites: unites.rows.length,
-      adherents: adherents.rows.length,
-      fournisseurs: fournisseurs.rows.length,
-      produits: produits.rows.length,
-      stock_movements: stock_movements.rows.length,
-    });
+    // Log résultats sync uniquement en cas d'erreur
 
     res.json({
       ok: true,
@@ -1100,7 +1101,7 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
     
     // Récupérer les ventes avec pagination
     let ventesQuery = `
-      SELECT id, adherent_id, date_vente, total, mode_paiement_id, created_at, updated_at
+      SELECT id, adherent_id, date_vente, total, mode_paiement_id, updated_at
       FROM ventes
       WHERE tenant_id = $1
     `;
@@ -1205,7 +1206,7 @@ app.get('/sync/pull_receptions', authRequired, async (req, res) => {
     
     // Récupérer les réceptions avec pagination
     let receptionsQuery = `
-      SELECT id, fournisseur_id, date_reception, reference, updated_at
+      SELECT id, fournisseur_id, date, reference, updated_at
       FROM receptions
       WHERE tenant_id = $1
     `;
@@ -1218,7 +1219,7 @@ app.get('/sync/pull_receptions', authRequired, async (req, res) => {
       paramIndex++;
     }
     
-    receptionsQuery += ` ORDER BY date_reception, id LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    receptionsQuery += ` ORDER BY date, id LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     receptionsParams.push(safeLimit, offset);
     
     const receptionsRes = await client.query(receptionsQuery, receptionsParams);
@@ -1619,11 +1620,13 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
          * FOURNISSEURS
          * ────────────────────────────*/
         case 'fournisseur.created': {
+          console.log(`[push_ops] fournisseur.created payload:`, p);
           await applyFournisseurCreated(client, tenantId, p, fournisseurMappings);
           break;
         }
 
         case 'fournisseur.updated': {
+          console.log(`[push_ops] fournisseur.updated payload:`, p);
           await applyFournisseurUpdated(client, tenantId, p, fournisseurMappings);
           break;
         }
@@ -2898,6 +2901,32 @@ app.post('/admin/backfill_stock', authRequired, async (req, res) => {
     console.log('[db] Migration: colonne "deleted" vérifiée/ajoutée');
   } catch (e) {
     console.error('[db] Migration error:', e.message);
+  } finally {
+    client.release();
+  }
+})();
+
+/* =========================
+ * Migration: Ajouter updated_at à receptions
+ * =======================*/
+(async () => {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name='receptions' AND column_name='updated_at'
+        ) THEN
+          ALTER TABLE receptions ADD COLUMN updated_at timestamptz NOT NULL DEFAULT now();
+          CREATE INDEX IF NOT EXISTS idx_receptions_updated_at ON receptions(tenant_id, updated_at);
+        END IF;
+      END$$;
+    `);
+    console.log('[db] Migration: colonne "updated_at" sur receptions vérifiée/ajoutée');
+  } catch (e) {
+    console.error('[db] Migration receptions error:', e.message);
   } finally {
     client.release();
   }

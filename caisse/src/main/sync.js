@@ -166,11 +166,11 @@ async function pullRefs({ since = null } = {}) {
     try {
       const row = db.prepare('SELECT last_sync_at FROM sync_state WHERE entity_type = ?').get('pull_refs');
       since = row?.last_sync_at || null;
-      if (since) {
-        console.log('[sync] Pull incrémental depuis:', since);
-      } else {
-        console.log('[sync] Pull complet (premier sync ou pas de lastSync)');
-      }
+      // if (since) {
+      //   console.log('[sync] Pull incrémental depuis:', since);
+      // } else {
+      //   console.log('[sync] Pull complet (premier sync ou pas de lastSync)');
+      // }
     } catch (e) {
       console.warn('[sync] Erreur lecture sync_state pour pull_refs:', e);
       since = null;
@@ -225,7 +225,7 @@ async function pullRefs({ since = null } = {}) {
         const isDifferent = JSON.stringify(currentModules) !== JSON.stringify(modules);
         if (isDifferent) {
           writeModules(modules);
-          console.log('[sync] Modules synchronisés depuis serveur:', modules);
+          // console.log('[sync] Modules synchronisés depuis serveur:', modules); // Désactivé pour alléger la console
         
           // Notifier le renderer pour qu'il recharge les modules
           notifyRenderer('modules:updated', { modules });
@@ -238,7 +238,7 @@ async function pullRefs({ since = null } = {}) {
     // 🔥 Importer les fournisseurs depuis Neon dans la base locale
     if (fournisseurs && fournisseurs.length > 0) {
       try {
-        console.log(`[sync] pull: ${fournisseurs.length} fournisseurs reçus depuis Neon`);
+        // console.log(`[sync] pull: ${fournisseurs.length} fournisseurs reçus depuis Neon`); // Désactivé pour alléger la console
         const checkF = db.prepare('SELECT id FROM fournisseurs WHERE remote_uuid = ?');
         const insertF = db.prepare(`
           INSERT INTO fournisseurs (remote_uuid, nom, contact, email, telephone, adresse, code_postal, ville, categorie_id, referent_id, label)
@@ -291,7 +291,7 @@ async function pullRefs({ since = null } = {}) {
     // 🔥 Importer les adhérents depuis Neon dans la base locale
     if (adherents && adherents.length > 0) {
       try {
-        console.log(`[sync] pull: ${adherents.length} adhérents reçus depuis Neon`);
+        // console.log(`[sync] pull: ${adherents.length} adhérents reçus depuis Neon`); // Désactivé pour alléger la console
         // 🔥 Chercher par remote_uuid (priorité) OU par (nom + email1) pour éviter les doublons en cas de race condition
         const checkA = db.prepare(`
           SELECT id FROM adherents 
@@ -373,16 +373,14 @@ async function pullRefs({ since = null } = {}) {
     // 🔥 Importer les produits depuis Neon dans la base locale
     let produitsImported = 0;
     if (produits && produits.length > 0) {
-      console.log(`[sync] pull: ${produits.length} produits reçus depuis Neon`);
-    
-      // Debug: afficher un exemple de produit reçu
-      if (produits[0]) {
-        console.log(`[sync] Exemple produit reçu:`, {
-          nom: produits[0].nom,
-          unite_id: produits[0].unite_id,
-          categorie_id: produits[0].categorie_id
-        });
-      }
+      // console.log(`[sync] pull: ${produits.length} produits reçus depuis Neon`); // Désactivé pour alléger la console
+      // if (produits[0]) {
+      //   console.log(`[sync] Exemple produit reçu:`, {
+      //     nom: produits[0].nom,
+      //     unite_id: produits[0].unite_id,
+      //     categorie_id: produits[0].categorie_id
+      //   });
+      // }
     
       // Préparer les mappings UUID → ID local pour unités, catégories, fournisseurs
       const getUniteIdByUuid = db.prepare('SELECT id FROM unites WHERE remote_uuid = ?');
@@ -504,18 +502,37 @@ async function pullRefs({ since = null } = {}) {
               p.id  // WHERE remote_uuid = ?
             );
           } else {
-            // Insertion avec stock=0 (sera recalculé par stock_movements)
-            insertStmt.run(
+            // Insertion avec stock initial dans le cache
+            const initialStock = Number(p.stock || 0);
+            const result = insertStmt.run(
               p.id,           // remote_uuid
               p.nom,
               reference,
               Number(p.prix || 0),
-              0,              // stock toujours 0 à l'insertion, recalculé après
+              initialStock,   // Stock initial dans le cache (sera source de vérité via movements)
               p.code_barre || null,
               uniteIdLocal,
               fournisseurIdLocal,
               categorieIdLocal
             );
+            
+            const produitLocalId = result.lastInsertRowid;
+            
+            // 🟢 TOUJOURS créer un mouvement 'init' pour établir la source de vérité
+            // Même si stock = 0, car getStock() détecte l'existence d'un init mouvement
+            try {
+              db.prepare(`
+                INSERT INTO stock_movements (produit_id, delta, source, source_id, meta, created_at)
+                VALUES (?, ?, 'init', NULL, ?, datetime('now','localtime'))
+              `).run(
+                produitLocalId,
+                initialStock,
+                JSON.stringify({ reason: 'imported.from_server', reference })
+              );
+              console.log(`[sync] Init mouvement créé: produit=${p.reference}, stock=${initialStock}`);
+            } catch (err) {
+              console.warn('[sync] erreur création mouvement init produit:', p.reference, err?.message || err);
+            }
           }
           produitsImported++;
         } catch (e) {
@@ -534,6 +551,15 @@ async function pullRefs({ since = null } = {}) {
       const getProduitIdByUuid = db.prepare('SELECT id FROM produits WHERE remote_uuid = ?');
     
       const checkMovement = db.prepare('SELECT 1 FROM stock_movements WHERE remote_uuid = ?');
+      const checkMovementLocal = db.prepare(`
+        SELECT 1 FROM stock_movements 
+        WHERE produit_id = ? AND delta = ? AND source = 'sale_line' AND source_id IS NULL
+      `);
+      const updateMovementLocal = db.prepare(`
+        UPDATE stock_movements 
+        SET remote_uuid = ?, source_id = ? 
+        WHERE produit_id = ? AND delta = ? AND source = 'sale_line' AND source_id IS NULL
+      `);
       const insertMovement = db.prepare(`
         INSERT OR IGNORE INTO stock_movements (produit_id, delta, source, source_id, created_at, meta, remote_uuid)
         VALUES (?, ?, ?, ?, ?, '{}', ?)
@@ -541,28 +567,65 @@ async function pullRefs({ since = null } = {}) {
     
       for (const m of stock_movements) {
         try {
-          // Vérifier si le mouvement existe déjà (par son UUID serveur) - AVANT toute autre opération
+          // Vérifier si le mouvement existe déjà (par son UUID serveur)
           const exists = checkMovement.get(m.id);
           if (exists) {
-            // Mouvement déjà présent, on skip
             continue;
           }
         
           // Résoudre le produit_id local
           const produitLocal = getProduitIdByUuid.get(m.produit_id);
           if (!produitLocal) {
-            // Produit non trouvé localement, ignoré silencieusement
             continue;
           }
         
-          // Insérer le mouvement (sans OR IGNORE car on a déjà checké)
+          // Vérifier si un mouvement TEMPORAIRE local existe (source='sale_line', source_id=NULL)
+          // Cela correspond à un mouvement créé côté Électron avant que le serveur ait résolu le sourceKey
+          if (m.source === 'sale_line') {
+            const existsLocal = checkMovementLocal.get(
+              produitLocal.id,
+              Number(m.delta || 0)
+            );
+            if (existsLocal) {
+              // Mettre à jour le mouvement temporaire avec le source_id et remote_uuid du serveur
+              try {
+                updateMovementLocal.run(
+                  m.id,
+                  m.source_id || null,
+                  produitLocal.id,
+                  Number(m.delta || 0)
+                );
+                movementsImported++;
+              } catch (e) {
+                console.warn('[sync] erreur update mouvement temporaire:', e?.message);
+              }
+              continue;
+            }
+          }
+        
+          // Vérifier si un mouvement IDENTIQUE existe déjà localement
+          // (pour éviter le doublon d'autres types de mouvements)
+          const existsLocalGeneric = db.prepare(`
+            SELECT 1 FROM stock_movements 
+            WHERE produit_id = ? AND delta = ? AND source = ? AND source_id = ?
+          `).get(
+            produitLocal.id,
+            Number(m.delta || 0),
+            m.source || 'unknown',
+            m.source_id || null
+          );
+          if (existsLocalGeneric) {
+            continue;
+          }
+        
+          // Insérer le mouvement
           insertMovement.run(
-            produitLocal.id,         // ID local du produit
+            produitLocal.id,
             Number(m.delta || 0),
             m.source || 'unknown',
             m.source_id || null,
             m.created_at || new Date().toISOString(),
-            m.id                     // UUID du serveur comme remote_uuid
+            m.id
           );
           movementsImported++;
         } catch (e) {
@@ -670,7 +733,7 @@ async function pullRefs({ since = null } = {}) {
           INSERT OR REPLACE INTO sync_state (entity_type, last_sync_at, last_sync_ok, updated_at)
           VALUES ('pull_refs', ?, 1, datetime('now'))
         `).run(serverTime);
-        console.log('[sync] Timestamp de sync mis à jour:', serverTime);
+        // console.log('[sync] Timestamp de sync mis à jour:', serverTime);
       } catch (e) {
         console.warn('[sync] Erreur mise à jour sync_state pull_refs:', e?.message);
       }
@@ -782,8 +845,8 @@ async function pullVentes({ since = null } = {}) {
     if (ventes.length > 0) {
       const checkVente = db.prepare('SELECT 1 FROM ventes WHERE remote_uuid = ?');
       const insertVente = db.prepare(`
-        INSERT OR IGNORE INTO ventes (remote_uuid, adherent_id, date_vente, total, mode_paiement_id, sale_type, client_email, frais_paiement, cotisation, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO ventes (remote_uuid, adherent_id, date_vente, total, mode_paiement_id, sale_type, client_email, frais_paiement, cotisation, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const updateVente = db.prepare(`
         UPDATE ventes SET adherent_id = ?, date_vente = ?, total = ?, mode_paiement_id = ?, sale_type = ?, client_email = ?, frais_paiement = ?, cotisation = ?, updated_at = ?
@@ -827,14 +890,13 @@ async function pullVentes({ since = null } = {}) {
             insertVente.run(
               v.id, 
               v.adherent_id, 
-              v.date_vente || v.created_at, 
+              v.date_vente || v.updated_at, 
               v.total, 
               v.mode_paiement_id, 
               v.sale_type || 'adherent', 
               v.client_email, 
               v.frais_paiement || 0, 
               v.cotisation || 0, 
-              v.created_at, 
               v.updated_at
             );
           }
