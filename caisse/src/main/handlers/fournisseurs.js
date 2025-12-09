@@ -70,6 +70,18 @@ function registerFournisseurHandlers() {
 
       const created = ajouterFournisseur(f);
 
+      // Récupérer les UUIDs pour categorie_id et referent_id
+      let categorieUuid = null;
+      let referentUuid = null;
+      if (created.categorie_id) {
+        const catRow = db.prepare('SELECT remote_uuid FROM categories WHERE id = ?').get(created.categorie_id);
+        categorieUuid = catRow?.remote_uuid || null;
+      }
+      if (created.referent_id) {
+        const refRow = db.prepare('SELECT remote_uuid FROM adherents WHERE id = ?').get(created.referent_id);
+        referentUuid = refRow?.remote_uuid || null;
+      }
+
       // enqueue op pour Neon
       try {
         enqueueOp({
@@ -87,9 +99,8 @@ function registerFournisseurHandlers() {
             code_postal: created.code_postal,
             ville: created.ville,
             label: created.label,
-            // on envoie aussi les ids locaux pour préparer la suite
-            categorie_id: created.categorie_id ?? null,
-            referent_id: created.referent_id ?? null,
+            categorie_id: categorieUuid,
+            referent_id: referentUuid,
           },
         });
       } catch (e) {
@@ -112,8 +123,21 @@ function registerFournisseurHandlers() {
 
       const updated = modifierFournisseur({ ...f, id: Number(f.id) });
 
+      // Récupérer les UUIDs pour categorie_id et referent_id
+      let categorieUuid = null;
+      let referentUuid = null;
+      if (updated.categorie_id) {
+        const catRow = db.prepare('SELECT remote_uuid FROM categories WHERE id = ?').get(updated.categorie_id);
+        categorieUuid = catRow?.remote_uuid || null;
+      }
+      if (updated.referent_id) {
+        const refRow = db.prepare('SELECT remote_uuid FROM adherents WHERE id = ?').get(updated.referent_id);
+        referentUuid = refRow?.remote_uuid || null;
+      }
+
       // enqueue op de mise à jour
       try {
+        console.log(`[modifier-fournisseur] enqueueing fournisseur.updated for id=${updated.id} with categorie_id=${categorieUuid}, referent_id=${referentUuid}, label=${updated.label}`);
         enqueueOp({
           deviceId: DEVICE_ID,
           opType: 'fournisseur.updated',
@@ -128,8 +152,8 @@ function registerFournisseurHandlers() {
             code_postal: updated.code_postal,
             ville: updated.ville,
             label: updated.label,
-            categorie_id: updated.categorie_id ?? null,
-            referent_id: updated.referent_id ?? null,
+            categorie_id: categorieUuid,
+            referent_id: referentUuid,
           },
         });
       } catch (e) {

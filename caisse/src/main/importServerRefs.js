@@ -5,7 +5,7 @@ const db = require('./db/db');
 const { apiFetch } = require('./apiClient');
 
 /**
- * Importe les références (unités, familles, catégories, modes de paiement)
+ * Importe les références (unités, familles, catégories, modes de paiement, adhérents, fournisseurs)
  * depuis le serveur (GET /sync/pull_refs) vers la base locale SQLite.
  * 
  * N'écrase pas les données locales existantes (ON CONFLICT DO NOTHING sur nom)
@@ -33,6 +33,8 @@ async function importServerRefsToLocal() {
       familles = [],
       categories = [],
       modes_paiement = [],
+      adherents = [],
+      fournisseurs = [],
     } = data;
 
     console.log('[importServerRefs] Données reçues:', {
@@ -40,6 +42,8 @@ async function importServerRefsToLocal() {
       familles: familles.length,
       categories: categories.length,
       modes_paiement: modes_paiement.length,
+      adherents: adherents.length,
+      fournisseurs: fournisseurs.length,
     });
 
     // Préparation des statements
@@ -76,11 +80,48 @@ async function importServerRefsToLocal() {
         remote_uuid = excluded.remote_uuid
     `);
 
+    const insertAdherent = db.prepare(`
+      INSERT INTO adherents (remote_uuid, nom, prenom, email1, email2, telephone1, telephone2, adresse, code_postal, ville)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (remote_uuid) DO UPDATE SET 
+        nom = excluded.nom,
+        prenom = excluded.prenom,
+        email1 = excluded.email1,
+        email2 = excluded.email2,
+        telephone1 = excluded.telephone1,
+        telephone2 = excluded.telephone2,
+        adresse = excluded.adresse,
+        code_postal = excluded.code_postal,
+        ville = excluded.ville
+    `);
+
+    const getAdherentIdByUuid = db.prepare(`
+      SELECT id FROM adherents WHERE remote_uuid = ?
+    `);
+
+    const insertFournisseur = db.prepare(`
+      INSERT INTO fournisseurs (remote_uuid, nom, contact, email, telephone, adresse, code_postal, ville, label, categorie_id, referent_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (remote_uuid) DO UPDATE SET 
+        nom = excluded.nom,
+        contact = excluded.contact,
+        email = excluded.email,
+        telephone = excluded.telephone,
+        adresse = excluded.adresse,
+        code_postal = excluded.code_postal,
+        ville = excluded.ville,
+        label = excluded.label,
+        categorie_id = excluded.categorie_id,
+        referent_id = excluded.referent_id
+    `);
+
     let counts = {
       unites: 0,
       familles: 0,
       categories: 0,
       modes_paiement: 0,
+      adherents: 0,
+      fournisseurs: 0,
     };
 
     // Map pour convertir UUID famille serveur → id local
@@ -126,6 +167,7 @@ async function importServerRefsToLocal() {
       }
 
       // Catégories (on convertit famille_id UUID → id local)
+      const categorieUuidToLocalId = new Map();
       for (const c of categories) {
         if (!c.nom) continue;
         try {
@@ -134,7 +176,19 @@ async function importServerRefsToLocal() {
             localFamilleId = familleUuidToLocalId.get(c.famille_id);
           }
           const info = insertCategorie.run(c.id || null, c.nom, localFamilleId);
-          if (info.changes > 0) counts.categories++;
+          if (info.changes > 0) {
+            counts.categories++;
+            const localId = info.lastInsertRowid;
+            if (c.id && localId) {
+              categorieUuidToLocalId.set(c.id, localId);
+            }
+          } else {
+            // Catégorie existe déjà, récupérer son id
+            const existing = db.prepare('SELECT id FROM categories WHERE nom = ? LIMIT 1').get(c.nom);
+            if (existing?.id && c.id) {
+              categorieUuidToLocalId.set(c.id, existing.id);
+            }
+          }
         } catch (e) {
           console.warn('[importServerRefs] Erreur insert catégorie:', c.nom, 'famille_id:', c.famille_id, e.message);
         }
@@ -153,6 +207,72 @@ async function importServerRefsToLocal() {
           console.warn('[importServerRefs] Erreur insert mode paiement:', mp.nom, e.message);
         }
       }
+
+      // Adhérents (mapping UUID serveur → id local)
+      const adherentUuidToLocalId = new Map();
+      for (const a of adherents) {
+        if (!a.id) continue;
+        try {
+          const info = insertAdherent.run(
+            a.id,
+            a.nom || null,
+            a.prenom || null,
+            a.email1 || null,
+            a.email2 || null,
+            a.telephone1 || null,
+            a.telephone2 || null,
+            a.adresse || null,
+            a.code_postal || null,
+            a.ville || null
+          );
+          if (info.changes > 0) {
+            counts.adherents++;
+            const localId = info.lastInsertRowid;
+            if (localId) {
+              adherentUuidToLocalId.set(a.id, localId);
+            }
+          } else {
+            // Adhérent existe déjà, récupérer son id
+            const existing = getAdherentIdByUuid.get(a.id);
+            if (existing?.id) {
+              adherentUuidToLocalId.set(a.id, existing.id);
+            }
+          }
+        } catch (e) {
+          console.warn('[importServerRefs] Erreur insert adhérent:', a.nom || a.id, e.message);
+        }
+      }
+
+      // Fournisseurs (mapping UUID → id local pour referent_id et categorie_id)
+      for (const f of fournisseurs) {
+        if (!f.id) continue;
+        try {
+          let localReferentId = null;
+          if (f.referent_id && adherentUuidToLocalId.has(f.referent_id)) {
+            localReferentId = adherentUuidToLocalId.get(f.referent_id);
+          }
+          let localCategorieId = null;
+          if (f.categorie_id && categorieUuidToLocalId.has(f.categorie_id)) {
+            localCategorieId = categorieUuidToLocalId.get(f.categorie_id);
+          }
+          const info = insertFournisseur.run(
+            f.id,
+            f.nom || null,
+            f.contact || null,
+            f.email || null,
+            f.telephone || null,
+            f.adresse || null,
+            f.code_postal || null,
+            f.ville || null,
+            f.label || null,
+            localCategorieId,
+            localReferentId
+          );
+          if (info.changes > 0) counts.fournisseurs++;
+        } catch (e) {
+          console.warn('[importServerRefs] Erreur insert fournisseur:', f.nom || f.id, e.message);
+        }
+      }
     });
 
     transaction();
@@ -162,7 +282,7 @@ async function importServerRefsToLocal() {
     return {
       ok: true,
       counts,
-      total: counts.unites + counts.familles + counts.categories + counts.modes_paiement,
+      total: Object.values(counts).reduce((a, b) => a + b, 0),
     };
   } catch (e) {
     console.error('[importServerRefs] Exception:', e);

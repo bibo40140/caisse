@@ -93,7 +93,7 @@ function performanceMiddleware(req, res, next) {
     
     // Logger toutes les requêtes de sync avec leur temps
     if (endpoint.includes('/sync/')) {
-      console.log(`📊 [PERF] ${endpoint} ${elapsed}ms (${status})`);
+      // console.log(`📊 [PERF] ${endpoint} ${elapsed}ms (${status})`); // Désactivé pour alléger la console
     }
   });
   

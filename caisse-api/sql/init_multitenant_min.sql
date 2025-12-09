@@ -202,7 +202,8 @@ CREATE TABLE IF NOT EXISTS receptions (
   tenant_id      uuid        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   fournisseur_id uuid        REFERENCES fournisseurs(id) ON DELETE SET NULL,
   date           timestamptz NOT NULL DEFAULT now(),
-  reference      text
+  reference      text,
+  updated_at     timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS lignes_reception (

@@ -1,14 +1,14 @@
 {
   "modules": {
-    "email": true,
-    "emails": true,
+    "email": false,
+    "emails": false,
     "stocks": true,
     "exports": true,
     "adherents": true,
     "prospects": true,
     "emailAdmin": true,
     "inventaire": true,
-    "multiusers": false,
+    "multiusers": true,
     "cotisations": true,
     "fournisseurs": true,
     "statistiques": true,

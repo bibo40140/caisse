@@ -204,19 +204,28 @@ function enregistrerVente(vente, lignes) {
 
       insertLigne.run(venteId, produitId, qte, prixTotal, pu, remise);
 
-      // Décrément stock via mouvement (si gestion stock active)
-      // ⚠️ NE PAS créer de mouvement local - il sera créé par le serveur et importé via pull
-      // Cela évite les doublons (mouvement local + mouvement serveur)
-      // if (stocksOn) {
-      //   try {
-      //     createStockMovement(produitId, -qte, 'vente', venteId, {
-      //       prix_unitaire: pu,
-      //       remise_percent: remise
-      //     });
-      //   } catch (err) {
-      //     console.error('[vente] Erreur mouvement stock:', err);
-      //   }
-      // }
+      // Décrément stock via mouvement local pour cohérence immédiate (UX)
+      // On crée un mouvement TEMPORAIRE avec source_id=NULL
+      // Quand le mouvement du serveur arrive, on l'identifiera par (source, produit_id, delta)
+      // et on mettra à jour le source_id et remote_uuid
+      if (stocksOn) {
+        try {
+          db.prepare(`
+            INSERT INTO stock_movements (produit_id, delta, source, source_id, meta, created_at)
+            VALUES (?, ?, 'sale_line', NULL, ?, datetime('now','localtime'))
+          `).run(
+            produitId,
+            -qte,
+            JSON.stringify({ prix_unitaire: pu, remise_percent: remise })
+          );
+          // Mettre à jour le stock cache pour l'UI
+          const { getStock } = require('./stock');
+          const newStock = getStock(produitId);
+          db.prepare(`UPDATE produits SET stock = ?, updated_at = datetime('now','localtime') WHERE id = ?`).run(newStock, produitId);
+        } catch (err) {
+          console.error('[vente] Erreur mouvement stock:', err);
+        }
+      }
 
       // 🔥 Récupérer le produitUuid (déjà sync'd normalement)
       const produitRow = db.prepare(`SELECT remote_uuid FROM produits WHERE id = ?`).get(produitId);

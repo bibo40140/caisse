@@ -243,13 +243,19 @@ function ajouterProduit(p = {}) {
     // Note: l'enqueueOp product.created est maintenant géré par le handler
     // pour pouvoir convertir les IDs locaux en UUID avant l'envoi au serveur
 
-    // 🟢 Stock initial → enqueue pour serveur (le serveur créera le mouvement)
-    if (stockInit !== 0 && isModuleActive('stocks')) {
-      try {
-        // ⚠️ NE PAS créer de mouvement local - le serveur le fera
-        // Le cache produits.stock est déjà à jour (insert ci-dessus)
-        
-        // Enqueue l'opération pour synchronisation serveur
+    // 🟢 Stock initial → TOUJOURS créer un mouvement local (même si 0)
+    // Le stock réel = SUM des mouvements, donc il FAUT un mouvement initial
+    try {
+      // Créer le mouvement local (type 'init') - TOUJOURS, même si stockInit = 0
+      db.prepare(`
+        INSERT INTO stock_movements (produit_id, delta, source, source_id, meta, created_at)
+        VALUES (?, ?, 'init', NULL, ?, datetime('now','localtime'))
+      `).run(id, stockInit, JSON.stringify({ reason: 'create.initial_stock', reference }));
+      
+      console.log(`[produits] Stock initial créé: produit=${id}, stock=${stockInit}`);
+
+      // Enqueue l'opération pour synchronisation serveur (seulement si != 0)
+      if (stockInit !== 0) {
         enqueueOp({
           deviceId: DEVICE_ID,
           opType: 'inventory.adjust',
@@ -259,12 +265,12 @@ function ajouterProduit(p = {}) {
             produitId: id,
             delta: stockInit,
             reason: 'create.initial_stock',
-            reference: reference,  // Ajouter la référence pour résolution serveur
+            reference: reference,
           },
         });
-      } catch (e) {
-        console.error('[ajouterProduit] stock movement/enqueueOp error:', e);
       }
+    } catch (e) {
+      console.error('[ajouterProduit] stock movement/enqueueOp error:', e);
     }
 
     // 🛰️ Push sera fait par le handler après avoir enqueued product.created

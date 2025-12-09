@@ -10,23 +10,36 @@ const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
  */
 function getStock(produitId) {
   const id = Number(produitId);
-  
-  // Calculer depuis stock_movements
-  const sumResult = db.prepare(`
-    SELECT COALESCE(SUM(delta), 0) AS total 
-    FROM stock_movements 
+
+  // Base stock depuis la table produits (snap/cache)
+  const baseRow = db.prepare(`SELECT stock FROM produits WHERE id = ?`).get(id);
+  const baseStock = baseRow ? Number(baseRow.stock || 0) : 0;
+
+  // Comptage des mouvements et détection d'un mouvement initial
+  const stats = db.prepare(`
+    SELECT COUNT(*) AS count,
+           SUM(delta) AS total,
+           SUM(CASE WHEN source = 'init' THEN 1 ELSE 0 END) AS init_count
+    FROM stock_movements
     WHERE produit_id = ?
   `).get(id);
-  
-  const sumMovements = Number(sumResult?.total || 0);
-  
-  // Si aucun mouvement, fallback sur produits.stock (migration progressive)
-  if (sumMovements === 0) {
-    const r = db.prepare(`SELECT stock FROM produits WHERE id = ?`).get(id);
-    return r ? Number(r.stock || 0) : 0;
+
+  const hasMovements = Number(stats?.count || 0) > 0;
+  const sumMovements = Number(stats?.total || 0);
+  const hasInit = Number(stats?.init_count || 0) > 0;
+
+  if (!hasMovements) {
+    // Aucun mouvement → on retourne le stock de base (compat ancien)
+    return baseStock;
   }
-  
-  return sumMovements;
+
+  // S'il existe un mouvement d'init, la somme représente déjà le stock réel
+  if (hasInit) {
+    return sumMovements;
+  }
+
+  // Pas de mouvement d'init → on prend le stock de base + les deltas enregistrés
+  return baseStock + sumMovements;
 }
 
 /**
@@ -41,9 +54,13 @@ function createStockMovement(produitId, delta, source, sourceId = null, meta = n
   const id = Number(produitId);
   const d = Number(delta);
   
-  if (!Number.isFinite(d) || d === 0) return;
+  // ⚠️ Autoriser delta = 0 pour le mouvement initial (important pour le calcul du stock)
+  if (!Number.isFinite(d)) return;
   
-  // Insérer le mouvement local
+  // Ne rien faire si delta = 0 ET source != 'init' (pour éviter les mouvements inutiles)
+  if (d === 0 && source !== 'init') return;
+  
+  // Insérer le mouvement local (même si delta = 0 pour l'init)
   db.prepare(`
     INSERT INTO stock_movements (produit_id, delta, source, source_id, meta, created_at)
     VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
@@ -53,7 +70,7 @@ function createStockMovement(produitId, delta, source, sourceId = null, meta = n
   const newStock = getStock(id);
   db.prepare(`UPDATE produits SET stock = ?, updated_at = datetime('now','localtime') WHERE id = ?`).run(newStock, id);
   
-  console.log(`[stock] Mouvement créé: produit=${id}, delta=${d}, source=${source}, nouveau stock=${newStock}`);
+  // console.log(`[stock] Mouvement créé: produit=${id}, delta=${d}, source=${source}, nouveau stock=${newStock}`);
 }
 
 /**
