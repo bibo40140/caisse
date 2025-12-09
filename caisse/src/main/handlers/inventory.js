@@ -99,12 +99,7 @@ async function apiInventorySummary(sessionId) {
   const lines = Array.isArray(js?.lines) ? js.lines : [];
   return {
     raw: js,
-    lines: lines.map(l => ({
-      remote_produit_id: l.produit_id ?? l.remote_produit_id ?? l.remote_id ?? null,
-      barcode: normCode(l.barcode ?? l.code_barre ?? l.ean ?? l.code ?? ''),
-      counted_total: Number(l.counted_total ?? l.count ?? l.qty ?? 0),
-      price: Number(l.prix ?? l.price ?? 0),
-    })),
+    lines: lines, // Retourner TOUTES les données de l'API sans filtrage
   };
 }
 async function apiInventoryCounts(sessionId) {
@@ -118,6 +113,7 @@ async function apiInventoryCounts(sessionId) {
   const js = await res.json();
   return js?.counts || [];
 }
+
 async function apiInventoryFinalize(apiBase, token, sessionId, body = {}) {
   const r = await fetch(`${apiBase}/inventory/${encodeURIComponent(sessionId)}/finalize`, {
     method: 'POST',
@@ -180,7 +176,13 @@ function applySummaryToLocal(lines) {
       if (bc && byBarcode.has(bc)) localId = byBarcode.get(bc); 
     }
     
-    if (localId) mapped.set(localId, qty);
+    if (localId) {
+      mapped.set(localId, qty);
+      // DEBUG: log les 3 premiers
+      if (mapped.size <= 3) {
+        console.log(`[inventory] applySummaryToLocal: ${l.nom || 'Unknown'} = ${qty} (matched by ${rid ? 'UUID' : 'barcode'}: ${rid || l.barcode})`);
+      }
+    }
   }
 
   // Appliquer le stock inventorié de manière ABSOLUE (pas de delta)
@@ -219,6 +221,160 @@ function applySummaryToLocal(lines) {
 function safeHandle(ipcMain, channel, handler) {
   try { ipcMain.removeHandler(channel); } catch {}
   ipcMain.handle(channel, handler);
+}
+
+/**
+ * Génère un bilan HTML pour le rapport d'inventaire
+ */
+function generateInventoryReportHTML(session, lines) {
+  const date = new Date(session?.started_at || Date.now()).toLocaleString('fr-FR');
+  
+  const counted = lines.filter(l => Number(l.counted_total || 0) > 0).length;
+  const total = lines.length;
+  const totalValue = lines.reduce((acc, l) => {
+    const qty = Number(l.counted_total || 0);
+    const price = Number(l.price || 0);
+    return acc + (qty * price);
+  }, 0);
+  
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 1000px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; }
+        .header h1 { margin: 0; font-size: 28px; }
+        .header p { margin: 10px 0 0 0; opacity: 0.9; }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 30px; }
+        .stat-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; }
+        .stat-card.highlight { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; }
+        .stat-label { font-size: 13px; color: #6b7280; margin-bottom: 8px; }
+        .stat-card.highlight .stat-label { color: rgba(255,255,255,0.9); }
+        .stat-value { font-size: 28px; font-weight: 700; margin: 8px 0; }
+        .section { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 20px; overflow-x: auto; }
+        .section h2 { margin-top: 0; color: #1f2937; font-size: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 10px; border-bottom: 2px solid #e5e7eb; color: #6b7280; font-size: 13px; font-weight: 600; }
+        td { padding: 10px; }
+        tr:hover { background: #f9fafb; }
+        .footer { text-align: center; color: #9ca3af; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>📦 Bilan d'Inventaire</h1>
+        <p>${session?.name || 'Inventaire'} — ${date}</p>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card highlight">
+          <div class="stat-label">Produits inventoriés</div>
+          <div class="stat-value">${counted}/${total}</div>
+          <div class="stat-label" style="color: rgba(255,255,255,0.9);">${((counted/total)*100).toFixed(1)}%</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Valeur totale</div>
+          <div class="stat-value">${totalValue.toFixed(2)} €</div>
+          <div class="stat-label">Stocks comptés</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Nombre de lignes</div>
+          <div class="stat-value">${total}</div>
+          <div class="stat-label">Articles uniques</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <p style="color: #6b7280; margin: 0;">
+          📎 <strong>Le détail complet de l'inventaire</strong> (tous les produits) est disponible dans le fichier CSV en pièce jointe.
+        </p>
+      </div>
+
+      <div class="footer">
+        <p>Ce rapport a été généré automatiquement par votre système de caisse.</p>
+        <p>Pour toute question, veuillez contacter votre administrateur.</p>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+/**
+ * Génère un CSV pour l'inventaire
+ */
+function generateInventoryCSV(session, lines) {
+  const escape = (v) => {
+    const s = String(v ?? '');
+    return (/[",;\n]/.test(s)) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  
+  const header = ['produit_id', 'nom', 'code_barre', 'stock_initial', 'compte', 'ecart', 'prix_unitaire', 'valeur_comptee'];
+  const body = (lines || []).map(l => {
+    const start = Number(l.stock_start || 0);
+    const counted_total = Number(l.counted_total || 0);
+    const delta = counted_total - start;
+    const price = Number(l.prix || l.price || 0);
+    const value = counted_total * price;
+    
+    return [
+      escape(l.produit_id || ''),
+      escape(l.nom || ''),
+      escape(l.code_barre || ''),
+      String(start),
+      String(counted_total),
+      String(delta),
+      price.toFixed(2),
+      value.toFixed(2)
+    ].join(';');
+  });
+  
+  return [header.join(';'), ...body].join('\n');
+}
+
+/**
+ * Envoie le bilan d'inventaire par email
+ */
+async function sendInventoryEmail(sessionData, lines) {
+  try {
+    const { sendEmailReport: sendEmail, getEmailConfig } = require('../emailReports');
+    const { emailCompta, smtpConfig } = await getEmailConfig();
+    
+    if (!emailCompta || !smtpConfig) {
+      console.warn('[inventory] Email comptable non configuré ou SMTP invalide');
+      return false;
+    }
+    
+    // Debug: afficher la structure des données
+    console.log('[inventory] DEBUG - First line structure:', lines?.[0] ? Object.keys(lines[0]) : 'NO LINES');
+    
+    const date = new Date(sessionData?.started_at || Date.now());
+    const dateStr = date.toLocaleString('fr-FR');
+    const sessionName = sessionData?.name || `Inventaire ${date.toISOString().slice(0, 10)}`;
+    
+    // Générer le HTML du bilan
+    const htmlContent = generateInventoryReportHTML(sessionData, lines);
+    
+    // Générer le CSV
+    const csvContent = generateInventoryCSV(sessionData, lines);
+    
+    const subject = `[Inventaire] ${sessionName} - ${dateStr}`;
+    
+    console.log('[inventory] Envoi du bilan par email à:', emailCompta);
+    const sent = await sendEmail(emailCompta, subject, htmlContent, smtpConfig, { csv: csvContent, filename: `${sessionName.replace(/[^\w\-]+/g, '_')}.csv` });
+    
+    if (sent) {
+      console.log('[inventory] ✅ Bilan d\'inventaire envoyé à', emailCompta);
+    } else {
+      console.warn('[inventory] ❌ Impossible d\'envoyer le bilan par email');
+    }
+    
+    return sent;
+  } catch (e) {
+    console.warn('[inventory] Erreur lors de l\'envoi du bilan:', e?.message || e);
+    return false;
+  }
 }
 
 /* -------------------- IPC -------------------- */
@@ -300,9 +456,14 @@ module.exports = function registerInventoryHandlers(ipcMain) {
       db.prepare(`INSERT INTO inventory_counts (session_id, produit_id, qty, user, device_id, created_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))`).run(sessionId, localNum, qty, user, device_id);
     } catch (e) { console.warn('[inventory] unable to persist local count', e?.message || e); }
 
+    // DEBUG: Log ALL product UUIDs from the database to diagnose the issue
+    const allProds = db.prepare('SELECT id, nom, remote_uuid FROM produits LIMIT 5').all();
+    console.log(`[inventory:count-add] DEBUG Sample produits in DB:`, allProds.map(p => ({ id: p.id, nom: p.nom, remote_uuid: p.remote_uuid || 'NULL' })));
+
     // 2) Appeler l'API directement pour synchronisation immédiate (multiposte)
     // Ne PAS enqueue car cela créerait un double comptage (l'API est déjà appelée ici)
     if (remoteUUID) {
+      console.log(`[inventory:count-add] ✅ Sending to API: product_uuid=${remoteUUID}, qty=${qty}, product_id=${localNum}, device_id=${device_id}`);
       try { 
         await apiInventoryCountAdd({ sessionId, product_uuid: remoteUUID, qty, user, device_id });
         return { ok: true, synced: true };
@@ -318,6 +479,7 @@ module.exports = function registerInventoryHandlers(ipcMain) {
         }
       }
     }
+    console.log(`[inventory:count-add] ❌ No remoteUUID found for product ${productIdInput} (local_id=${localNum}), sending local_only`);
     return { ok: true, local_only: true };
   };
   safeHandle(ipcMain, 'inventory:countAdd', doCountAdd);
@@ -411,6 +573,21 @@ module.exports = function registerInventoryHandlers(ipcMain) {
         BrowserWindow.getAllWindows().forEach(w => w.webContents.send('inventory:session-closed', payload));
       } catch (_) {}
 
+      // 5) Envoyer le bilan par email au comptable
+      try {
+        const summaryData = await apiInventorySummary(String(effectiveRemoteId));
+        if (summaryData?.lines) {
+          // Créer un objet session avec les infos minimales nécessaires
+          const sessionInfo = {
+            name: `Inventaire ${new Date().toISOString().slice(0, 10)}`,
+            started_at: new Date().toISOString()
+          };
+          sendInventoryEmail(sessionInfo, summaryData.lines);
+        }
+      } catch (e) {
+        console.warn('[inventory] Email send failed (non bloquant):', e?.message || e);
+      }
+
       if (out?.alreadyFinalized) return { ok: true, recap: out.recap || null, alreadyFinalized: true };
       return out;
     }
@@ -482,21 +659,62 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     return { ok: true, queued: true };
   });
 
-  // Historique sessions
+  // Historique sessions enrichi avec statistiques
   safeHandle(ipcMain, 'inventory:listSessions', async () => {
     const items = await apiInventoryListSessions();
-    return items;
+    
+    // Enrichir chaque session avec ses statistiques (counted_lines, total_products, inventory_value)
+    const enriched = await Promise.all(items.map(async (session) => {
+      try {
+        const sessionId = String(session.id || '').trim();
+        if (!sessionId || sessionId.toLowerCase() === 'nan') {
+          console.warn('[inventory] listSessions: session sans ID valide', session);
+          return {
+            ...session,
+            counted_lines: 0,
+            total_products: 0,
+            inventory_value: 0
+          };
+        }
+        
+        const summary = await apiInventorySummary(sessionId);
+        const lines = summary?.lines || [];
+        const counted_lines = lines.filter(l => Number(l.counted_total || 0) > 0).length;
+        const total_products = lines.length;
+        const inventory_value = lines.reduce((acc, l) => {
+          const qty = Number(l.counted_total || 0);
+          const price = Number(l.price || 0);
+          return acc + (qty * price);
+        }, 0);
+        
+        return {
+          ...session,
+          counted_lines,
+          total_products,
+          inventory_value
+        };
+      } catch (e) {
+        console.warn('[inventory] Erreur enrichissement session', session?.id, e?.message || e);
+        return {
+          ...session,
+          counted_lines: 0,
+          total_products: 0,
+          inventory_value: 0
+        };
+      }
+    }));
+    
+    return enriched;
   });
 
-  safeHandle(ipcMain, 'inventory:getSummary', async (_e, sessionId) => {
+  safeHandle(ipcMain, 'inventory:getSummary', async (event, sessionId) => {
+    console.log('[inventory] getSummary called with:', { sessionId, type: typeof sessionId });
+    // sessionId should be a UUID string from listSessions
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.trim() === '') {
+      throw new Error('inventory:getSummary BAD_ARG sessionId');
+    }
     const sum = await apiInventorySummary(sessionId);
     return sum.raw;
-    // Alias pour compatibilité avec le code frontend qui appelle inventory.summary()
-    safeHandle(ipcMain, 'inventory:summary', async (_e, { sessionId }) => {
-      const sum = await apiInventorySummary(sessionId);
-      return sum.raw;
-    });
-
   });
 
   // Récupérer comptages détaillés par device (multiposte)
@@ -604,3 +822,6 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     return getDeviceId();
   });
 };
+
+// Exporter sendInventoryEmail comme propriété de la fonction
+module.exports.sendInventoryEmail = sendInventoryEmail;

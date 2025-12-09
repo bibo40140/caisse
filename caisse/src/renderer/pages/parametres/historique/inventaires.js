@@ -3,6 +3,7 @@
  * Affiche la liste des sessions d'inventaire dans le contexte Paramètres > Historique
  */
 
+(function () {
 // --- Busy helpers (no-op si absents) ---
 const showBusy = (m) => (typeof window.showBusy === 'function' ? window.showBusy(m) : void 0);
 const hideBusy = () => (typeof window.hideBusy === 'function' ? window.hideBusy() : void 0);
@@ -54,10 +55,10 @@ function formatEUR(v) {
     return js;
   }
 
-async function showDetailModal(_apiBase, sessionId) {
+async function showDetailModal(sessionId) {
   showBusy('Chargement du détail…');
   try {
-    const js = await window.electronAPI.inventory.getSummary(sessionId); // ← ici
+    const js = await window.electronAPI.inventory.getSummary(sessionId);
     const lines = js.lines || [];
     const sess  = js.session || {};
       const date  = sess.started_at ? new Date(sess.started_at).toLocaleString() : '—';
@@ -109,15 +110,17 @@ async function showDetailModal(_apiBase, sessionId) {
       document.body.appendChild(wrap);
       wrap.querySelector('.modal-close').addEventListener('click', () => wrap.remove());
       wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
-    } finally {
-      hideBusy();
-    }
+  } catch (e) {
+    alert('Erreur de chargement : ' + (e?.message || e));
+  } finally {
+    hideBusy();
   }
+}
 
-async function exportCSV(_apiBase, sessionId) {
+async function exportCSV(sessionId) {
   showBusy('Préparation du CSV…');
   try {
-    const js = await window.electronAPI.inventory.getSummary(sessionId); // ← ici
+    const js = await window.electronAPI.inventory.getSummary(sessionId);
     const csv = toCSV(js.lines || []);
     const name = (js.session?.name || `inventaire-${sessionId}`).replace(/[^\w\-]+/g, '_');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -170,13 +173,13 @@ async function exportCSV(_apiBase, sessionId) {
 
       container.querySelectorAll('.btn-see').forEach(btn => {
         btn.addEventListener('click', async () => {
-          const id = Number(btn.dataset.id);
+          const id = btn.dataset.id; // UUID string, pas Number
           await showDetailModal(id);
         });
       });
       container.querySelectorAll('.btn-csv').forEach(btn => {
         btn.addEventListener('click', async () => {
-          const id = Number(btn.dataset.id);
+          const id = btn.dataset.id; // UUID string, pas Number
           await exportCSV(id);
         });
       });

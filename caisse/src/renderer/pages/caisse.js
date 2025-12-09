@@ -2485,6 +2485,41 @@ window.deleteCart = async function(cartId) {
   }
 };
 
+// ⚠️ Helpers cotisation — importants pour validerVente
+// Demande un montant à l'adhérent (>= 5 €). Retourne Number ou null si annulé.
+async function promptCotisationAmount(min = 5) {
+  const ask = async (msg, defVal) => {
+    if (typeof showPromptModal === 'function') {
+      return await showPromptModal(msg, defVal);
+    }
+    if (typeof showTextPromptModal === 'function') {
+      return await showTextPromptModal(msg, defVal);
+    }
+    const v = window.prompt(msg, defVal);
+    return v === null ? null : v;
+  };
+
+  while (true) {
+    const ans = await ask(`Montant de la cotisation (minimum ${min} €)`, String(min));
+    if (ans == null) return null; // annulé
+
+    const val = Math.round(Number(String(ans).replace(',', '.')) * 100) / 100;
+    if (Number.isFinite(val) && val >= min) return val;
+
+    await showAlertModal?.(`Merci d'entrer un montant valide supérieur ou égal à ${min} €.`);
+  }
+}
+
+function addCotisationToCart(montant) {
+  window.panier.push({
+    id: `cotisation-${Date.now()}`,
+    type: 'cotisation',
+    nom: 'Cotisation',
+    prix: Number(montant),
+    quantite: 1
+  });
+}
+
 async function validerVente() {
   try {
     // 🔧 Lire et normaliser les modules à chaque validation
@@ -2583,6 +2618,37 @@ if (isExt) {
   sale_type = 'exterieur';
   clientEmailExt = (document.getElementById('ext-email')?.value || '').trim() || null;
 }
+
+    // 4bis) Cotisation obligatoire : re-vérifie avant validation
+    if (sale_type === 'adherent' && cotisationsOn && Number.isFinite(Number(adherentId))) {
+      const cotDejaAuPanier = panier.some(l => l?.type === 'cotisation');
+
+      if (!cotDejaAuPanier) {
+        let estAJour = false;
+
+        try {
+          const res = await window.electronAPI.invoke('cotisations:verifier', {
+            adherent_id: Number(adherentId),
+            graceDays: 0,
+          });
+          estAJour = !!res?.actif;
+          if (estAJour) {
+            try { markCotPaid(Number(adherentId), new Date()); } catch {}
+          }
+        } catch (e) {
+          console.warn('[validerVente] vérification cotisation impossible, on bascule en demande manuelle:', e);
+        }
+
+        if (!estAJour) {
+          const montant = await promptCotisationAmount(5);
+          if (montant == null) return; // l’utilisateur a annulé
+
+          addCotisationToCart(montant);
+          try { localStorage.setItem('panier', JSON.stringify(panier)); } catch {}
+          if (typeof window.afficherPanier === 'function') window.afficherPanier();
+        }
+      }
+    }
 
     // 5) Lignes vendables (produits uniquement, id numérique)
     const lignesProduits = panier

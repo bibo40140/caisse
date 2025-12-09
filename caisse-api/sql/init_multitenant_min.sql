@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS produits (
   deleted        boolean       NOT NULL DEFAULT false,
   updated_at     timestamptz   NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, reference),
-  UNIQUE (tenant_id, code_barre)
+  UNIQUE (tenant_id, code_barre) WHERE code_barre IS NOT NULL
 );
 
 -- 6) Mouvements de stock (agrégés pour le stock courant)
