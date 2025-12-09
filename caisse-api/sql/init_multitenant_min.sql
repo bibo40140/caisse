@@ -274,6 +274,17 @@ CREATE TABLE IF NOT EXISTS inventory_adjust (
   PRIMARY KEY (session_id, tenant_id, produit_id)
 );
 
+-- Statut des devices lors d'un inventaire multiposte
+CREATE TABLE IF NOT EXISTS inventory_device_status (
+  session_id   uuid        NOT NULL REFERENCES inventory_sessions(id) ON DELETE CASCADE,
+  tenant_id    uuid        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  device_id    text        NOT NULL,
+  status       text        DEFAULT 'counting', -- 'counting' | 'finished'
+  last_activity timestamptz DEFAULT now(),
+  finished_at  timestamptz,
+  PRIMARY KEY (session_id, device_id)
+);
+
 -- 11) Index divers
 
 CREATE INDEX IF NOT EXISTS idx_unites_tenant           ON unites(tenant_id);
