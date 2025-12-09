@@ -2933,6 +2933,32 @@ app.post('/admin/backfill_stock', authRequired, async (req, res) => {
 })();
 
 /* =========================
+ * Migration: Créer table inventory_device_status
+ * =======================*/
+(async () => {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS inventory_device_status (
+        session_id   uuid        NOT NULL REFERENCES inventory_sessions(id) ON DELETE CASCADE,
+        tenant_id    uuid        NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        device_id    text        NOT NULL,
+        status       text        DEFAULT 'counting',
+        last_activity timestamptz DEFAULT now(),
+        finished_at  timestamptz,
+        PRIMARY KEY (session_id, device_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_inv_device_status_session ON inventory_device_status(session_id);
+    `);
+    console.log('[db] Migration: table inventory_device_status vérifiée/créée');
+  } catch (e) {
+    console.error('[db] Migration inventory_device_status error:', e.message);
+  } finally {
+    client.release();
+  }
+})();
+
+/* =========================
  * 📊 ENDPOINT DE MONITORING
  * =======================*/
 import { getStats, reset as resetPerfStats } from './middleware/performance.js';
