@@ -111,8 +111,9 @@
     // Écouteur pour rafraîchir l'UI quand les données sont synchronisées
     if (window.electronEvents?.on) {
       window.electronEvents.on('data:refreshed', () => {
-        // Rafraîchir la page courante quand le main nous notifie d'un pull auto
-        setTimeout(() => window.refreshCurrentPage?.(), 100);
+        // Ne plus rafraîchir automatiquement pour préserver l'état de l'UI (filtres, onglets, etc.)
+        // Les nouvelles données seront disponibles au prochain render naturel
+        // setTimeout(() => window.refreshCurrentPage?.(), 100);
       });
       
       // Gestion des erreurs de sync limite atteinte

@@ -5,6 +5,7 @@ const path = require('path');
 const { enqueueOp } = require('./ops');
 const { getDeviceId } = require('../device');
 const { createStockMovement } = require('./stock');
+const { ensureCotisationFromVente } = require('./cotisations');
 
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
 
@@ -63,6 +64,9 @@ function enregistrerVente(vente, lignes) {
       : 0;
 
   const acompte = Number(vente.acompte || 0);
+
+  // Date de vente ISO pour journaliser la cotisation (mêmes base que date_vente)
+  const venteDateStr = new Date().toISOString().split('T')[0];
 
   // total (produits) envoyé par le handler
   const total = Number(vente.total || 0);
@@ -144,6 +148,15 @@ function enregistrerVente(vente, lignes) {
     );
     const venteId = rV.lastInsertRowid;
     console.log('[ventes] Vente inserted with ID:', venteId);
+
+    // Enregistre la cotisation mensuelle locale si présente sur la vente
+    if (cotisation > 0 && adherentId) {
+      try {
+        ensureCotisationFromVente(adherentId, cotisation, venteDateStr);
+      } catch (err) {
+        console.warn('[ventes] ensureCotisationFromVente failed', err?.message || err);
+      }
+    }
     
     if (needDisableFK) {
       db.prepare('PRAGMA foreign_keys = ON').run();

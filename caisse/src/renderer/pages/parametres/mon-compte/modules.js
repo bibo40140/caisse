@@ -195,7 +195,7 @@
 
         await saveActiveModules(payload);
         if (window.clearModsCache) window.clearModsCache();
-        window.location.reload();
+        // window.location.reload(); // Suppression du reload automatique pour préserver la page courante
       } catch (e) {
         alert("Erreur lors de l'enregistrement : " + (e?.message || e));
       }

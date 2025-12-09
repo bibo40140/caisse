@@ -7,6 +7,7 @@ const { apiFetch } = require('./apiClient');
 const { getDeviceId } = require('./device');
 const logger = require('./logger');
 const cache = require('./cache'); // 📦 Système de cache
+const { ensureCotisationFromVente } = require('./db/cotisations');
 
 // ID du device (stable pour ce poste)
 const DEVICE_ID = process.env.DEVICE_ID || getDeviceId();
@@ -845,43 +846,51 @@ async function pullVentes({ since = null } = {}) {
     if (ventes.length > 0) {
       const checkVente = db.prepare('SELECT 1 FROM ventes WHERE remote_uuid = ?');
       const insertVente = db.prepare(`
-        INSERT OR IGNORE INTO ventes (remote_uuid, adherent_id, date_vente, total, mode_paiement_id, sale_type, client_email, frais_paiement, cotisation, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO ventes (remote_uuid, adherent_id, date_vente, total, mode_paiement_id, sale_type, client_email, frais_paiement, cotisation, acompte, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const updateVente = db.prepare(`
-        UPDATE ventes SET adherent_id = ?, date_vente = ?, total = ?, mode_paiement_id = ?, sale_type = ?, client_email = ?, frais_paiement = ?, cotisation = ?, updated_at = ?
+        UPDATE ventes SET adherent_id = ?, date_vente = ?, total = ?, mode_paiement_id = ?, sale_type = ?, client_email = ?, frais_paiement = ?, cotisation = ?, acompte = ?, updated_at = ?
         WHERE remote_uuid = ? AND updated_at < ?
       `);
+      const getAdherentLocalId = db.prepare('SELECT id FROM adherents WHERE remote_uuid = ?');
+      const getModeLocalId = db.prepare('SELECT id FROM modes_paiement WHERE remote_uuid = ?');
 
       for (const v of ventes) {
         try {
-          // Vérifier que les FK existent
+          // Vérifier que les FK existent et récupérer les IDs locaux
+          let adherentLocalId = null;
           if (v.adherent_id) {
-            const adherentExists = db.prepare('SELECT 1 FROM adherents WHERE remote_uuid = ?').get(v.adherent_id);
-            if (!adherentExists) {
+            const adhRow = getAdherentLocalId.get(v.adherent_id);
+            if (!adhRow) {
               logger.warn('sync', 'Adhérent manquant pour vente', { vente_id: v.id, adherent_id: v.adherent_id });
               continue;
             }
+            adherentLocalId = adhRow.id;
           }
+
+          let modeLocalId = null;
           if (v.mode_paiement_id) {
-            const modeExists = db.prepare('SELECT 1 FROM modes_paiement WHERE remote_uuid = ?').get(v.mode_paiement_id);
-            if (!modeExists) {
+            const modeRow = getModeLocalId.get(v.mode_paiement_id);
+            if (!modeRow) {
               logger.warn('sync', 'Mode paiement manquant pour vente', { vente_id: v.id, mode_paiement_id: v.mode_paiement_id });
               continue;
             }
+            modeLocalId = modeRow.id;
           }
 
           const exists = checkVente.get(v.id);
           if (exists) {
             updateVente.run(
-              v.adherent_id, 
+              adherentLocalId, 
               v.date_vente || v.created_at, 
               v.total, 
-              v.mode_paiement_id, 
+              modeLocalId, 
               v.sale_type || 'adherent', 
               v.client_email, 
               v.frais_paiement || 0, 
               v.cotisation || 0, 
+              v.acompte || 0, 
               v.updated_at, 
               v.id, 
               v.updated_at
@@ -889,16 +898,27 @@ async function pullVentes({ since = null } = {}) {
           } else {
             insertVente.run(
               v.id, 
-              v.adherent_id, 
+              adherentLocalId, 
               v.date_vente || v.updated_at, 
               v.total, 
-              v.mode_paiement_id, 
+              modeLocalId, 
               v.sale_type || 'adherent', 
               v.client_email, 
               v.frais_paiement || 0, 
               v.cotisation || 0, 
+              v.acompte || 0, 
               v.updated_at
             );
+          }
+
+          // Reconstitue la cotisation locale pour l'adhérent à partir de la vente sync
+          if (adherentLocalId && Number(v.cotisation || 0) > 0) {
+            const datePaiement = (v.date_vente || v.updated_at || '').toString().slice(0, 10) || new Date().toISOString().slice(0, 10);
+            try {
+              ensureCotisationFromVente(adherentLocalId, v.cotisation, datePaiement);
+            } catch (err) {
+              logger.warn('sync', 'ensureCotisationFromVente failed', { vente_id: v.id, error: err?.message || err });
+            }
           }
           ventesImported++;
         } catch (e) {
@@ -1459,10 +1479,10 @@ function startAutoSync(deviceId = DEVICE_ID) {
   const PULL_INTERVAL_MS = 10000; // 10s pour pull
   const MAX_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-  // Fonction de pull automatique périodique
+  // Fonction de pull automatique périodique (pull complet: refs + ventes + réceptions)
   async function runPullCycle() {
     try {
-      await pullRefs();
+      await pullAll();
     } catch (e) {
       console.warn('[sync] auto-pull error:', e?.message || e);
     } finally {
@@ -1656,11 +1676,11 @@ async function bootstrapIfNeeded() {
   return { ok: true, bootstrapped: true, counts: js?.counts || {} };
 }
 
-// 🆕 Version simple : au démarrage, on fait juste un pull
-// (le bootstrap automatique est géré ailleurs ou manuellement)
+// 🆕 Version simple : au démarrage, on fait un pull COMPLET (refs + ventes + réceptions)
+// pour restaurer TOUTES les données après DB reset
 async function hydrateOnStartup() {
   setState('pulling', { phase: 'startup' });
-  const r = await pullRefs();
+  const r = await pullAll();
   setState('online', { phase: 'startup_done' });
   return r;
 }

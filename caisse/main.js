@@ -366,26 +366,18 @@ ipcMain.handle('auth:login', async (_e, { email, password }) => {
       console.warn('[auth:login] Push initial échoué (non-bloquant):', e?.message || e);
     }
 
-    // 6) 🆕 Pull complet après login pour synchroniser produits/ventes/réceptions
+    // 6) 🆕 Pull COMPLET après login pour synchroniser produits/ventes/réceptions/cotisations
     try {
-      console.log('[auth:login] Pull automatique des données depuis serveur...');
-      const pullResult = await sync.pullRefs();
+      console.log('[auth:login] Pull automatique COMPLET des données depuis serveur...');
+      const pullResult = await sync.pullAll();
       if (pullResult?.ok) {
-        console.log('[auth:login] Pull auto terminé');
+        console.log('[auth:login] Pull complet terminé');
         
-        // 🔧 Fix: créer les mouvements 'init' manquants pour tous les produits
-        try {
-          const { fixMissingInitMovements } = require('./src/main/handlers/fix-init');
-          const fixResult = await fixMissingInitMovements();
-          if (fixResult?.fixed > 0) {
-            console.log(`[auth:login] ✅ ${fixResult.fixed} mouvements 'init' créés`);
-          }
-        } catch (e) {
-          console.warn('[auth:login] Fix init échoué (non-bloquant):', e?.message || e);
-        }
+        // 🔧 Fix-init automatique désactivé : créait des stocks négatifs après recalcul.
+        // Les mouvements 'init' sont désormais créés lors de l'import/creation produit.
       }
     } catch (e) {
-      console.warn('[auth:login] Pull auto échoué (non-bloquant):', e?.message || e);
+      console.warn('[auth:login] Pull complet échoué (non-bloquant):', e?.message || e);
     }
 
     // 7) 🆕 Démarrer l'auto-sync (push + pull périodiques)

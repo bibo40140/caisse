@@ -158,6 +158,16 @@ function validerImportProduits(produitsCorriges) {
       if (catId) {
         db.prepare('UPDATE produits SET categorie_id = ? WHERE id = ?').run(catId, info.lastInsertRowid);
       }
+
+      // 🟢 Créer le mouvement 'init' pour refléter le stock initial importé
+      try {
+        db.prepare(`
+          INSERT INTO stock_movements (produit_id, delta, source, source_id, meta, created_at)
+          VALUES (?, ?, 'init', NULL, ?, datetime('now','localtime'))
+        `).run(info.lastInsertRowid, toIntSafe(p.stock, 0), JSON.stringify({ reason: 'import.initial_stock', reference }));
+      } catch (e) {
+        console.error('[validerImportProduits] stock init movement error:', e);
+      }
       
       // 🔥 Enqueue op pour synchronisation vers Neon
       try {
@@ -197,6 +207,23 @@ function validerImportProduits(produitsCorriges) {
             categorie_id: categorieUuid,
           },
         });
+
+        // 🚀 Synchroniser le stock initial vers le serveur (delta = stock importé)
+        const initialStock = toIntSafe(p.stock, 0);
+        if (initialStock !== 0) {
+          enqueueOp({
+            deviceId: DEVICE_ID,
+            opType: 'inventory.adjust',
+            entityType: 'produit',
+            entityId: String(info.lastInsertRowid),
+            payload: {
+              produitId: info.lastInsertRowid,
+              delta: initialStock,
+              reason: 'import.initial_stock',
+              reference,
+            },
+          });
+        }
       } catch (e) {
         console.error('[validerImportProduits] enqueueOp error:', e);
       }
@@ -394,6 +421,19 @@ function validerImportFournisseurs(fournisseurs) {
       
       // 🔥 Enqueue op pour synchronisation vers Neon
       try {
+        // Convertir les IDs locaux en UUID pour la synchro serveur
+        let categorieUuid = null;
+        let referentUuid = null;
+
+        if (f.categorie_id) {
+          const catRow = db.prepare('SELECT remote_uuid FROM categories WHERE id = ?').get(f.categorie_id);
+          categorieUuid = catRow?.remote_uuid || null;
+        }
+        if (f.referent_id) {
+          const refRow = db.prepare('SELECT remote_uuid FROM adherents WHERE id = ?').get(f.referent_id);
+          referentUuid = refRow?.remote_uuid || null;
+        }
+
         enqueueOp({
           deviceId: DEVICE_ID,
           opType: 'fournisseur.created',
@@ -409,8 +449,8 @@ function validerImportFournisseurs(fournisseurs) {
             code_postal: String(f.code_postal || '').trim(),
             ville: String(f.ville || '').trim(),
             label: String(f.label || '').trim(),
-            categorie_id: f.categorie_id ?? null,
-            referent_id: f.referent_id ?? null,
+            categorie_id: categorieUuid,
+            referent_id: referentUuid,
           },
         });
       } catch (e) {

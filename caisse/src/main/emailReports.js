@@ -122,9 +122,9 @@ async function getStatsForDateRange(dateFrom, dateTo) {
 }
 
 /**
- * Envoie un email avec le rapport
+ * Envoie un email avec le rapport (support pièces jointes)
  */
-async function sendEmailReport(to, subject, htmlContent, smtpConfig) {
+async function sendEmailReport(to, subject, htmlContent, smtpConfig, attachmentData) {
   console.log('[EmailReports] sendEmailReport - Début');
   console.log('[EmailReports]   Destinataire:', to);
   console.log('[EmailReports]   Sujet:', subject);
@@ -165,6 +165,18 @@ async function sendEmailReport(to, subject, htmlContent, smtpConfig) {
       subject: subject,
       html: htmlContent
     };
+
+    // Ajouter les pièces jointes si fournies
+    if (attachmentData && attachmentData.csv) {
+      mailOptions.attachments = [
+        {
+          filename: attachmentData.filename || 'export.csv',
+          content: attachmentData.csv,
+          contentType: 'text/csv;charset=utf-8'
+        }
+      ];
+      console.log('[EmailReports] PJ ajoutée:', attachmentData.filename);
+    }
 
     console.log('[EmailReports] Envoi de l\'email...');
     const info = await transporter.sendMail(mailOptions);
@@ -417,5 +429,7 @@ module.exports = {
   sendMonthlyReport,
   generateReportHTML,
   getStatsForDateRange,
-  setApiGetEmailSettings
+  setApiGetEmailSettings,
+  sendEmailReport,
+  getEmailConfig
 };

@@ -1101,7 +1101,7 @@ app.get('/sync/pull_ventes', authRequired, async (req, res) => {
     
     // Récupérer les ventes avec pagination
     let ventesQuery = `
-      SELECT id, adherent_id, date_vente, total, mode_paiement_id, updated_at
+      SELECT id, adherent_id, date_vente, total, mode_paiement_id, frais_paiement, cotisation, acompte, sale_type, client_email, updated_at
       FROM ventes
       WHERE tenant_id = $1
     `;
@@ -1313,6 +1313,22 @@ async function handleProductCreated(client, tenantId, p) {
   const categorieId   = p.categorie_id || null;
   const fournisseurId = p.fournisseur_id || null;
 
+  // 🔍 Vérification préalable : si code_barre est fourni (non-vide), vérifier s'il existe déjà
+  if (codeBarre && String(codeBarre).trim()) {
+    const existingByBarcode = await client.query(
+      `SELECT id, reference, nom FROM produits WHERE tenant_id = $1 AND code_barre = $2 LIMIT 1`,
+      [tenantId, codeBarre]
+    );
+    if (existingByBarcode.rowCount > 0) {
+      const existing = existingByBarcode.rows[0];
+      console.warn(
+        `    [!] Code-barre '${codeBarre}' existe déjà pour produit '${existing.nom}' (ref: ${existing.reference}). ` +
+        `Produit '${nom}' (ref: ${reference}) ignoré pour éviter conflit.`
+      );
+      return null;
+    }
+  }
+
   try {
     const res = await client.query(
       `
@@ -1368,7 +1384,8 @@ async function handleProductCreated(client, tenantId, p) {
     if (e.code === '23505') {
       console.warn(
         '[push_ops] product.created ignoré (duplicate unique constraint) :',
-        e.detail || e.message
+        e.detail || e.message,
+        { reference, codeBarre }
       );
       // On considère l'op "consommée"
       return null;

@@ -110,6 +110,33 @@ function ajouterCotisation(adherentId, montant) {
   `).run(Number(adherentId), Number(montant), datePaiement, mois);
 }
 
+// Insère la cotisation issue d'une vente si elle n'existe pas déjà pour ce mois.
+function ensureCotisationFromVente(adherentId, montant, datePaiement = null) {
+  const adhId = Number(adherentId);
+  const montantNum = Number(montant);
+  if (!Number.isFinite(adhId) || adhId <= 0) return false;
+  if (!Number.isFinite(montantNum) || montantNum <= 0) return false;
+
+  const dateStr = (datePaiement || new Date().toISOString()).toString().slice(0, 10);
+  const mois = dateStr.slice(0, 7);
+  if (!mois) return false;
+
+  const exists = db.prepare(`
+    SELECT id FROM cotisations
+    WHERE adherent_id = ? AND mois = ?
+    LIMIT 1
+  `).get(adhId, mois);
+
+  if (exists) return false;
+
+  db.prepare(`
+    INSERT INTO cotisations (adherent_id, montant, date_paiement, mois)
+    VALUES (?, ?, ?, ?)
+  `).run(adhId, montantNum, dateStr, mois);
+
+  return true;
+}
+
 /**
  * Supprimer / Modifier
  */
@@ -135,4 +162,5 @@ module.exports = {
   verifierCotisationAdherent, // compat booléenne
   getDerniereCotisation,
   verifierCotisation,         // logique riche pour l’UI
+  ensureCotisationFromVente,
 };
