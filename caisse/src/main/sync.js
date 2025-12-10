@@ -665,8 +665,14 @@ async function pullRefs({ since = null } = {}) {
       console.log(`[sync] pull: ${inventory_sessions.length} inventory_sessions reçues depuis Neon`);
       
       const checkSession = db.prepare('SELECT id, status FROM inventory_sessions WHERE remote_uuid = ?');
+      // FIX: Only update if exists, don't create duplicates on different id values
+      const updateSession = db.prepare(`
+        UPDATE inventory_sessions 
+        SET name = ?, status = ?, started_at = ?, ended_at = ?
+        WHERE remote_uuid = ?
+      `);
       const insertSession = db.prepare(`
-        INSERT OR REPLACE INTO inventory_sessions (name, status, started_at, ended_at, remote_uuid)
+        INSERT INTO inventory_sessions (name, status, started_at, ended_at, remote_uuid)
         VALUES (?, ?, ?, ?, ?)
       `);
 
@@ -681,14 +687,24 @@ async function pullRefs({ since = null } = {}) {
               sessionsClosed.push(s.id);
             }
             
-            // Synchroniser toutes les sessions (open ou closed récents)
-            insertSession.run(
-              s.name || 'Inventaire',
-              remoteStatus,
-              s.started_at || new Date().toISOString(),
-              s.ended_at || null,
-              s.id  // UUID serveur
-            );
+            // Synchroniser la session (update si existe, insert sinon)
+            if (exists) {
+              updateSession.run(
+                s.name || 'Inventaire',
+                remoteStatus,
+                s.started_at || new Date().toISOString(),
+                s.ended_at || null,
+                s.id  // UUID serveur = WHERE clause
+              );
+            } else {
+              insertSession.run(
+                s.name || 'Inventaire',
+                remoteStatus,
+                s.started_at || new Date().toISOString(),
+                s.ended_at || null,
+                s.id  // UUID serveur
+              );
+            }
             
             sessionsImported++;
           } catch (e) {
