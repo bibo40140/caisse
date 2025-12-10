@@ -19,7 +19,7 @@
 .sidebar-logout button {
   width: 100%;
   padding: 10px 12px;
-  background: #ef4444;
+  background: #3182ce;
   color: white;
   border: none;
   border-radius: 5px;
@@ -34,7 +34,7 @@
 }
 
 .sidebar-logout button:hover {
-  background: #dc2626;
+  background: #2563eb;
   transform: translateY(-1px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }

@@ -100,14 +100,35 @@ function verifierCotisation(adherentId, opts = {}) {
 
 /**
  * Ajouter une cotisation (renseigne aussi 'mois' = 'YYYY-MM')
+ * Évite les doublons en vérifiant si une cotisation existe déjà ce mois
  */
 function ajouterCotisation(adherentId, montant) {
+  const adhId = Number(adherentId);
+  const montantNum = Number(montant);
+  if (!Number.isFinite(adhId) || adhId <= 0) return false;
+  if (!Number.isFinite(montantNum) || montantNum <= 0) return false;
+
   const datePaiement = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
   const mois = datePaiement.slice(0, 7);                       // 'YYYY-MM'
+  
+  // Vérifier si une cotisation existe déjà pour ce mois
+  const exists = db.prepare(`
+    SELECT id FROM cotisations
+    WHERE adherent_id = ? AND mois = ?
+    LIMIT 1
+  `).get(adhId, mois);
+
+  if (exists) {
+    console.warn('[ajouterCotisation] Une cotisation existe déjà pour adhérent', adhId, 'mois', mois);
+    return false;
+  }
+
   db.prepare(`
     INSERT INTO cotisations (adherent_id, montant, date_paiement, mois)
     VALUES (?, ?, ?, ?)
-  `).run(Number(adherentId), Number(montant), datePaiement, mois);
+  `).run(adhId, montantNum, datePaiement, mois);
+  
+  return true;
 }
 
 // Insère la cotisation issue d'une vente si elle n'existe pas déjà pour ce mois.

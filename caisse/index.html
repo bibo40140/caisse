@@ -36,7 +36,6 @@
     <main class="main-content">
       <header>
         <div id="sync-indicator" class="sync-chip">—</div>
-        <button id="btn-logout" title="Se déconnecter">Se déconnecter</button>
         <h1 id="page-title">Accueil</h1>
       </header>
 
@@ -59,20 +58,16 @@
   <script src="./src/renderer/pages/inventaire.js"></script>
   <script src="./src/renderer/shell.js"></script>
   <script>
-    // Synchroniser les deux boutons de déconnexion
+    // Gérer le bouton de déconnexion
     document.addEventListener('DOMContentLoaded', () => {
-      const btnLogout = document.getElementById('btn-logout');
       const btnLogoutSidebar = document.getElementById('btn-logout-sidebar');
       
-      if (btnLogout && btnLogoutSidebar) {
-        const handleLogout = () => {
+      if (btnLogoutSidebar) {
+        btnLogoutSidebar.addEventListener('click', () => {
           if (typeof window.electronAPI !== 'undefined' && window.electronAPI.logout) {
             window.electronAPI.logout();
           }
-        };
-        
-        btnLogout.addEventListener('click', handleLogout);
-        btnLogoutSidebar.addEventListener('click', handleLogout);
+        });
       }
     });
   </script>
