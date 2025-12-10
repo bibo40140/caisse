@@ -47,7 +47,10 @@
               <td>${f.ville || ''}</td>
               <td>${f.categorie_nom || '—'}</td>
               <td>${f.referent || '—'}</td>
-              <td><button type="button" data-id="${f.id}" class="btn-modifier">✏️ Modifier</button></td>
+              <td style="white-space: nowrap;">
+                <button type="button" data-id="${f.id}" class="btn-modifier">✏️ Modifier</button>
+                <button type="button" data-id="${f.id}" class="btn-supprimer-fournisseur" style="margin-left: 5px; background: #ef4444; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">🗑️ Supprimer</button>
+              </td>
             </tr>
           `).join('')}
         </tbody>
@@ -160,6 +163,27 @@
     // ✏️ DÉLÉGATION : clic sur "Modifier" (robuste après filtrage)
     const tbody = document.getElementById('fournisseurs-liste');
     tbody.addEventListener('click', async (e) => {
+      // Gérer le bouton Supprimer
+      const btnSupprimer = e.target.closest('.btn-supprimer-fournisseur');
+      if (btnSupprimer) {
+        const id = Number(btnSupprimer.dataset.id);
+        const fournisseur = (fournisseurs || []).find(f => Number(f.id) === id);
+        if (!fournisseur) return;
+
+        const confirmation = await showConfirmModal(`Êtes-vous sûr de vouloir supprimer le fournisseur "${fournisseur.nom}" ?`);
+        if (!confirmation) return;
+
+        try {
+          await window.electronAPI.supprimerFournisseur(id);
+          await showAlertModal('✅ Fournisseur supprimé.');
+          await chargerFournisseurs();
+        } catch (err) {
+          await showAlertModal(`❌ Erreur lors de la suppression : ${err?.message || err}`);
+        }
+        return;
+      }
+
+      // Gérer le bouton Modifier
       const btn = e.target.closest('.btn-modifier');
       if (!btn) return;
 
