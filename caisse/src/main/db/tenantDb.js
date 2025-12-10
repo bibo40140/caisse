@@ -17,15 +17,28 @@ function getActiveTenantId() {
 
 function getTenantDb(tenantId) {
   const id = tenantId || getActiveTenantId() || 'default';
-  if (DBS.has(id)) return DBS.get(id);
 
-  // store DB files in DATA_DIR or fallback to local /db folder
-  const baseDir = process.env.DATA_DIR || path.join(process.cwd(), 'db');
-  const dir = path.isAbsolute(baseDir) ? baseDir : path.join(process.cwd(), baseDir);
-  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  // Allow per-poste override of the DB file (handy for multiposte on same machine)
+  const overrideFile = (process.env.DB_FILE || '').trim();
+  let filePath;
 
-  const file = path.join(dir, `tenant_${id}.db`);
-  const db = new Database(file);
+  if (overrideFile) {
+    filePath = path.isAbsolute(overrideFile)
+      ? overrideFile
+      : path.join(process.cwd(), overrideFile);
+  } else {
+    // store DB files in DATA_DIR or fallback to local /db folder
+    const baseDir = process.env.DATA_DIR || path.join(process.cwd(), 'db');
+    const dir = path.isAbsolute(baseDir) ? baseDir : path.join(process.cwd(), baseDir);
+    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+
+    filePath = path.join(dir, `tenant_${id}.db`);
+  }
+
+  const dbKey = `${id}::${filePath}`;
+  if (DBS.has(dbKey)) return DBS.get(dbKey);
+
+  const db = new Database(filePath);
 
   try { db.pragma('foreign_keys = ON'); } catch {}
   try { db.pragma('journal_mode = WAL'); } catch {}
@@ -33,7 +46,7 @@ function getTenantDb(tenantId) {
   // 👇 canonical local schema
   ensureLocalSchema(db);
 
-  DBS.set(id, db);
+  DBS.set(dbKey, db);
   return db;
 }
 

@@ -143,13 +143,18 @@ async function apiInventoryListSessions() {
 
 /* -------------------- Apply summary to local DB -------------------- */
 function applySummaryToLocal(lines) {
+  console.log(`\n   📋 applySummaryToLocal appelé avec ${lines?.length || 0} lignes`);
+  
   const db = getDb();
 
   // Standardiser sur remote_uuid uniquement
-  const produitsQuery = `SELECT id, COALESCE(remote_uuid, '') AS remote_uuid, COALESCE(code_barre, '') AS code_barre FROM produits`;
+  const produitsQuery = `SELECT id, stock, COALESCE(remote_uuid, '') AS remote_uuid, COALESCE(code_barre, '') AS code_barre, nom FROM produits`;
 
   let produits = [];
-  try { produits = db.prepare(produitsQuery).all(); } catch { return { matched: 0, total: 0 }; }
+  try { produits = db.prepare(produitsQuery).all(); } catch { 
+    console.error(`   ❌ Erreur lecture produits`);
+    return { matched: 0, total: 0 }; 
+  }
 
   const byUuid = new Map(); 
   const byBarcode = new Map();
@@ -178,19 +183,31 @@ function applySummaryToLocal(lines) {
     
     if (localId) {
       mapped.set(localId, qty);
-      // DEBUG: log les 3 premiers
-      if (mapped.size <= 3) {
-        console.log(`[inventory] applySummaryToLocal: ${l.nom || 'Unknown'} = ${qty} (matched by ${rid ? 'UUID' : 'barcode'}: ${rid || l.barcode})`);
+      // Log uniquement les produits comptés (qty > 0)
+      if (qty > 0) {
+        console.log(`   🔍 ${l.nom || 'Unknown'} → compté=${qty} (match: ${rid ? 'UUID' : 'barcode'})`);
       }
     }
   }
+  
+  console.log(`   ℹ️  ${mapped.size} produits mappés`);
 
   // Appliquer le stock inventorié de manière ABSOLUE (pas de delta)
+  console.log(`\n   🔄 Application des stocks:`);
+  const createdMovements = [];
   const tx = db.transaction(() => {
     for (const [id, inventoriedStock] of mapped.entries()) {
-      // Récupérer le stock AVANT inventaire (colonne produits.stock)
-      const beforeRow = db.prepare(`SELECT stock FROM produits WHERE id = ?`).get(id);
+      // Récupérer les infos AVANT modification
+      const beforeRow = db.prepare(`SELECT stock, nom, remote_uuid FROM produits WHERE id = ?`).get(id);
       const stockBeforeInventory = beforeRow ? Number(beforeRow.stock || 0) : 0;
+      const nomProduit = beforeRow?.nom || `ID=${id}`;
+      
+      // Log uniquement si stock compté > 0 (produits inventoriés)
+      if (inventoriedStock > 0) {
+        console.log(`   📦 ${nomProduit}:`);
+        console.log(`      Stock AVANT: ${stockBeforeInventory}`);
+        console.log(`      Inventorié:  ${inventoriedStock}`);
+      }
       
       // Calculer le delta basé sur le stock AVANT inventaire
       const delta = inventoriedStock - stockBeforeInventory;
@@ -198,22 +215,68 @@ function applySummaryToLocal(lines) {
       // Appliquer le nouveau stock de manière absolue
       db.prepare(`UPDATE produits SET stock = ?, updated_at = datetime('now','localtime') WHERE id = ?`).run(inventoriedStock, id);
       
-      // Créer un mouvement pour traçabilité
+      // Vérifier que l'update a bien fonctionné
+      const afterRow = db.prepare(`SELECT stock FROM produits WHERE id = ?`).get(id);
+      const stockAfter = afterRow ? Number(afterRow.stock || 0) : 0;
+      
+      if (inventoriedStock > 0) {
+        console.log(`      Stock APRÈS: ${stockAfter}`);
+        if (stockAfter !== inventoriedStock) {
+          console.error(`      ❌ ANOMALIE DÉTECTÉE: stock=${stockAfter} mais devrait être ${inventoriedStock}`);
+        }
+      }
+      
+      // Créer un mouvement pour traçabilité et enqueue l'opération
       if (delta !== 0) {
-        db.prepare(`
+        const movementId = db.prepare(`
           INSERT INTO stock_movements (produit_id, delta, source, source_id, meta, created_at)
           VALUES (?, ?, 'inventory', NULL, ?, datetime('now','localtime'))
         `).run(id, delta, JSON.stringify({ 
           stock_before: stockBeforeInventory,
           stock_after: inventoriedStock,
           delta: delta
-        }));
+        })).lastInsertRowid;
+        
+        // Enqueue l'opération pour push vers serveur
+        createdMovements.push({
+          movementId,
+          produit_id: id,
+          produit_uuid: beforeRow?.remote_uuid || null,
+          delta,
+          stock_before: stockBeforeInventory,
+          stock_after: inventoriedStock
+        });
       }
     }
   }); tx();
+  
+  // Enqueue les opérations APRÈS la transaction (hors de la tx)
+  for (const mov of createdMovements) {
+    try {
+      enqueueOp({
+        deviceId: DEFAULT_DEVICE_ID,
+        opType: 'stock.movement_created',
+        entityType: 'stock_movement',
+        entityId: mov.movementId,
+        payload: {
+          movement_id: mov.movementId,
+          produit_id: mov.produit_id,
+          produit_uuid: mov.produit_uuid,
+          delta: mov.delta,
+          stock_before: mov.stock_before,
+          stock_after: mov.stock_after,
+          source: 'inventory'
+        }
+      });
+    } catch (e) {
+      console.warn(`[inventory] Erreur enqueueOp pour movement ${mov.movementId}:`, e?.message);
+    }
+  }
+  
+  console.log(`   📤 ${createdMovements.length} mouvements enqueued pour push serveur`);
 
   try { BrowserWindow.getAllWindows().forEach(w => w.webContents.send('data:refreshed', { from: 'inventory:finalize' })); } catch {}
-  console.log(`[inventory] stocks locaux mis à jour via summary — matched ${mapped.size}/${produits.length}`);
+  console.log(`\n   ✅ Stocks mis à jour: ${mapped.size}/${produits.length} produits matchés\n`);
   return { matched: mapped.size, total: produits.length };
 }
 
@@ -420,6 +483,17 @@ module.exports = function registerInventoryHandlers(ipcMain) {
     if (!productIdInput) throw new Error('inventory:count-add BAD_ARG produit_id requis');
 
     const db = getDb();
+    
+    // Convertir sessionId UUID → ID local si nécessaire
+    // FIX: Get the MOST RECENT session (ORDER BY id DESC) to avoid hitting old duplicates
+    let localSessionId = sessionId;
+    if (isUuidLike(String(sessionId))) {
+      const sessRow = db.prepare(`SELECT id FROM inventory_sessions WHERE remote_uuid = ? ORDER BY id DESC LIMIT 1`).get(String(sessionId));
+      if (!sessRow) throw new Error(`Session UUID ${sessionId} not found locally`);
+      localSessionId = sessRow.id;
+      console.log(`[inventory:count-add] SessionId converted: UUID ${sessionId} → local_id=${localSessionId}`);
+    }
+    
     const cols = listColumns('produits');
     const uuidCols = ['remote_uuid', 'remote_id', 'neon_id', 'product_uuid', 'uuid'].filter(c => hasCol(cols, c));
     const selectUuid = uuidCols.length ? `COALESCE(${uuidCols.join(', ')}, '')` : 'NULL';
@@ -453,21 +527,26 @@ module.exports = function registerInventoryHandlers(ipcMain) {
 
     // 1) Always persist locally to inventory_counts for offline use / UI
     try {
-      db.prepare(`INSERT INTO inventory_counts (session_id, produit_id, qty, user, device_id, created_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))`).run(sessionId, localNum, qty, user, device_id);
-    } catch (e) { console.warn('[inventory] unable to persist local count', e?.message || e); }
-
-    // DEBUG: Log ALL product UUIDs from the database to diagnose the issue
-    const allProds = db.prepare('SELECT id, nom, remote_uuid FROM produits LIMIT 5').all();
-    console.log(`[inventory:count-add] DEBUG Sample produits in DB:`, allProds.map(p => ({ id: p.id, nom: p.nom, remote_uuid: p.remote_uuid || 'NULL' })));
+      db.prepare(`INSERT INTO inventory_counts (session_id, produit_id, qty, user, device_id, created_at) VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))`).run(localSessionId, localNum, qty, user, device_id);
+      console.log(`\n🔵 [INVENTAIRE] COMPTAGE ligne validée:`);
+      console.log(`   Produit: ${row?.nom || 'ID=' + localNum}`);
+      console.log(`   Quantité: ${qty}`);
+      console.log(`   Session locale: ${localSessionId}`);
+      console.log(`   Session UUID: ${sessionId}`);
+    } catch (e) { 
+      console.error(`\n❌ [INVENTAIRE] Erreur persist local count:`, e?.message || e);
+    }
 
     // 2) Appeler l'API directement pour synchronisation immédiate (multiposte)
     // Ne PAS enqueue car cela créerait un double comptage (l'API est déjà appelée ici)
     if (remoteUUID) {
-      console.log(`[inventory:count-add] ✅ Sending to API: product_uuid=${remoteUUID}, qty=${qty}, product_id=${localNum}, device_id=${device_id}`);
+      console.log(`   📡 Envoi à l'API: UUID=${remoteUUID.slice(0,8)}... qty=${qty}`);
       try { 
         await apiInventoryCountAdd({ sessionId, product_uuid: remoteUUID, qty, user, device_id });
+        console.log(`   ✅ API sync OK\n`);
         return { ok: true, synced: true };
-      } catch (e) { 
+      } catch (e) {
+        console.error(`   ❌ Erreur API sync:`, e?.message || e); 
         console.warn('[inventory] count-add API failed, will retry later:', e?.message || e);
         // Si l'API échoue, enqueue pour retry
         try {
@@ -536,6 +615,9 @@ module.exports = function registerInventoryHandlers(ipcMain) {
   });
 
   safeHandle(ipcMain, 'inventory:finalize', async (_evt, { sessionId, user } = {}) => {
+    console.log(`\n\n🟢 ========== [INVENTAIRE] DÉBUT FINALISATION ==========`);
+    console.log(`   Session ID reçu: ${sessionId} (type: ${typeof sessionId})`);
+    
     if (!sessionId) throw new Error('inventory:finalize BAD_ARG sessionId');
     const { token } = resolveAuthContext();
     // If sessionId is a local numeric id, try to find a remote_uuid
@@ -545,51 +627,88 @@ module.exports = function registerInventoryHandlers(ipcMain) {
       if (Number.isFinite(n)) {
         const row = db.prepare(`SELECT remote_uuid FROM inventory_sessions WHERE id = ?`).get(n);
         if (row?.remote_uuid) lookedUpRemote = String(row.remote_uuid);
+        console.log(`   Conversion ID local → UUID: ${n} → ${lookedUpRemote}`);
       }
     } catch (_) {}
 
     // If we have a remote session id (either passed directly or looked up), try to finalize now
     const effectiveRemoteId = lookedUpRemote || (isUuidLike(String(sessionId)) ? String(sessionId) : null);
+    console.log(`   Session UUID effective: ${effectiveRemoteId}\n`);
+    
     if (effectiveRemoteId) {
       // 1) Finalise côté API
+      console.log(`🔵 [INVENTAIRE] Étape 1/4: Appel API finalize...`);
       const out = await apiInventoryFinalize(API, token, String(effectiveRemoteId), { user });
+      console.log(`   ✅ API finalize OK\n`);
 
       // 2) Récupère le summary et applique aux stocks locaux
+      console.log(`🔵 [INVENTAIRE] Étape 2/4: Récupération summary API...`);
       try {
         const sum = await apiInventorySummary(String(effectiveRemoteId));
+        console.log(`   ✅ Summary reçu: ${sum?.lines?.length || 0} produits`);
+        const countedLines = (sum?.lines || []).filter(l => Number(l.counted_total || 0) > 0);
+        console.log(`   📊 Produits comptés: ${countedLines.length}`);
+        if (countedLines.length > 0) {
+          console.log(`   Exemples:`);
+          countedLines.slice(0, 3).forEach(l => {
+            console.log(`      - ${l.nom}: counted_total=${l.counted_total}`);
+          });
+        }
+        console.log(`\n🔵 [INVENTAIRE] Étape 3/4: Application stocks locaux...`);
         applySummaryToLocal(sum.lines);
       } catch (e) {
-        console.warn('[inventory] applySummaryToLocal failed (non bloquant):', e?.message || e);
+        console.error(`\n❌ [INVENTAIRE] Erreur applySummaryToLocal:`, e?.message || e);
       }
 
-      // 3) Mark local session(s) closed - update by remote_uuid to catch all terminals
+      // 3) Récupère le summary AVANT de fermer la session (nécessaire pour l'email)
+      let summaryDataForEmail = null;
+      try {
+        summaryDataForEmail = await apiInventorySummary(String(effectiveRemoteId));
+      } catch (e) {
+        console.warn('[inventory] Summary retrieval for email failed:', e?.message || e);
+      }
+
+      // 4) Mark local session(s) closed - update by remote_uuid to catch all terminals
+      console.log(`🔵 [INVENTAIRE] Étape 4/4: Fermeture session locale...`);
       try {
         db.prepare(`UPDATE inventory_sessions SET status='closed', ended_at=datetime('now','localtime') WHERE remote_uuid = ?`).run(String(effectiveRemoteId));
+        console.log(`   ✅ Session fermée\n`);
       } catch (_) {}
 
-      // 4) Notifier TOUTES les fenêtres que la session est clôturée → purge UI
+      // 5) Notifier TOUTES les fenêtres que la session est clôturée → purge UI
       try {
         const payload = { sessionId: String(sessionId), closed: true, at: Date.now() };
         BrowserWindow.getAllWindows().forEach(w => w.webContents.send('inventory:session-closed', payload));
       } catch (_) {}
 
-      // 5) Envoyer le bilan par email au comptable
+      // 6) Envoyer le bilan par email au comptable (utilise la donnée sauvegardée avant fermeture)
+      console.log(`📧 [INVENTAIRE] Envoi email bilan...`);
       try {
-        const summaryData = await apiInventorySummary(String(effectiveRemoteId));
-        if (summaryData?.lines) {
+        if (summaryDataForEmail?.lines) {
           // Créer un objet session avec les infos minimales nécessaires
           const sessionInfo = {
             name: `Inventaire ${new Date().toISOString().slice(0, 10)}`,
             started_at: new Date().toISOString()
           };
-          sendInventoryEmail(sessionInfo, summaryData.lines);
+          sendInventoryEmail(sessionInfo, summaryDataForEmail.lines);
         }
       } catch (e) {
         console.warn('[inventory] Email send failed (non bloquant):', e?.message || e);
       }
 
+      // 7) 🔥 PUSH des stocks d'inventaire vers le serveur pour persister
+      console.log(`🔄 [INVENTAIRE] Push des modifications vers serveur...`);
+      try {
+        const { pushOpsNow } = require('../sync');
+        const pushRes = await pushOpsNow(DEFAULT_DEVICE_ID);
+        console.log(`   ✅ Push réussi: ${pushRes.sent} opération(s) envoyée(s)`);
+      } catch (e) {
+        console.warn('[inventory] Push failed (non bloquant):', e?.message || e);
+      }
+
       if (out?.alreadyFinalized) return { ok: true, recap: out.recap || null, alreadyFinalized: true };
-      return out;
+  console.log(`\n🟢 ========== [INVENTAIRE] FIN FINALISATION OK ==========\n\n`);
+  return out;
     }
 
     // Otherwise (no remote id): operate offline — calculate deltas locally, create stock movements, save summary

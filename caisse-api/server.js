@@ -1508,6 +1508,7 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
     
     // Stock initial et ajustements (APRÈS la création du produit)
     'inventory.adjust': 7,
+    'stock.movement_created': 8,
 
     // Ventes
     'sale.created': 10,
@@ -2315,6 +2316,69 @@ app.post('/sync/push_ops', authRequired, async (req, res) => {
             console.log('    [x] produit marqué supprimé sur Neon', { reference });
           } else {
             console.log('    [i] product.deleted sans remote_uuid ni reference, ignorée');
+          }
+          break;
+        }
+
+        /* ─────────────────────────────
+         * STOCK MOVEMENTS (manual, inventory, etc.)
+         * ────────────────────────────*/
+        case 'stock.movement_created': {
+          // payload: { movement_id, produit_id, produit_uuid, delta, stock_before, stock_after, source }
+          const produitUuid = p.produit_uuid || null;
+          const delta = Number(p.delta || 0);
+          const source = p.source || 'manual';
+          
+          if (!produitUuid) {
+            console.warn('    [!] stock.movement_created sans produit_uuid, ignorée');
+            break;
+          }
+          
+          if (!Number.isFinite(delta) || delta === 0) {
+            console.log('    [i] stock.movement_created avec delta=0, ignorée');
+            break;
+          }
+          
+          // Vérifier que le produit existe
+          const checkProd = await client.query(
+            `SELECT 1 FROM produits WHERE tenant_id=$1 AND id=$2`,
+            [tenantId, produitUuid]
+          );
+          if (checkProd.rowCount === 0) {
+            console.warn('    [!] stock.movement_created: produit non trouvé', { produitUuid });
+            break;
+          }
+          
+          // Créer le mouvement de stock avec source_id unique pour idempotence
+          const sourceId = `inventory_mov:${p.movement_id || Date.now()}:${produitUuid}`;
+          
+          // Vérifier si ce mouvement existe déjà (idempotence)
+          const checkMov = await client.query(
+            `SELECT 1 FROM stock_movements 
+             WHERE tenant_id=$1 AND source_id=$2`,
+            [tenantId, sourceId]
+          );
+          
+          if (checkMov.rowCount === 0) {
+            // Insertion seulement si n'existe pas
+            await client.query(
+              `INSERT INTO stock_movements (tenant_id, produit_id, delta, source, source_id, created_at)
+               VALUES ($1, $2, $3, $4, $5, now())`,
+              [tenantId, produitUuid, delta, source, sourceId]
+            );
+            
+            console.log('    [+] stock_movement créé', {
+              produitUuid,
+              delta,
+              source,
+              stock_before: p.stock_before,
+              stock_after: p.stock_after
+            });
+          } else {
+            console.log('    [~] stock_movement déjà existant (skip)', {
+              produitUuid,
+              sourceId
+            });
           }
           break;
         }

@@ -1023,20 +1023,26 @@
             try {
               const effective = (st.counted === null ? 0 : Number(st.counted));
               const deltaToSend = effective - Number(st.prevSent || 0);
+              const p = produits.find(x => x.id === id);
+              console.log(`[inventaire:validateRow] Produit "${p?.nom}" (id=${id}) : effective=${effective}, deltaToSend=${deltaToSend}, prevSent=${st.prevSent || 0}`);
+              
               if (Number.isFinite(deltaToSend) && deltaToSend !== 0) {
                 // Récupérer le remote_uuid du produit pour l'envoi à l'API
-                const p = produits.find(x => x.id === id);
                 const product_uuid = p?.remote_uuid || null;
                 if (!product_uuid) {
                   console.error('[inventaire] Produit sans remote_uuid, comptage impossible:', id, p?.nom);
                   throw new Error('Produit non synchronisé avec le serveur');
                 }
+                console.log(`[inventaire:validateRow] ➡️ SENDING to API: ${p?.nom} qty=${deltaToSend}, product_uuid=${product_uuid}`);
                 await window.electronAPI.inventory.countAdd({ sessionId: sid, produit_id: product_uuid, qty: deltaToSend, user: currentUser });
                 st.prevSent = effective;
                 state.set(id, st);
+                console.log(`[inventaire:validateRow] ✅ SENT successfully, prevSent now=${effective}`);
                 
                 // Refresh immédiat pour voir les comptages des autres terminaux
                 refreshSummary();
+              } else {
+                console.log(`[inventaire:validateRow] ⏭️ SKIPPED (deltaToSend was ${deltaToSend}, not sending)`);
               }
             } catch (err) {
               const msg = String(err?.message || err);
