@@ -64,8 +64,21 @@ window.showConfirmModal = (message) => new Promise((resolve) => {
     </div>
   `;
   document.body.appendChild(modal);
-  document.getElementById('confirm-yes').onclick = () => { modal.remove(); resolve(true); };
-  document.getElementById('confirm-no').onclick  = () => { modal.remove(); resolve(false); };
+  
+  const handleYes = () => { modal.remove(); resolve(true); };
+  const handleNo = () => { modal.remove(); resolve(false); };
+  const handleKeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleYes(); }
+    if (e.key === 'Escape') { e.preventDefault(); handleNo(); }
+  };
+  
+  document.getElementById('confirm-yes').onclick = handleYes;
+  document.getElementById('confirm-no').onclick = handleNo;
+  document.addEventListener('keydown', handleKeydown);
+  modal._cleanup = () => document.removeEventListener('keydown', handleKeydown);
+  modal._originalRemove = modal.remove;
+  modal.remove = function() { if (this._cleanup) this._cleanup(); this._originalRemove.call(this); };
+  document.getElementById('confirm-yes').focus();
 });
 
 window.showAlertModal = (message) => new Promise((resolve) => {
@@ -83,7 +96,18 @@ window.showAlertModal = (message) => new Promise((resolve) => {
     </div>
   `;
   document.body.appendChild(modal);
-  document.getElementById('alert-ok').onclick = () => { modal.remove(); resolve(); };
+  
+  const handleOk = () => { modal.remove(); resolve(); };
+  const handleKeydown = (e) => {
+    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); handleOk(); }
+  };
+  
+  document.getElementById('alert-ok').onclick = handleOk;
+  document.addEventListener('keydown', handleKeydown);
+  modal._cleanup = () => document.removeEventListener('keydown', handleKeydown);
+  modal._originalRemove = modal.remove;
+  modal.remove = function() { if (this._cleanup) this._cleanup(); this._originalRemove.call(this); };
+  document.getElementById('alert-ok').focus();
 });
 
 window.showFormModal = (titre, formElement) => new Promise((resolve) => {
@@ -101,13 +125,26 @@ window.showFormModal = (titre, formElement) => new Promise((resolve) => {
   `;
   modal.querySelector('.modal-body').appendChild(formElement);
   document.body.appendChild(modal);
-  document.getElementById('form-ok').onclick = () => {
+  
+  const handleOk = () => {
     const form = modal.querySelector('form') || formElement;
     if (form && typeof form.reportValidity === 'function' && !form.reportValidity()) return;
     modal.remove();
     resolve(true);
   };
-  document.getElementById('form-cancel').onclick = () => { modal.remove(); resolve(false); };
+  const handleCancel = () => { modal.remove(); resolve(false); };
+  const handleKeydown = (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.shiftKey)) { e.preventDefault(); handleOk(); }
+    if (e.key === 'Escape') { e.preventDefault(); handleCancel(); }
+  };
+  
+  document.getElementById('form-ok').onclick = handleOk;
+  document.getElementById('form-cancel').onclick = handleCancel;
+  document.addEventListener('keydown', handleKeydown);
+  modal._cleanup = () => document.removeEventListener('keydown', handleKeydown);
+  modal._originalRemove = modal.remove;
+  modal.remove = function() { if (this._cleanup) this._cleanup(); this._originalRemove.call(this); };
+  (formElement.querySelector('input') || document.getElementById('form-ok')).focus();
 });
 
 window.showPromptModal = (message, defaultValue = "5") => new Promise((resolve) => {
@@ -125,11 +162,19 @@ window.showPromptModal = (message, defaultValue = "5") => new Promise((resolve) 
   `;
   document.body.appendChild(overlay);
   const input = document.getElementById("modal-prompt-input");
+  
+  const handleOk = () => { overlay.remove(); resolve(input.value); };
+  const handleCancel = () => { overlay.remove(); resolve(null); };
+  
   input.focus();
-  input.addEventListener("keydown", (e) => { if (e.key === "." || e.key === "," || e.key === "Decimal") e.preventDefault(); });
+  input.addEventListener("keydown", (e) => { 
+    if (e.key === "." || e.key === "," || e.key === "Decimal") e.preventDefault();
+    if (e.key === "Enter") { e.preventDefault(); handleOk(); }
+    if (e.key === "Escape") { e.preventDefault(); handleCancel(); }
+  });
   input.addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^\d]/g, ""); });
-  document.getElementById("modal-prompt-ok").addEventListener("click", () => { overlay.remove(); resolve(input.value); });
-  document.getElementById("modal-prompt-cancel").addEventListener("click", () => { overlay.remove(); resolve(null); });
+  document.getElementById("modal-prompt-ok").addEventListener("click", handleOk);
+  document.getElementById("modal-prompt-cancel").addEventListener("click", handleCancel);
 });
 
 // --- Choix multiple simple ---
@@ -140,14 +185,25 @@ window.showChoixModal = (message, options) => new Promise((resolve) => {
     <div class="modal">
       <p>${message}</p>
       <div class="modal-actions">
-        ${options.map(opt => `<button>${opt}</button>`).join('')}
+        ${options.map((opt, idx) => `<button data-choice="${idx}">${opt}</button>`).join('')}
       </div>
     </div>
   `;
   document.body.appendChild(modal);
-  modal.querySelectorAll('button').forEach(btn => {
-    btn.addEventListener('click', () => { const choix = btn.textContent; modal.remove(); resolve(choix); });
+  
+  const handleChoice = (choix) => { modal.remove(); resolve(choix); };
+  const handleKeydown = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); modal.remove(); resolve(null); }
+  };
+  
+  modal.querySelectorAll('button').forEach((btn, idx) => {
+    btn.addEventListener('click', () => { handleChoice(options[idx]); });
   });
+  document.addEventListener('keydown', handleKeydown);
+  modal._cleanup = () => document.removeEventListener('keydown', handleKeydown);
+  modal._originalRemove = modal.remove;
+  modal.remove = function() { if (this._cleanup) this._cleanup(); this._originalRemove.call(this); };
+  modal.querySelector('button').focus();
 });
 
 // --- Datalist “chevron” ---

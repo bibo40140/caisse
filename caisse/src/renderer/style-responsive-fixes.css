@@ -1,0 +1,219 @@
+/* Améliorations responsives pour la caisse */
+
+/* === TOPBAR === */
+.caisse-topbar {
+  gap: 10px !important;
+  padding: 12px !important;
+}
+
+.caisse-topbar input {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .caisse-topbar {
+    padding: 10px 8px !important;
+    gap: 8px !important;
+  }
+
+  .caisse-topbar input {
+    font-size: 14px;
+    padding: 6px !important;
+  }
+}
+
+/* === FILTRES === */
+.filters-card {
+  padding: 8px 10px !important;
+}
+
+.familles-bar .btn-fam {
+  padding: 8px 12px !important;
+  font-size: 0.9rem !important;
+}
+
+.categories-bar .btn-cat-square {
+  padding: 8px 12px !important;
+  font-size: 0.85rem !important;
+  min-width: 80px;
+}
+
+@media (max-width: 768px) {
+  .filters {
+    margin: 8px 0 !important;
+  }
+
+  .filters-card {
+    padding: 6px 8px !important;
+  }
+
+  .familles-bar .btn-fam {
+    padding: 6px 10px !important;
+    font-size: 0.8rem !important;
+  }
+
+  .categories-bar .btn-cat-square {
+    padding: 6px 10px !important;
+    font-size: 0.75rem !important;
+    min-width: 70px;
+  }
+
+  .pill-bar,
+  .chip-bar {
+    gap: 6px !important;
+  }
+}
+
+/* === CAISSE ZONE === */
+.caisse-zone {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 40vw) !important;
+  gap: 12px !important;
+}
+
+@media (max-width: 1024px) {
+  .caisse-zone {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 35vw) !important;
+    gap: 10px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .caisse-zone {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+}
+
+/* === PRODUITS CARDS === */
+.produits-cards {
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+  gap: 8px !important;
+  padding: 6px !important;
+}
+
+.produit-card {
+  height: 140px !important;
+  padding: 8px !important;
+}
+
+.produit-card strong {
+  font-size: 0.9rem !important;
+  max-height: 2.4em !important;
+}
+
+.produit-card .fournisseur {
+  font-size: 0.7em !important;
+}
+
+.produit-card .unite {
+  font-size: 0.7em !important;
+}
+
+@media (max-width: 768px) {
+  .produits-cards {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)) !important;
+    gap: 6px !important;
+    padding: 4px !important;
+  }
+
+  .produit-card {
+    height: 120px !important;
+    padding: 6px !important;
+  }
+
+  .produit-card strong {
+    font-size: 0.75rem !important;
+    max-height: 2.2em !important;
+  }
+
+  .produit-card .fournisseur,
+  .produit-card .unite {
+    font-size: 0.65em !important;
+  }
+}
+
+/* === PANIER === */
+#panier-zone {
+  min-width: 280px !important;
+}
+
+#panier-zone h4 {
+  padding: 12px !important;
+  margin: 0 !important;
+  font-size: 1.1rem !important;
+}
+
+#panier-liste {
+  padding-bottom: 8px !important;
+}
+
+#panier-zone table {
+  font-size: 0.9rem !important;
+}
+
+#panier-zone table td,
+#panier-zone table th {
+  padding: 4px 6px !important;
+}
+
+@media (max-width: 768px) {
+  #panier-zone {
+    min-width: auto !important;
+    max-height: 35vh;
+  }
+
+  #panier-zone h4 {
+    padding: 10px !important;
+    font-size: 1rem !important;
+  }
+
+  #panier-zone table {
+    font-size: 0.8rem !important;
+  }
+
+  #panier-zone table td,
+  #panier-zone table th {
+    padding: 3px 4px !important;
+  }
+}
+
+/* === BOUTONS === */
+.btn-valider,
+.caisse-footer button {
+  padding: 8px 12px !important;
+  font-size: 0.95rem !important;
+}
+
+@media (max-width: 768px) {
+  .btn-valider,
+  .caisse-footer button {
+    padding: 6px 10px !important;
+    font-size: 0.85rem !important;
+  }
+}
+
+/* === RECHERCHE === */
+#search-produit {
+  padding: 8px !important;
+  font-size: 1rem !important;
+}
+
+@media (max-width: 768px) {
+  #search-produit {
+    padding: 6px !important;
+    font-size: 0.9rem !important;
+  }
+}
+
+/* === MODAL QUANTITÉ === */
+@media (max-width: 768px) {
+  #popup-quantite .modal {
+    min-width: 250px !important;
+    padding: 20px !important;
+  }
+
+  #popup-quantite input {
+    padding: 6px !important;
+    font-size: 1rem !important;
+  }
+}

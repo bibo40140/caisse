@@ -76,25 +76,49 @@ header {
 /* MODALS */
 .modal-overlay {
   position: fixed;
-  top: 0; left: 0;
-  width: 100vw;
-  height: 100vh;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 9999;
+  pointer-events: auto;
+  overflow: auto;
 }
 
 .modal {
   background-color: white;
   padding: 30px;
   border-radius: 10px;
-  min-width: 300px;
+  min-width: 280px;
   max-width: 90vw;
+  max-height: 90vh;
+  width: auto;
   box-shadow: 0 0 20px rgba(0,0,0,0.4);
   text-align: center;
   animation: modalFadeIn 0.3s ease-in-out;
+  pointer-events: auto;
+  overflow-y: auto;
+}
+
+.modal p {
+  margin: 10px 0;
+  word-break: break-word;
+}
+
+.modal h3 {
+  margin-top: 0;
+}
+
+.modal input,
+.modal select,
+.modal textarea {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 400px;
 }
 
 .modal-actions {
@@ -102,6 +126,7 @@ header {
   display: flex;
   justify-content: center;
   gap: 20px;
+  flex-wrap: wrap;
 }
 
 .modal button {
@@ -111,10 +136,34 @@ header {
   padding: 8px 20px;
   border-radius: 5px;
   cursor: pointer;
+  pointer-events: auto;
+  min-width: 80px;
 }
 
 .modal button:hover {
   background-color: #0056b3;
+}
+
+.modal button:focus {
+  outline: 2px solid #0056b3;
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  .modal {
+    min-width: 250px;
+    max-width: 95vw;
+    padding: 20px;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .modal button {
+    width: 100%;
+  }
 }
 
 @keyframes modalFadeIn {
@@ -167,11 +216,27 @@ button.danger:hover {
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 100px;
+  gap: 10px;
   margin-bottom: 10px;
   background: #f4f4f4;
-  padding: 20px;
+  padding: 12px;
   border-radius: 8px;
+}
+
+.caisse-topbar input {
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .caisse-topbar {
+    padding: 10px 8px;
+    gap: 8px;
+  }
+
+  .caisse-topbar input {
+    font-size: 14px;
+    padding: 6px !important;
+  }
 }
 
 .resultats-produits {

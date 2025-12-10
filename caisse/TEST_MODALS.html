@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test des Modales</title>
+  <link rel="stylesheet" href="src/renderer/style.css">
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    .test-section { margin: 20px 0; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Tests des Modales Améliorées</h1>
+  
+  <div class="test-section">
+    <h2>1. Confirm Modal (Enter=Oui, Escape=Non)</h2>
+    <button onclick="testConfirm()">Ouvrir Confirm</button>
+    <p id="confirm-result"></p>
+  </div>
+  
+  <div class="test-section">
+    <h2>2. Alert Modal (Enter ou Escape=OK)</h2>
+    <button onclick="testAlert()">Ouvrir Alert</button>
+    <p id="alert-result"></p>
+  </div>
+  
+  <div class="test-section">
+    <h2>3. Form Modal (Ctrl+Enter=Valider, Escape=Annuler)</h2>
+    <button onclick="testForm()">Ouvrir Form</button>
+    <p id="form-result"></p>
+  </div>
+  
+  <div class="test-section">
+    <h2>4. Prompt Modal (Enter=OK, Escape=Annuler)</h2>
+    <button onclick="testPrompt()">Ouvrir Prompt</button>
+    <p id="prompt-result"></p>
+  </div>
+  
+  <div class="test-section">
+    <h2>5. Choix Modal (Escape=Annuler)</h2>
+    <button onclick="testChoix()">Ouvrir Choix</button>
+    <p id="choix-result"></p>
+  </div>
+  
+  <div class="test-section">
+    <h2>6. Test Responsive Design</h2>
+    <p>Redimensionnez la fenêtre pour tester la responsivité (breakpoint à 768px)</p>
+    <p>Largeur fenêtre: <span id="window-width">-</span>px</p>
+  </div>
+
+  <script src="src/renderer/pages/helpers.js"></script>
+  <script>
+    async function testConfirm() {
+      const result = await showConfirmModal('Êtes-vous sûr ? (Appuyez sur Enter pour Oui, Escape pour Non)');
+      document.getElementById('confirm-result').textContent = 'Résultat: ' + (result ? 'Oui ✓' : 'Non ✗');
+    }
+
+    async function testAlert() {
+      await showAlertModal('Ceci est une alerte\n(Appuyez sur Enter ou Escape pour fermer)');
+      document.getElementById('alert-result').textContent = 'Alerte fermée ✓';
+    }
+
+    async function testForm() {
+      const form = document.createElement('form');
+      form.innerHTML = `
+        <div style="margin: 10px 0;">
+          <label>Nom:</label><br>
+          <input type="text" required style="width: 100%; padding: 5px;">
+        </div>
+        <div style="margin: 10px 0;">
+          <label>Email:</label><br>
+          <input type="email" required style="width: 100%; padding: 5px;">
+        </div>
+      `;
+      const result = await showFormModal('Formulaire de test\n(Ctrl+Enter pour valider, Escape pour annuler)', form);
+      document.getElementById('form-result').textContent = 'Formulaire: ' + (result ? 'Validé ✓' : 'Annulé ✗');
+    }
+
+    async function testPrompt() {
+      const result = await showPromptModal('Entrez une quantité:\n(Enter pour OK, Escape pour annuler)', '10');
+      document.getElementById('prompt-result').textContent = result !== null ? `Valeur: ${result} ✓` : 'Annulé ✗';
+    }
+
+    async function testChoix() {
+      const result = await showChoixModal('Choisissez une action:\n(Escape pour annuler)', ['Sauvegarder', 'Supprimer', 'Annuler']);
+      document.getElementById('choix-result').textContent = result ? `Choix: ${result} ✓` : 'Annulé ✗';
+    }
+
+    function updateWindowWidth() {
+      document.getElementById('window-width').textContent = window.innerWidth;
+    }
+
+    window.addEventListener('resize', updateWindowWidth);
+    updateWindowWidth();
+  </script>
+</body>
+</html>
