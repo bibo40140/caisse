@@ -355,7 +355,7 @@
               <option value="disabled">Désactivé</option>
             </select>
           </div>
-          <div><label>From (expéditeur)</label><input id="ae-from" type="text" placeholder="Coop'az <noreply@exemple.com>"></div>
+          <div><label>From (expéditeur)</label><input id="ae-from" type="text" placeholder="CoopCaisse <noreply@exemple.com>"></div>
           <div><label>User</label><input id="ae-user" type="text"></div>
           <div><label>Mot de passe</label><input id="ae-pass" type="password"></div>
         </div>

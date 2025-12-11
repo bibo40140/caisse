@@ -144,7 +144,7 @@
 
       default: {
         title.textContent = "Accueil";
-        content.innerHTML = `<p>Bienvenue dans votre logiciel de caisse Coop'az !</p>`;
+        content.innerHTML = `<p>Bienvenue dans votre logiciel de caisse CoopCaisse !</p>`;
       }
     }
   }

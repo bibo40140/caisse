@@ -38,7 +38,7 @@
             </div>
             <div style="flex:1 1 260px;">
               <label>From (expéditeur)</label>
-              <input id="email-from" type="text" placeholder="ex: Coop'az <noreply@exemple.com>">
+              <input id="email-from" type="text" placeholder="ex: CoopCaisse <noreply@exemple.com>">
             </div>
           </div>
 
