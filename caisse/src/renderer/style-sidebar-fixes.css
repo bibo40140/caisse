@@ -89,6 +89,20 @@
   }
 }
 
+/* === MAIN CONTENT SCROLL === */
+.main-content {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-content #page-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
 /* === HEADER IMPROVEMENTS === */
 header {
   display: flex;
@@ -96,6 +110,7 @@ header {
   gap: 15px;
   padding: 12px 16px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 header h1 {

@@ -837,11 +837,11 @@ async function pullVentes({ since = null } = {}) {
       hasMore = meta.hasMore || false;
       offset += limit;
       
-      logger.info('sync', `pullVentes page: ${ventes.length} vente(s), total: ${allVentes.length}/${meta.total || '?'}`, { 
-        offset: meta.offset,
-        hasMore,
-        elapsed: meta.elapsed_ms + 'ms'
-      });
+      // logger.info('sync', `pullVentes page: ${ventes.length} vente(s), total: ${allVentes.length}/${meta.total || '?'}`, { 
+      //   offset: meta.offset,
+      //   hasMore,
+      //   elapsed: meta.elapsed_ms + 'ms'
+      // });
       
       // Limiter à 10000 ventes max pour éviter surcharge mémoire
       if (allVentes.length >= 10000) {
