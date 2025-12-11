@@ -83,7 +83,7 @@ module.exports = function registerProspectsHandlers(ipcMain) {
     const FROM_ADDR = getDefaultFrom();
 
     // Petit helper de templating
-    const epicerie = (mods?.nom_epicerie || "Coop'az"); // si tu stockes le nom dans modules ; sinon remplace par une autre source
+    const epicerie = (mods?.nom_epicerie || "CoopCaisse"); // si tu stockes le nom dans modules ; sinon remplace par une autre source
     const merge = (tpl, p) =>
       String(tpl)
         .replace(/\{\{\s*nom\s*\}\}/gi, (p.nom || '').trim())

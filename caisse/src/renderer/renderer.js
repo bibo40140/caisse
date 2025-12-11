@@ -163,7 +163,7 @@
   // Hooks universels pour MAJ du titre / logo où qu'ils se trouvent
   if (typeof window.__refreshTenantName__ !== 'function') {
     window.__refreshTenantName__ = (name) => {
-      const n = (name && String(name).trim()) || "Coop'az";
+      const n = (name && String(name).trim()) || "CoopCaisse";
       const title =
         document.querySelector('#app-title') ||
         document.querySelector('.app-title') ||
