@@ -2,97 +2,560 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>Première configuration</title>
+  <title>Configuration - Coop'az</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
   <style>
-    body { font-family: system-ui, sans-serif; margin:0; background:#f6f7fb; }
-    .wrap { max-width:800px; margin:20px auto; background:#fff; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.08); padding:20px; }
-    h1 { margin-top:0; }
-    fieldset { border:1px solid #eee; border-radius:10px; padding:12px; margin-bottom:16px; }
-    legend { font-weight:700; padding:0 6px; }
-    label { display:block; font-size:12px; color:#333; margin:6px 0 4px; }
-    input, select { width:100%; padding:10px; border:1px solid #ddd; border-radius:8px; }
-    .row { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-    .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:10px; }
-    button { padding:10px 14px; border-radius:8px; border:1px solid #d9d9d9; background:#10b981; color:#fff; font-weight:700; cursor:pointer; }
-    .muted { color:#777; font-size:12px; }
-    .err { color:#b91c1c; min-height:16px; font-size:12px; }
-    .logo-preview { max-height:80px; margin-top:8px; display:block; }
-    .check-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:6px; }
-    .check-grid label { display:flex; align-items:center; gap:8px; font-size:14px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      width: 100%;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 32px;
+      margin-bottom: 10px;
+      font-weight: 700;
+    }
+    .header p {
+      opacity: 0.9;
+      font-size: 16px;
+    }
+
+    /* Progress Bar */
+    .progress-bar {
+      display: flex;
+      justify-content: space-between;
+      padding: 30px 40px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e9ecef;
+    }
+    .progress-step {
+      flex: 1;
+      text-align: center;
+      position: relative;
+      cursor: pointer;
+    }
+    .progress-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      top: 15px;
+      left: 50%;
+      width: 100%;
+      height: 2px;
+      background: #dee2e6;
+      z-index: 0;
+    }
+    .progress-step.active .step-number {
+      background: #667eea;
+      color: white;
+    }
+    .progress-step.completed .step-number {
+      background: #10b981;
+      color: white;
+    }
+    .progress-step.completed::after {
+      background: #10b981;
+    }
+    .step-number {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #dee2e6;
+      color: #6c757d;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      margin-bottom: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .step-label {
+      font-size: 13px;
+      color: #6c757d;
+      font-weight: 500;
+    }
+    .progress-step.active .step-label {
+      color: #667eea;
+      font-weight: 700;
+    }
+
+    /* Content */
+    .content {
+      padding: 40px;
+      min-height: 400px;
+    }
+
+    .step-content {
+      display: none;
+    }
+    .step-content.active {
+      display: block;
+      animation: fadeIn 0.3s ease-in;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .step-title {
+      font-size: 24px;
+      margin-bottom: 10px;
+      color: #1f2937;
+      font-weight: 700;
+    }
+    .step-subtitle {
+      color: #6b7280;
+      margin-bottom: 30px;
+      font-size: 15px;
+    }
+
+    /* Module Cards */
+    .modules-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .module-card {
+      border: 2px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .module-card:hover {
+      border-color: #667eea;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+      transform: translateY(-2px);
+    }
+    .module-card.selected {
+      border-color: #667eea;
+      background: #f0f4ff;
+    }
+    .module-card.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: #f3f4f6;
+    }
+    .module-card.disabled:hover {
+      border-color: #e5e7eb;
+      box-shadow: none;
+      transform: none;
+    }
+    .module-card input[type="checkbox"] {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+    }
+    .module-icon {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+    .module-name {
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 5px;
+    }
+    .module-desc {
+      font-size: 12px;
+      color: #6b7280;
+      line-height: 1.4;
+    }
+
+    /* Form Fields */
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-label {
+      display: block;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .form-input, .form-select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 15px;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus, .form-select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+
+    /* Logo Upload */
+    .logo-upload {
+      display: block;
+      border: 2px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #fafbfc;
+    }
+    .logo-upload:hover {
+      border-color: #667eea;
+      background: #f0f4ff;
+    }
+    .logo-upload.has-image {
+      border-style: solid;
+      border-color: #10b981;
+      background: #f0fdf4;
+    }
+    .logo-preview {
+      display: block;
+      max-height: 120px;
+      max-width: 200px;
+      margin: 0 auto 15px;
+      border-radius: 8px;
+    }
+    .logo-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+      opacity: 0.5;
+      display: block;
+    }
+    .logo-upload-text {
+      color: #6b7280;
+      font-weight: 600;
+      margin-bottom: 5px;
+    }
+    .logo-upload-hint {
+      color: #9ca3af;
+      font-size: 13px;
+    }
+    #logo {
+      display: none;
+    }
+
+    /* Actions */
+    .actions {
+      display: flex;
+      gap: 15px;
+      justify-content: space-between;
+      padding: 30px 40px;
+      border-top: 1px solid #e9ecef;
+      background: #f8f9fa;
+    }
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      min-width: 120px;
+    }
+    .btn-secondary {
+      background: white;
+      color: #6b7280;
+      border: 2px solid #e5e7eb;
+    }
+    .btn-secondary:hover {
+      background: #f9fafb;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+    .btn-skip {
+      background: transparent;
+      color: #9ca3af;
+      border: none;
+      text-decoration: underline;
+      min-width: auto;
+    }
+    .btn-skip:hover {
+      color: #6b7280;
+    }
+
+    /* Error */
+    .error {
+      background: #fee2e2;
+      color: #991b1b;
+      padding: 12px 16px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      display: none;
+    }
+    .error.show {
+      display: block;
+    }
+
+    /* Info box */
+    .info-box {
+      background: #dbeafe;
+      border-left: 4px solid #3b82f6;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-size: 14px;
+      color: #1e40af;
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Première configuration</h1>
-    <p class="muted">Définissez votre mot de passe, choisissez les modules, configurez l’email et importez votre logo.</p>
-    <div class="err" id="err"></div>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>🛒 Bienvenue dans Coop'az !</h1>
+      <p>Configurons votre logiciel de caisse en quelques étapes</p>
+    </div>
 
-    <fieldset>
-      <legend>Mot de passe administrateur</legend>
-      <label>Nouveau mot de passe (facultatif)</label>
-      <input id="pwd" type="password" placeholder="Au moins 6 caractères">
-    </fieldset>
-
-    <fieldset>
-      <legend>Modules</legend>
-      <div class="check-grid">
-        <label><input type="checkbox" id="m_adherents" checked> Adhérents</label>
-        <label><input type="checkbox" id="m_cotisations" checked> Cotisations</label>
-        <label><input type="checkbox" id="m_emails" checked> Emails</label>
-        <label><input type="checkbox" id="m_stocks" checked> Stocks</label>
-        <label><input type="checkbox" id="m_inventaire" checked> Inventaire</label>
-        <label><input type="checkbox" id="m_fournisseurs" checked> Fournisseurs</label>
-        <label><input type="checkbox" id="m_exports"> Exports</label>
-        <label><input type="checkbox" id="m_multiusers"> Multi-utilisateurs</label>
-        <label><input type="checkbox" id="m_ventes_exterieur" checked> Ventes extérieures</label>
-        <label><input type="checkbox" id="m_prospects"> Prospects</label>
-        <label><input type="checkbox" id="m_modes_paiement" checked> Modes de paiement</label>
+    <!-- Progress Bar -->
+    <div class="progress-bar">
+      <div class="progress-step active" data-step="1">
+        <div class="step-number">1</div>
+        <div class="step-label">Modules</div>
       </div>
-      <p class="muted">Vous pourrez modifier cela plus tard dans Paramètres &gt; Modules.</p>
-    </fieldset>
+      <div class="progress-step" data-step="2">
+        <div class="step-number">2</div>
+        <div class="step-label">Configuration</div>
+      </div>
+      <div class="progress-step" data-step="3">
+        <div class="step-number">3</div>
+        <div class="step-label">Personnalisation</div>
+      </div>
+    </div>
 
-    <fieldset>
-      <legend>Email (SMTP) — si module Emails actif</legend>
-      <div class="row">
-        <div>
-          <label>Hôte</label><input id="smtp_host" placeholder="smtp.exemple.com">
+    <!-- Content -->
+    <div class="content">
+      <div class="error" id="error"></div>
+
+      <!-- Step 1: Modules -->
+      <div class="step-content active" data-step="1">
+        <h2 class="step-title">Choisissez vos modules</h2>
+        <p class="step-subtitle">Sélectionnez les fonctionnalités dont vous avez besoin</p>
+        
+        <div class="modules-grid">
+          <div class="module-card selected" data-module="adherents">
+            <input type="checkbox" id="m_adherents" checked>
+            <div class="module-icon">👥</div>
+            <div class="module-name">Adhérents</div>
+            <div class="module-desc">Gestion des membres et cotisations</div>
+          </div>
+
+          <div class="module-card selected" data-module="stocks">
+            <input type="checkbox" id="m_stocks" checked>
+            <div class="module-icon">📦</div>
+            <div class="module-name">Stocks</div>
+            <div class="module-desc">Suivi des produits et stocks</div>
+          </div>
+
+          <div class="module-card selected" data-module="fournisseurs">
+            <input type="checkbox" id="m_fournisseurs" checked>
+            <div class="module-icon">🏭</div>
+            <div class="module-name">Fournisseurs</div>
+            <div class="module-desc">Gestion des fournisseurs</div>
+          </div>
+
+          <div class="module-card selected" data-module="receptions">
+            <input type="checkbox" id="m_receptions" checked>
+            <div class="module-icon">📥</div>
+            <div class="module-name">Réceptions</div>
+            <div class="module-desc">Réceptions de marchandises</div>
+          </div>
+
+          <div class="module-card selected" data-module="inventaire">
+            <input type="checkbox" id="m_inventaire" checked>
+            <div class="module-icon">📋</div>
+            <div class="module-name">Inventaire</div>
+            <div class="module-desc">Inventaire multiposte</div>
+          </div>
+
+          <div class="module-card selected" data-module="cotisations">
+            <input type="checkbox" id="m_cotisations" checked>
+            <div class="module-icon">💶</div>
+            <div class="module-name">Cotisations</div>
+            <div class="module-desc">Gestion des cotisations</div>
+          </div>
+
+          <div class="module-card selected" data-module="modes_paiement">
+            <input type="checkbox" id="m_modes_paiement" checked>
+            <div class="module-icon">💳</div>
+            <div class="module-name">Modes paiement</div>
+            <div class="module-desc">Carte, espèces, chèque...</div>
+          </div>
+
+          <div class="module-card selected" data-module="ventes_exterieur">
+            <input type="checkbox" id="m_ventes_exterieur" checked>
+            <div class="module-icon">🌍</div>
+            <div class="module-name">Ventes extérieur</div>
+            <div class="module-desc">Ventes avec marge variable</div>
+          </div>
+
+          <div class="module-card selected" data-module="emails">
+            <input type="checkbox" id="m_emails" checked>
+            <div class="module-icon">📧</div>
+            <div class="module-name">Emails</div>
+            <div class="module-desc">Envoi d'emails (SMTP)</div>
+          </div>
+
+          <div class="module-card selected" data-module="emailAdmin">
+            <input type="checkbox" id="m_emailAdmin" checked>
+            <div class="module-icon">📨</div>
+            <div class="module-name">Rapports auto</div>
+            <div class="module-desc">Rapports hebdomadaires par email</div>
+          </div>
+
+          <div class="module-card selected" data-module="statistiques">
+            <input type="checkbox" id="m_statistiques" checked>
+            <div class="module-icon">📊</div>
+            <div class="module-name">Statistiques</div>
+            <div class="module-desc">Tableaux de bord et stats</div>
+          </div>
+
+          <div class="module-card" data-module="prospects">
+            <input type="checkbox" id="m_prospects">
+            <div class="module-icon">🎯</div>
+            <div class="module-name">Prospects</div>
+            <div class="module-desc">Gestion des prospects</div>
+          </div>
         </div>
-        <div>
-          <label>Port</label><input id="smtp_port" type="number" placeholder="587">
-        </div>
-        <div>
-          <label>Utilisateur</label><input id="smtp_user" placeholder="noreply@exemple.com">
-        </div>
-        <div>
-          <label>Mot de passe</label><input id="smtp_pass" type="password" placeholder="••••••••">
-        </div>
-        <div>
-          <label>Expéditeur (From)</label><input id="smtp_from" placeholder="Epicerie &lt;noreply@exemple.com&gt;">
-        </div>
-        <div>
-          <label>Sécurité</label>
-          <select id="smtp_secure">
-            <option value="starttls">STARTTLS</option>
-            <option value="ssl">SSL/TLS</option>
-            <option value="none">Aucune</option>
-          </select>
+
+        <div class="info-box">
+          💡 Vous pourrez activer/désactiver ces modules à tout moment depuis Paramètres
         </div>
       </div>
-    </fieldset>
 
-    <fieldset>
-      <legend>Logo</legend>
-      <input id="logo" type="file" accept="image/png,image/jpeg">
-      <img id="preview" class="logo-preview" style="display:none;">
-      <p class="muted">PNG ou JPG. Il sera utilisé dans l’application (ex: facture, en-têtes).</p>
-    </fieldset>
+      <!-- Step 2: Configuration -->
+      <div class="step-content" data-step="2">
+        <h2 class="step-title">Configuration</h2>
+        <p class="step-subtitle">Définissez vos paramètres principaux</p>
 
+        <div class="form-group">
+          <label class="form-label">🔐 Mot de passe administrateur</label>
+          <input type="password" id="pwd" class="form-input" placeholder="Minimum 6 caractères (facultatif)">
+        </div>
+
+        <div id="smtp-section" style="display: none;">
+          <h3 style="margin: 30px 0 15px; font-size: 18px; color: #1f2937;">📧 Configuration SMTP</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Hôte</label>
+              <input type="text" id="smtp_host" class="form-input" placeholder="smtp.example.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Port</label>
+              <input type="number" id="smtp_port" class="form-input" placeholder="587">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Utilisateur</label>
+              <input type="text" id="smtp_user" class="form-input" placeholder="noreply@example.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Mot de passe</label>
+              <input type="password" id="smtp_pass" class="form-input" placeholder="••••••••">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Expéditeur (From)</label>
+              <input type="text" id="smtp_from" class="form-input" placeholder="Epicerie <noreply@example.com>">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Sécurité</label>
+              <select id="smtp_secure" class="form-select">
+                <option value="starttls">STARTTLS</option>
+                <option value="ssl">SSL/TLS</option>
+                <option value="none">Aucune</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Personnalisation -->
+      <div class="step-content" data-step="3">
+        <h2 class="step-title">Personnalisation</h2>
+        <p class="step-subtitle">Personnalisez l'apparence de votre application</p>
+
+        <div class="form-group">
+          <label class="form-label">🏪 Nom de votre épicerie</label>
+          <input type="text" id="shop-name" class="form-input" placeholder="Ex: Épicerie coopérative La Bonne Graine">
+        </div>
+
+        <div class="form-group" style="margin-top: 30px;">
+          <label class="form-label">🖼️ Logo (facultatif)</label>
+          <label for="logo" class="logo-upload" id="logo-upload-area">
+            <img id="preview" class="logo-preview" style="display:none;">
+            <div class="logo-icon">🖼️</div>
+            <div class="logo-upload-text">
+              Cliquez pour choisir votre logo
+            </div>
+            <div class="logo-upload-hint">
+              PNG ou JPG recommandé
+            </div>
+          </label>
+          <input id="logo" type="file" accept="image/png,image/jpeg,image/jpg">
+        </div>
+
+        <div class="info-box">
+          💡 Vous pourrez modifier ces paramètres plus tard dans Paramètres > Logo & nom
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
     <div class="actions">
-      <button id="btn">Valider</button>
+      <div>
+        <button class="btn btn-secondary" id="btn-prev" style="display:none;">← Précédent</button>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button class="btn btn-skip" id="btn-skip">Configurer plus tard</button>
+        <button class="btn btn-primary" id="btn-next">Suivant →</button>
+        <button class="btn btn-primary" id="btn-finish" style="display:none;">Terminer ✓</button>
+      </div>
     </div>
   </div>
 
-<script src="onboarding.js" defer></script>
+  <script src="onboarding.js" defer></script>
 </body>
 </html>
