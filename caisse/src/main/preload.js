@@ -321,6 +321,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // --- Modules par tenant (API)
   getTenantModules: () => ipcRenderer.invoke('tenant:modules:get'),
   setTenantModules: (modules) => ipcRenderer.invoke('tenant:modules:set', modules),
+  
+  // --- Update Local Config
+  updateLocalConfig: (updates) => ipcRenderer.invoke('config:updateLocal', updates),
 
   // --- Statistiques
   getVentesStats: (days) => ipcRenderer.invoke('stats:ventes', days),

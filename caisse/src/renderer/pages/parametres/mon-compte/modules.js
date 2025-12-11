@@ -177,7 +177,12 @@
     refreshDisabledStates();
 
     document.getElementById('save-modules')?.addEventListener('click', async () => {
+      const saveBtn = document.getElementById('save-modules');
+      const saveHint = document.getElementById('save-hint');
       try {
+        if (saveBtn) saveBtn.disabled = true;
+        if (saveHint) saveHint.textContent = 'Enregistrement en cours…';
+
         const payload = { ...current };
         if (typeof payload.emails === 'boolean') payload.email = payload.emails;
         if (typeof payload.email  === 'boolean') payload.emails = payload.email;
@@ -194,10 +199,21 @@
         }
 
         await saveActiveModules(payload);
+        
+        // Mettre à jour le config.json local
+        if (window.electronAPI?.updateLocalConfig) {
+          await window.electronAPI.updateLocalConfig({ modules: payload });
+        }
+
         if (window.clearModsCache) window.clearModsCache();
+        if (saveHint) saveHint.textContent = '✓ Modules enregistrés avec succès';
+        setTimeout(() => { if (saveHint) saveHint.textContent = ''; }, 3000);
         // window.location.reload(); // Suppression du reload automatique pour préserver la page courante
       } catch (e) {
+        if (saveHint) saveHint.textContent = '';
         alert("Erreur lors de l'enregistrement : " + (e?.message || e));
+      } finally {
+        if (saveBtn) saveBtn.disabled = false;
       }
     });
   }

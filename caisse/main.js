@@ -177,7 +177,8 @@ function createOnboardingWindow() {
     return;
   }
   onboardWin = new BrowserWindow({
-    width: 640, height: 720,
+    width: 980, height: 850,
+    minWidth: 900, minHeight: 750,
     webPreferences: {
       preload: path.join(__dirname, 'src', 'main', 'preload.js'),
       contextIsolation: true,
@@ -538,6 +539,7 @@ ipcMain.handle('onboarding:status', async () => {
 
 ipcMain.handle('onboarding:submit', async (_e, payload) => {
   try {
+    // 1. Envoyer à l'API
     const r = await apiFetch('/tenant_settings/onboarding', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'accept': 'application/json' },
@@ -545,6 +547,25 @@ ipcMain.handle('onboarding:submit', async (_e, payload) => {
     });
     const js = await safeJson(r);
     if (!r.ok || !js?.ok) throw new Error(js?.error || `HTTP ${r.status}`);
+    
+    // 2. Mettre à jour le config.json LOCAL avec les modules
+    if (payload.modules) {
+      try {
+        const currentConfig = getConfig();
+        const updatedConfig = {
+          ...currentConfig,
+          modules: {
+            ...currentConfig.modules,
+            ...payload.modules
+          }
+        };
+        saveConfig(updatedConfig);
+        console.log('[onboarding] Config locale mise à jour avec les modules:', payload.modules);
+      } catch (err) {
+        console.warn('[onboarding] Erreur mise à jour config locale:', err);
+      }
+    }
+    
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
@@ -630,6 +651,33 @@ ipcMain.handle('tenant:modules:set', async (_e, modules) => {
       writeModules(payload.modules || {});
     } catch {}
     // Broadcast immédiat après sauvegarde
+    setTimeout(broadcastConfigOnReady, 50);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+// --- Update Local Config (modules, settings, etc.) ---
+ipcMain.handle('config:updateLocal', async (_e, updates) => {
+  try {
+    const currentConfig = getConfig();
+    const updatedConfig = { ...currentConfig };
+    
+    // Merge updates into config
+    if (updates.modules) {
+      updatedConfig.modules = { ...currentConfig.modules, ...updates.modules };
+    }
+    // Allow updating other config fields as needed
+    Object.keys(updates).forEach(key => {
+      if (key !== 'modules') {
+        updatedConfig[key] = updates[key];
+      }
+    });
+    
+    saveConfig(updatedConfig);
+    
+    // Broadcast config change
     setTimeout(broadcastConfigOnReady, 50);
     return { ok: true };
   } catch (e) {
