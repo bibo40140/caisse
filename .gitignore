@@ -26,6 +26,7 @@ caisse/caisse/config.json
 
 # Scripts SQL persos
 sql/CreateSuperTenant.sql
+caisse-api/sql/CreateSuperTenant.sql
 
 # OS
 .DS_Store
