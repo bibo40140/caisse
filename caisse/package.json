@@ -1,6 +1,6 @@
 {
   "name": "coopcaisse",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Logiciel de caisse pour coopératives",
   "main": "main.js",
   "scripts": {
